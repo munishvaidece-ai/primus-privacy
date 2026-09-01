@@ -1867,3 +1867,99 @@ this," because instructions §11 name it as a CRITICAL rule this
 milestone's own historical scenario (§8) is required to demonstrate —
 DECISIONS.md is where every such CRITICAL invariant this project has
 built gets a citable record (R-71's own precedent).
+
+## Milestone 8A — Historical Maturity Integrity Hardening
+
+### R-81 — `MaturityScore` snapshots the referenced `MaturityDomain`'s `name`/`code`/`description` at computation time, rather than versioning `MaturityDomain` itself
+
+**Decision:** Three new nullable columns on `maturity_scores`
+(`domain_name_snapshot`, `domain_code_snapshot`, `domain_description_
+snapshot`) are populated once, automatically, by a `BEFORE INSERT`
+trigger (`snapshot_maturity_domain_definition()`, migration 0017) that
+copies the referenced `MaturityDomain` row's current `name`/`code`/
+`description` at the exact moment a `MaturityScore` is created —
+unconditionally overwriting any value the application attempts to pass,
+the same "trigger sets it, the application never sets it directly"
+posture already used for `control_library_versions.published_at` and
+`maturity_assessments.finalized_at`. `MaturityDomain` itself remains
+exactly as designed in Milestone 8 (R-74) — ordinarily mutable, no
+versioning/append-only lifecycle. A new CHECK (`maturity_scores_domain_
+snapshot_presence_check`) requires the snapshot to be present if and
+only if `maturity_domain_id` is set, enforced structurally by the
+trigger, not merely trusted.
+**Alternatives considered:**
+- **(A) Version `MaturityDomain` itself**, giving it the same identity/
+  version split `ControlLibraryVersion` uses (a stable domain identity
+  row plus append-only version rows `MaturityScore` would pin to,
+  analogous to `Control`/`control_library_version_id`). Rejected as
+  disproportionate to the actual gap: R-74 already recorded, in Milestone
+  8 itself, the deliberate decision NOT to version `MaturityDomain`
+  ("inventing one would be exactly the 'large production domain
+  framework' instructions §4 warn against") — that reasoning still holds
+  under Milestone 8A's own explicit "prefer the smallest solution" and
+  "do not redesign the maturity engine" instructions. Versioning the
+  domain would also require migrating every existing consumer
+  (`MaturityDomainWeight`, `MaturityDomainControlMapping`) to a two-table
+  identity/version pattern, none of which actually need historical
+  reproducibility themselves (`MaturityDomainWeight` is already
+  append-only and pinned by id from `MaturityScore`; `MaturityDomain
+  ControlMapping` only affects *future* computations, per its own
+  existing file comment) — solving a problem only `MaturityScore`
+  actually has by restructuring three tables instead of one.
+- **(C) Reconstruct history from `audit_log` alone** (no new columns;
+  read `maturity_domains`' `field_changes` history and resolve "what was
+  this domain's definition at time T" via a replay query). Rejected: this
+  pushes the actual enforcement to *application-layer replay logic*,
+  directly against Milestone 8A instructions §5's "do not rely
+  exclusively on TypeScript/application logic... use the simplest robust
+  [database] mechanism" — a snapshot column the database itself populates
+  and permanently freezes is strictly simpler and more directly
+  database-enforced than a temporal-query reconstruction a caller could
+  get wrong or skip.
+**Rationale — why the smallest, least disruptive solution:** every other
+question the required historical invariant asks (methodology/version,
+weight, score, computed_at, source Assessment) was already answerable
+from the existing Milestone 8 schema (R-72 through R-80) — only the
+domain's own name/code/description were reachable solely via a live JOIN
+to a mutable row. A trigger-populated snapshot on the one row that
+actually needs point-in-time reproducibility (`MaturityScore`, already
+fully immutable post-creation — no UPDATE/DELETE grant at all) closes
+that exact gap with: one additive schema migration (three nullable
+columns + one CHECK, no table restructuring), one additive trigger
+migration (no change to any existing trigger, policy, or grant), zero
+changes to `MaturityScoringMethodology` versioning, `MaturityDomain
+Weight` versioning, `MaturityScore` immutability, or `MaturityAssessment`
+finalization — every mechanism instructions §4 explicitly said to
+preserve remains byte-for-byte unchanged. `MaturityDomainControlMapping`
+needed no equivalent treatment: it only ever influences *future*
+computations (already noted in its own file comment since Milestone 8),
+and `MaturityScore.computed_from_control_test_ids` already independently
+preserves exactly which `ControlTest` rows fed a historical score,
+regardless of how the domain-to-control mapping changes later.
+
+### R-82 — Historical rows created before this migration cannot recover their true point-in-time domain definition; the additive backfill uses the domain's current definition as the best available substitute
+
+**Decision:** Migration 0017's backfill (`UPDATE maturity_scores ...
+WHERE domain_name_snapshot IS NULL`) populates the snapshot for any
+pre-existing, domain-scoped `MaturityScore` row using the referenced
+`MaturityDomain`'s definition *as of the migration running*, not
+necessarily the definition genuinely in effect at that row's own
+original `computed_at`. It touches only the three new, previously-NULL
+snapshot columns — no historical `score`, `maturity_level`,
+`computed_at`, or any other field is altered.
+**Rationale:** No environment this project has ever run in carries real,
+persisted `MaturityScore` data — D-03 (data residency) remains
+unresolved, no Supabase project has ever been provisioned, and
+`scripts/reset-test-db.ts` always starts every test run from an empty
+database — so this backfill is a documented no-op in every environment
+this project has actually exercised, included for real-deployment
+readiness per Milestone 8A instructions §8's "if backfill is necessary,
+explain exactly how it works," not because backfill was actually needed
+or exercised here. A more thorough reconstruction (replaying `audit_log.
+field_changes` to resolve each historical row's domain definition as of
+its own `computed_at`) is possible in principle but was not built: it is
+meaningfully heavier engineering for a scenario with zero real rows to
+apply it to today, and can be added later, by a future migration, without
+disturbing anything this migration does — the additive columns and
+trigger already in place would simply gain a more accurate one-time
+backfill pass whenever real historical data actually exists to backfill.

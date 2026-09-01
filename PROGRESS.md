@@ -1,19 +1,236 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 8 COMPLETE (Session 11): Maturity —
-MaturityScoringMethodology, MaturityDomain, MaturityDomainWeight,
-MaturityDomainControlMapping, MaturityAssessment, and MaturityScore, a
-historically-reproducible maturity layer that consumes finalized
-Assessment Responses (and preserves, without mathematically consuming,
-Risk/Validation signals) without duplicating the Assessment/Risk/
-Evidence/Remediation systems, with configurable/versioned scoring
-methodology pinned for historical reproducibility (mirroring Milestone
-7's RiskScoringModel exactly), and the CRITICAL rule that Maturity is
-conceptually distinct from compliance percentage, controls-passed count,
-risk score, or findings-closed count — implemented, migrated, and tested
-against real PostgreSQL 16. No Dashboards, Reporting, DPIA, AI, Continuous
-Compliance, or polished UI. Milestones 1-7 (Sessions 4-10) and the
-architecture gate (Sessions 1-3) passed before this milestone began.
+Status: 2026-09-01 — Milestone 8A COMPLETE (Session 12): Historical
+Maturity Integrity Hardening — a narrowly-scoped, additive fix closing
+the one limitation Milestone 8's own final report identified:
+MaturityScore now snapshots the referenced MaturityDomain's name/code/
+description at computation time (a database-trigger-populated, never
+application-settable, permanently-frozen record), so a finalized
+historical maturity result remains semantically reproducible even after
+the current MaturityDomain definition is later renamed, revised, or
+retired. No feature work, no UI, no DPIA/SDF, no reporting, no maturity-
+engine redesign; MaturityScoringMethodology/MaturityDomainWeight
+versioning, MaturityScore immutability, and MaturityAssessment
+finalization are all unchanged. Implemented, migrated, and tested against
+real PostgreSQL 16. Milestone 8 (Session 11) and everything before it
+passed before this hardening began.
+
+## Milestone 8A — Historical Maturity Integrity Hardening (Session 12, 2026-09-01)
+
+**Scope:** exactly what MILESTONE 8A instructed — close the historical-
+integrity gap Milestone 8's own final report named (§16: "`MaturityDomain
+.name`/`description` remain ordinarily mutable and are NOT versioned/
+snapshotted onto historical `MaturityScore` rows"), and nothing else. No
+new feature set, no UI, no DPIA/SDF, no reporting, no maturity-engine
+redesign — none of those exist anywhere in this change.
+
+### 1. Inspection and recommendation
+
+Read `DATA_MODEL.md` §9, `DECISIONS.md` R-72 onward, and all six existing
+Maturity schema files (`maturity-assessments.ts`, `maturity-domains.ts`,
+`maturity-scores.ts`, `maturity-scoring-methodologies.ts`,
+`maturity-domain-weights.ts`, `maturity-domain-control-mappings.ts`) plus
+the existing `tests/maturity` suite fresh from disk before changing
+anything, per instruction. Found: every other piece of the required
+historical invariant (methodology/version, weight, score, computed_at,
+source Assessment) was already answerable from the existing Milestone 8
+schema (R-72 through R-80) — only a domain's own name/code/description
+were reachable solely via a live `JOIN` to a `MaturityDomain` row R-74
+deliberately left ordinarily mutable. Considered three approaches (see
+DECISIONS.md R-81 for full reasoning):
+
+- **(A) Version `MaturityDomain` itself** (an identity/version split like
+  `ControlLibraryVersion`/`Control`) — rejected as disproportionate:
+  Milestone 8's own R-74 already recorded the deliberate decision not to
+  build this, and it would require restructuring three tables
+  (`MaturityDomain`, `MaturityDomainWeight`, `MaturityDomainControl
+  Mapping`) to fix a gap only `MaturityScore` actually has.
+- **(B) Historical domain snapshot fields, chosen** — three columns on
+  `MaturityScore` itself (the row that actually needs point-in-time
+  reproducibility, and is already fully immutable post-creation),
+  populated once by a database trigger.
+- **(C) Reconstruct history from `audit_log` alone** — rejected: pushes
+  enforcement to application-layer replay logic, against instructions
+  §5's explicit "do not rely exclusively on TypeScript/application
+  logic."
+
+**Chosen solution: (B).** The smallest, least disruptive fix consistent
+with the existing architecture — one additive schema migration, one
+additive trigger migration, zero changes to any other Maturity mechanism.
+
+### What was implemented
+
+- **Schema** (`db/schema/maturity-scores.ts` extended): three new
+  nullable columns — `domain_name_snapshot`, `domain_code_snapshot`,
+  `domain_description_snapshot` (all `text`) — present only on a
+  per-domain `MaturityScore` row, always `NULL` on the overall row. A new
+  CHECK (`maturity_scores_domain_snapshot_presence_check`) enforces that
+  presence-or-absence structurally: snapshot columns are non-null (name/
+  code) if and only if `maturity_domain_id` is set (`description` is
+  excluded from the non-null side, since `MaturityDomain.description`
+  is itself nullable — a null snapshot there is a faithful copy).
+- **Migration 0016** (`drizzle-kit` generated; collided with the existing
+  hand-written `0015_maturity_security.sql`'s numbering, renamed to
+  `0016_maturity_domain_snapshot.sql`, the same recurring renumbering
+  ritual as every prior milestone): three `ALTER TABLE ... ADD COLUMN`
+  statements plus the new CHECK. No statement-ordering fix or deferred-
+  constraint issue — the CHECK references only pre-existing columns.
+- **Migration 0017** (hand-written, per DECISIONS.md R-02):
+  `snapshot_maturity_domain_definition()` — a `BEFORE INSERT` trigger on
+  `maturity_scores` that, when `maturity_domain_id IS NOT NULL`, looks up
+  the referenced `MaturityDomain` row and copies its current `name`/
+  `code`/`description` into the three snapshot columns, **unconditionally
+  overwriting** whatever value the application attempted to pass — the
+  same "trigger sets it, the application never sets it directly" posture
+  already used for `control_library_versions.published_at`/`maturity_
+  assessments.finalized_at`; forces all three columns `NULL` for the
+  overall row. Combined with `maturity_scores` already carrying no UPDATE
+  grant at all (unchanged from Milestone 8), the snapshot becomes
+  permanently frozen the instant it is written — no separate freeze
+  trigger needed. A best-effort, additive backfill `UPDATE` (touches only
+  the three new, previously-`NULL` columns; no historical `score`/
+  `maturity_level`/`computed_at` is altered) — see "Backfill" below.
+- **No RLS/policy/GRANT changes anywhere** — the new columns belong to an
+  existing, already-fully-covered table; a row-level policy authorizes an
+  entire row, not individual columns, and the table's existing
+  `SELECT,INSERT`-only grant (no `UPDATE`/`DELETE`) already makes the new
+  columns immutable post-creation with zero additional enforcement.
+
+### Backfill (exactly how it works, per instruction §8)
+
+For any pre-existing, domain-scoped `MaturityScore` row whose new
+snapshot columns are still `NULL`, migration 0017's `UPDATE` copies the
+referenced `MaturityDomain`'s **current** `name`/`code`/`description`
+into the snapshot columns — the best available substitute, since the
+domain's definition *at that row's own original `computed_at`* was never
+captured before this migration existed and cannot be recovered with
+certainty after the fact (a full `audit_log.field_changes` replay could
+in principle do better, but was not built — disproportionate engineering
+for a scenario with no real rows to apply it to; see DECISIONS.md R-82).
+In practice this `UPDATE` is a no-op in every environment this project
+has ever run in: D-03 (data residency) remains unresolved, no real
+Supabase project exists, and `scripts/reset-test-db.ts` always starts
+every test run from an empty database — there is no pre-existing
+`MaturityScore` row anywhere for it to act on. Included for real-
+deployment readiness, not because backfill was actually exercised.
+
+### Testing performed (exact commands, run in this order)
+
+1. `npm run typecheck` — clean, before and after both migrations and the
+   new test file.
+2. `npm run db:generate` — generated migration 0016; collided with
+   `0015_maturity_security.sql`'s numbering — renamed to `0016_maturity_
+   domain_snapshot.sql`, `meta/_journal.json`/`meta/0016_snapshot.json`
+   fixed, re-ran `db:generate` to confirm "No schema changes, nothing to
+   migrate."
+3. `npx tsx scripts/reset-test-db.ts` (18 migration files, 0000-0017) —
+   succeeded cleanly on the first attempt, both after 0016 alone and
+   again after hand-writing 0017.
+4. `npx vitest run tests/maturity` (all 7 pre-existing files) — all 64
+   pre-existing tests still passing, unchanged, with the new trigger
+   active — confirms the hardening is fully transparent/backward-
+   compatible to every already-approved Milestone 8 behavior.
+5. Wrote `tests/maturity/domain-snapshot-integrity.test.ts` (the required
+   §3 scenario) and ran it standalone — **failed once**: a spoofed-
+   snapshot test attempted to `INSERT` an extra `MaturityScore` into the
+   already-finalized MA1, correctly rejected by the pre-existing insert-
+   gate trigger (working as designed, not a bug) — fixed by creating a
+   fresh, still-draft `MaturityAssessment` for that one test instead of
+   reusing MA1. Re-ran — 8/8 passing.
+6. `npm run lint` — clean.
+7. `npm run test:db` (fresh reset + full suite: `tests/rls` +
+   `tests/master-data` + `tests/processing-activity` + `tests/control-
+   library` + `tests/assessment-engine` + `tests/evidence` + `tests/
+   risk-remediation` + `tests/maturity`) — **370/370 passing**. Run
+   **twice** in full (fresh `reset-test-db` each time) to prove
+   stability — 370/370 both times, identical results.
+8. `npm run build` (`next build`) — compiles successfully, no type or
+   lint errors.
+9. Direct `psql` inspection: `information_schema.columns` confirmed the
+   three new nullable `text` columns; `pg_constraint` confirmed the new
+   CHECK alongside the two pre-existing ones, unchanged;
+   `information_schema.triggers` confirmed 3 triggers on `maturity_
+   scores` (the pre-existing audit and insert-gate triggers, unchanged,
+   plus the new snapshot trigger); `pg_class`/`pg_policies`/
+   `information_schema.role_table_grants` confirmed RLS enable/force,
+   both policies, and the `SELECT,INSERT`-only grant are byte-for-byte
+   unchanged from Milestone 8. One standalone `psql` transaction (outside
+   vitest, using `SAVEPOINT`s) reproduced, directly against the database:
+   (a) a `MaturityScore`'s snapshot immediately after insert matches the
+   domain's v1 definition; (b) after the live `MaturityDomain` row is
+   renamed and its description revised, the historical `MaturityScore`'s
+   snapshot is completely unchanged while a live `JOIN` to the same
+   domain now shows the revised values — the divergence demonstrated
+   side-by-side in one query; (c) the finalized `MaturityAssessment`
+   (and by extension its `MaturityScore` rows) remains otherwise fully
+   immutable, unaffected by this change.
+
+### tests/maturity/domain-snapshot-integrity.test.ts (1 new file, 8 new tests)
+
+The exact required §3 scenario — Governance (code GOV, "Original
+definition") created; MaturityAssessment MA1 created, scored (Governance
+= 3/Defined, plus the overall row), and finalized; the CURRENT Governance
+domain then renamed to "Governance & Oversight" with description revised
+to "Revised definition." Proves: MA1's score still reports the ORIGINAL
+name/code/description; the live domain row genuinely did change (not a
+coincidence); MA1's score/level remain 3/Defined; a live `JOIN` to the
+current domain shows the revised values side-by-side with the frozen
+snapshot, demonstrating the divergence directly; all 8 required
+historical questions (domain, name/code, definition, methodology/
+version, weight, score, computed_at, source Assessment) are answerable
+in one query; the overall row never carries a domain snapshot; an
+application attempt to set the snapshot directly is silently overwritten
+by the trigger, never honored; the snapshot is immutable like every other
+`MaturityScore` field (`asUser`, grant-level `permission denied`).
+
+### Files changed
+
+- New: `drizzle/migrations/0016_maturity_domain_snapshot.sql`,
+  `drizzle/migrations/0017_maturity_domain_snapshot_security.sql`,
+  `drizzle/migrations/meta/0016_snapshot.json`,
+  `tests/maturity/domain-snapshot-integrity.test.ts`.
+- Modified: `db/schema/maturity-scores.ts` (three new columns, one new
+  CHECK), `drizzle/migrations/meta/_journal.json` (renumbering fix),
+  `DATA_MODEL.md` (one additive implementation-clarification paragraph
+  after §9), `DECISIONS.md` (R-81, R-82), `PROGRESS.md` (this entry).
+- Unchanged: every other Milestone 8 schema/migration/test file;
+  `MaturityScoringMethodology`, `MaturityDomainWeight`, `MaturityDomain
+  ControlMapping`, `MaturityAssessment` — none touched; every RLS policy,
+  grant, and pre-existing trigger — none touched; `ARCHITECTURE.md`,
+  `SECURITY.md`, `PRODUCT_SPEC.md`, `ROADMAP.md`, `README.md`, and every
+  migration/schema file from Milestones 1-8 (`0000`-`0015`).
+
+### Remaining limitations
+
+- The backfill (migration 0017 §2) can only use each domain's CURRENT
+  definition for any row created before this migration — no real such
+  row exists in any environment this project has run in, so this is
+  currently a theoretical gap, not an observed one (DECISIONS.md R-82).
+- `MaturityDomainControlMapping` still receives no equivalent
+  point-in-time protection — deliberately: it only ever influences
+  *future* computations (unchanged from Milestone 8's own reasoning),
+  and `MaturityScore.computed_from_control_test_ids` already
+  independently preserves exactly which `ControlTest` rows fed a
+  historical score.
+- The two Risk/Validation traceability arrays on `MaturityAssessment`
+  (`computed_from_risk_ids`/`computed_from_validation_record_ids`,
+  DECISIONS.md R-79) remain un-snapshotted and not per-element FK-
+  enforced — out of scope for this narrowly-defined hardening pass,
+  which targeted only the `MaturityDomain` limitation Milestone 8's own
+  report named.
+- Every other Milestone 8 known limitation (no scoring engine; no final
+  PRIMUS domains/weights/levels/formulas; the open Risk-to-Maturity/
+  Validation-to-Maturity mathematical relationship) remains unchanged
+  and unaddressed, as instructed.
+
+### Git status / remote synchronization status
+
+All Milestone 8A work is committed on `claude/primus-privacy-architecture-39p3gh`
+and pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Milestone 8 — Maturity (Session 11, 2026-09-01)
 

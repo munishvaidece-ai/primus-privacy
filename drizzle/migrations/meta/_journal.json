@@ -57,6 +57,13 @@
 			"when": 1788263938658,
 			"tag": "0014_maturity",
 			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "7",
+			"when": 1788265538220,
+			"tag": "0016_maturity_domain_snapshot",
+			"breakpoints": true
 		}
 	]
 }

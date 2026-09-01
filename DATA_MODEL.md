@@ -629,6 +629,22 @@ Validation-to-Maturity formula, neither array's contents are yet
 mathematically factored into any stored score; the open methodology
 question is preserved, not silently resolved (R-79/R-80).
 
+**Implementation clarification (Milestone 8A, DECISIONS.md R-81/R-82):**
+`MaturityScore` additionally carries `domain_name_snapshot`/`domain_
+code_snapshot`/`domain_description_snapshot` (nullable; present only on
+a per-domain row, never the overall row), populated once by a database
+trigger at the moment the row is created and never application-settable.
+This closes the one limitation Milestone 8's own report identified:
+`MaturityDomain` (still deliberately unversioned — no change from R-74)
+remains ordinarily mutable, so a domain's `name`/`description` could be
+renamed or revised after a `MaturityScore` had already been computed
+against it; the snapshot is what makes that historical score's *domain
+identity/definition*, not only its numeric result, permanently
+reproducible regardless of any later change to the live `MaturityDomain`
+row. No existing entity, field, versioning mechanism (`MaturityScoring
+Methodology`, `MaturityDomainWeight`), or finalization rule
+(`MaturityAssessment`) was altered.
+
 ## 10. Audit, Quality Review & Reporting
 
 | Entity | Purpose | Key fields |

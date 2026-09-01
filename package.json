@@ -2,7 +2,7 @@
   "name": "primus-privacy",
   "version": "0.1.0",
   "private": true,
-  "description": "PRIMUS PRIVACY — DPDP advisory and continuous compliance platform. Milestone 8: database foundation (Identity + Tenancy + Engagement Structure + Client Master Data + Processing Activity & Version-Pinned Junction Layer + Regulatory Content & Control Library + Assessment Engine + Evidence & Document Management + Risk, Findings & Remediation + Maturity) only. No product UI yet.",
+  "description": "PRIMUS PRIVACY — DPDP advisory and continuous compliance platform. Milestone 8A: database foundation (Identity + Tenancy + Engagement Structure + Client Master Data + Processing Activity & Version-Pinned Junction Layer + Regulatory Content & Control Library + Assessment Engine + Evidence & Document Management + Risk, Findings & Remediation + Maturity, with historical maturity integrity hardening) only. No product UI yet.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

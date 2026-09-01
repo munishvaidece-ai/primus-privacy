@@ -43,6 +43,25 @@ import { maturityDomainWeights } from "./maturity-domain-weights";
 // content) rather than an enforced junction table — matching the field's
 // literal name and shape exactly, per Milestone 8 instructions §2's "use
 // the exact approved... fields."
+// Milestone 8A instructions (Historical Maturity Integrity Hardening):
+// `domain_name_snapshot`/`domain_code_snapshot`/`domain_description_
+// snapshot` close the one limitation Milestone 8's own final report
+// named — `MaturityDomain` (maturity-domains.ts) is deliberately
+// unversioned (R-74: "do NOT invent a large production domain
+// framework"), so a domain's `name`/`description` remain ordinarily
+// mutable after a `MaturityScore` has already been computed against it.
+// Rather than versioning `MaturityDomain` itself (which R-74 already
+// rejected as disproportionate — DECISIONS.md R-81), these three columns
+// are populated ONCE, automatically, by a `BEFORE INSERT` trigger
+// (migration 0017) that copies the referenced domain's `name`/`code`/
+// `description` at the exact moment this row is created — never settable
+// directly by the application (the trigger overwrites whatever value was
+// passed, the same "trigger sets it, not the app" posture `published_at`/
+// `finalized_at` already use) — and, because `maturity_scores` already
+// carries no UPDATE grant at all (this table's own long-standing full
+// immutability), the snapshot is permanently frozen the instant it is
+// written, with no separate freeze mechanism needed. Null for the
+// overall row (no domain to snapshot) — enforced by the CHECK below.
 export const maturityScores = pgTable(
   "maturity_scores",
   {
@@ -69,6 +88,12 @@ export const maturityScores = pgTable(
     computedFromControlTestIds: uuid("computed_from_control_test_ids").array(),
     computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
 
+    // Milestone 8A — trigger-populated, never app-settable. See the file
+    // comment above.
+    domainNameSnapshot: text("domain_name_snapshot"),
+    domainCodeSnapshot: text("domain_code_snapshot"),
+    domainDescriptionSnapshot: text("domain_description_snapshot"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     createdBy: uuid("created_by"),
   },
@@ -79,6 +104,18 @@ export const maturityScores = pgTable(
     weightRequiresDomainCheck: check(
       "maturity_scores_weight_requires_domain_check",
       sql`maturity_domain_weight_id IS NULL OR maturity_domain_id IS NOT NULL`,
+    ),
+    // Milestone 8A: the domain snapshot exists if and only if a domain is
+    // referenced — never present on the overall row, and (once the
+    // BEFORE INSERT trigger below has run) never absent on a per-domain
+    // row. `domain_description_snapshot` is excluded from the non-null
+    // side: `maturity_domains.description` is itself nullable (a domain
+    // may legitimately have no description), so a null snapshot there is
+    // a faithful copy, not a missing one.
+    domainSnapshotPresenceCheck: check(
+      "maturity_scores_domain_snapshot_presence_check",
+      sql`(maturity_domain_id IS NULL AND domain_name_snapshot IS NULL AND domain_code_snapshot IS NULL AND domain_description_snapshot IS NULL)
+          OR (maturity_domain_id IS NOT NULL AND domain_name_snapshot IS NOT NULL AND domain_code_snapshot IS NOT NULL)`,
     ),
     maturityAssessmentScopeFk: foreignKey({
       columns: [table.maturityAssessmentId, table.tenantId, table.organisationId, table.engagementId],
