@@ -38,15 +38,23 @@ export function statusTone(status: string): keyof typeof toneClasses {
     case "active":
     case "finalized":
     case "implemented":
+    case "pass":
+    case "accepted":
       return "positive";
     case "draft":
     case "not_assessed":
+    case "not_applicable":
+    case "pending_review":
       return "neutral";
     case "partially_implemented":
+    case "exception_noted":
+    case "expired":
       return "warning";
     case "not_implemented":
     case "suspended":
     case "closed":
+    case "fail":
+    case "rejected":
       return "critical";
     default:
       return "neutral";

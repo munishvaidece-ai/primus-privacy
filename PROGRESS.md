@@ -1,37 +1,372 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice B2 COMPLETE (Session 15): Organisation
-Membership + Engagement Creation — closes the onboarding chain Slice B1
-identified (Tenant → Organisation → OrganisationMembership → Engagement
-→ EngagementMembership), built on top of the now-approved Slice B1
-organisation-creation slice. `createOrganisation` now auto-grants the
-creator a real `organisation_memberships` row (role: Client
-Administrator) in the same transaction as the organisation itself,
-closing Slice B1's own documented gap (DECISIONS.md R-88) for real. A
-new `createEngagement` (`/organisations/[organisationId]/engagements/
-new`) creates an Engagement and auto-grants the creator an
-`engagement_memberships` row (role: Engagement Manager), same pattern.
-Both required a new, narrow migration
-(`0019_organisation_engagement_membership_onboarding.sql`):
-`organisation_memberships`/`engagement_memberships` never had an INSERT
-policy or GRANT for `authenticated` at all — confirmed by direct
-inspection before writing any code — so membership could previously
-only ever be created by a superuser script. The new INSERT policies
-mirror `organisations_insert`/`engagements_insert`'s own existing rules
-exactly, plus a same-tenant guard on the target user (verified directly
-against real PostgreSQL, including the specific cross-tenant attacks
-instructions named, before any application code was written). The same
-migration also closes `engagements`' own pre-existing audit-trigger gap
-(the same Milestone-1-era gap R-86 found for `organisations`) and adds
-audit coverage for both membership tables. Methodology/control-library
-selection on engagement creation respects the existing published/
-retired/tenant-consistency rules (migration 0007's trigger remains the
-real enforcement). 26 new tests (432/432 full suite, run twice).
-Deliberately deferred: granting membership to a user other than the
-creator (a real, documented, narrowly-scoped limitation — DECISIONS.md
-R-91) — no role-management console, no invitations, no client portal,
-no assessment workspace (all explicitly out of this slice). Slice B1
-(Session 14) and everything before it passed before this slice began.
+Status: 2026-09-01 — Slice C1 COMPLETE (Session 16): Assessment
+Workspace + Control Assessment — Phase C, the first major workflow
+slice of the actual PRIMUS product, turning the existing Assessment
+Engine (Milestones 5/6) into a genuinely usable consultant assessment
+workspace. No new migration was needed: direct inspection of migration
+0009 (assessment engine) confirmed `assessments`/`assessment_controls`/
+`assessment_responses`/`control_tests` already had full INSERT/UPDATE
+policies, GRANTs, and audit triggers for `authenticated` since
+Milestone 5 — unlike Slices B1/B2's own findings, this slice's writes
+needed no new RLS/GRANT/audit-trigger work at all. New: an Assessment
+list (`/organisations/[organisationId]/engagements/[engagementId]/
+assessments`, real progress/methodology/last-update, the exact read
+model PRODUCT_UX_BLUEPRINT.md §7 already specifies) and a full
+navigable workspace at the existing per-assessment URL (superseding
+Slice A1's minimal one-card-per-control vertical slice) — a searchable/
+filterable control sidebar, and a main area showing the selected
+Control's identity, its mapped Requirements (with regulatory
+reference), its AssessmentResponse (rating/rationale/system-suggested
+rating/respondent/submitted-at), its ControlTests (view + create), and
+a read-only Evidence summary (no storage paths, no upload — that is a
+separate future slice). Real PostgreSQL data throughout; batched,
+non-N+1 queries. Finalized assessments render fully read-only,
+server-enforced by the existing Milestone 5 triggers regardless of the
+UI. 24 new tests (456/456 full suite, run twice). Deliberately not
+built: a "Finalize Assessment" action (DECISIONS.md R-93 — the brief
+never asks for one, and the current Role/Permission catalogue has no
+real "may finalize" permission to gate it with), Risk/Findings/
+Remediation/Maturity UI, Evidence upload, client portal, reporting, AI
+(all explicitly out of this slice). Slice B2 (Session 15) and
+everything before it passed before this slice began.
+
+## Slice C1 — Assessment Workspace + Control Assessment (Session 16, 2026-09-01)
+
+**Scope:** exactly what PHASE C / Slice C1 instructed — turn the
+existing Assessment Engine into a usable consultant workspace:
+Engagement → Assessment → Controls → Control detail → Assessment
+Response → Rationale → Control Test → Evidence summary → Save → Audit.
+No Risk UI, Findings UI, Remediation UI, Maturity UI, client portal,
+reporting, AI, Evidence upload, or dashboards — none of those exist
+anywhere in this slice's changes. No new domain table, no new migration
+(confirmed after inspection — see below).
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, every
+Assessment/Control-Library/Requirement/Evidence/ControlTest schema
+file, migrations 0007/0009/0011's exact RLS policies and triggers, the
+existing authorization service, the existing `lib/domain/
+assessments.ts`/`lib/domain/engagements.ts`, existing app routes/UI
+components, and existing tests fresh from disk before writing anything,
+per instruction.
+
+### 1. Assessment list architecture
+
+`lib/domain/assessments.ts`'s new `listAssessmentsForEngagement` — one
+batched `GROUP BY` query (assessment × control-library-version LEFT
+JOIN assessment_controls LEFT JOIN assessment_responses), not one query
+per assessment. Progress is the exact read model
+PRODUCT_UX_BLUEPRINT.md §7 already specifies verbatim: "'N of M
+controls responded' is a COUNT/COALESCE over existing rows, not a
+stored percentage column" — "responded" means a response row exists at
+all (any rating, including an explicitly-recorded `not_assessed`), not
+this slice's own invented interpretation, so no DECISIONS.md entry was
+needed for it. Rendered at a new route,
+`/organisations/[organisationId]/engagements/[engagementId]/
+assessments` — the engagement detail page's own inline assessment list
+(Slice A1) was simplified to a summary + link to this new page, rather
+than duplicating the progress-computation logic on two pages;
+`getEngagementDetail`'s own return shape (and its existing tests) were
+left unchanged.
+
+### 2. Assessment workspace architecture
+
+The existing route,
+`/organisations/[organisationId]/engagements/[engagementId]/
+assessments/[assessmentId]`, is rewritten from Slice A1's minimal
+one-card-per-control vertical slice into the real workspace: a
+left-hand control sidebar (search/filter/completion indicator) and a
+main area for whichever control is currently selected (`?control=`
+query param). `getAssessmentDetail` fetches the assessment header plus
+every control row's own identity and current response in ONE further
+query — no per-control follow-up query for the sidebar. Selecting a
+control lazily fetches exactly that control's own Requirements/
+ControlTests/Evidence (three more queries, only for the one selected
+control) — never eagerly for every control.
+
+### 3. Control navigation
+
+Previous/Next links, computed from the already-fetched control-row
+array's own order (no extra query), preserving the current search/
+filter query string. Search/filter (instructions §22) is applied
+in-memory over the already-fetched, PostgreSQL-sourced, bounded-size
+control list — not a second, filtered SQL query — since progress must
+always reflect the *unfiltered* whole and a real Assessment's control
+count (tens to a few hundred) doesn't need a dedicated search engine
+(instructions §20's own "do not introduce a search engine"). Documented
+inline in `lib/domain/assessments.ts` and the workspace page.
+
+### 4. Control/Requirement display
+
+Control identity (code/title/description/type) comes from the same
+single query as the sidebar — no extra fetch. Requirements come from
+the existing `ControlRequirement` junction (`getControlRequirements`),
+each with its own primary `RegulatoryReference` (citation/title/
+framework) via `requirements.primary_regulatory_reference_id` — no new
+relationship table. Secondary regulatory citations
+(`requirement_regulatory_references`) exist but are not shown —
+instructions §8 name only the `Requirement → RegulatoryReference` path,
+and this keeps the slice from expanding beyond what was asked.
+
+### 5. AssessmentResponse workflow
+
+`updateAssessmentResponse` (Slice A1) is functionally unchanged — same
+authorization/validation/mutation shape, same finalization pre-check
+plus the real database trigger as backstop. Only its Server Action's
+redirect target changed, to preserve the workspace's current control
+selection and search/filter state (`returnTo`, validated to be within
+this same assessment's own workspace path — open-redirect hygiene, not
+a security boundary, since the destination re-authorizes independently
+regardless of how it was reached) instead of always bouncing to the
+bare assessment URL.
+
+### 6. Rationale workflow
+
+`decision_rationale` is edited in the same form/Server Action as the
+effectiveness rating (matches DATA_MODEL.md's own AssessmentResponse
+shape — one row, one form) — server-side Zod validation
+(`max(4000)`), no new commentary field invented.
+
+### 7. ControlTest workflow
+
+New `createControlTest` (`lib/domain/assessments.ts`) — the same
+Browser → Server Action → authenticate → authorize → validate → domain
+function → PostgreSQL → RLS → audit shape as every other write path.
+Confirms the target control is genuinely in scope for the assessment
+(an `assessment_controls` row exists for that exact `(assessmentId,
+controlId)` pair) before inserting — this single check also proves
+"Control belongs to Assessment's pinned library version" (instructions
+§18), since `assessment_controls`' own composite FKs make it
+structurally impossible for such a row to exist otherwise. A clean
+pre-check against a finalized Assessment gives a friendly error; the
+existing `control_tests_enforce_draft_mutable` trigger (migration 0009)
+remains the real, unconditional enforcement. No ControlTest editing
+built (create + view only) — instructions §13 only ask for "create...
+save... see the saved result," not editing.
+
+### 8. Evidence summary
+
+Read-only. `getEvidenceSummaryForControl` unions Evidence linked to the
+selected control's own AssessmentResponse and to any of its
+ControlTests (via the existing generic `EvidenceLink` junction — no new
+relationship table), returning only `title`/`evidenceType`/
+`reviewStatus`/`qualityRating` — `storage_path` (or any document
+filename/mime-type/checksum field) is never selected anywhere in this
+slice's code, confirmed by direct grep of the changed files. No upload,
+no Supabase Storage, no signed URLs (instructions §27).
+
+### 9. Progress calculation
+
+See §1 above — the exact PRODUCT_UX_BLUEPRINT.md §7 read model, applied
+identically at both the list level (`listAssessmentsForEngagement`) and
+the single-assessment level (`getAssessmentDetail`, computed in memory
+from the already-fetched control rows rather than a second aggregate
+query).
+
+### 10. Finalization behavior
+
+The workspace renders zero editable form controls for a finalized
+assessment — no response form, no rationale field, no "record control
+test" form — matching the server's own unconditional rejection, not
+merely a disabled button (instructions §16). Both write paths
+(`updateAssessmentResponse`, `createControlTest`) still independently
+re-check and reject server-side regardless of what the UI renders. No
+"Finalize" action was built this slice — see DECISIONS.md R-93 for the
+full reasoning (the brief does not ask for one, and the current
+Role/Permission catalogue has no real "may finalize" permission to gate
+it with, per the R-84 concern this slice deliberately does not
+reopen).
+
+### 11. Authorization
+
+Reused entirely — no second authorization framework, no new
+`lib/authorization/service.ts` function needed for this slice.
+`requireEngagementAccess` (Slice A1) gates every client-engagement-data
+read/write (Assessment/AssessmentControl/AssessmentResponse/
+ControlTest), re-derived from each row's own authoritative database
+values, never from a browser-supplied id. Requirement/RegulatoryReference/
+Control/ControlLibraryVersion reads need no explicit application-layer
+check of their own: they are Tenant-owned methodology content under
+`can_access_tenant` (migration 0007), and a caller who has already
+passed `requireEngagementAccess` on the Assessment structurally
+satisfies `can_access_tenant` too (its own "any accessible organisation
+under this tenant" fallback) — RLS itself is the correct read boundary
+for practice-owned reference content, exactly as it already was before
+this slice.
+
+### 12. RLS
+
+No new policy, GRANT, or trigger was added this slice — confirmed by
+direct inspection (migration 0009 already fully covers
+assessments/assessment_controls/assessment_responses/control_tests with
+INSERT/UPDATE policies, GRANTs, and audit triggers for `authenticated`,
+since Milestone 5). RLS/FORCE RLS confirmed still enabled on every
+table this slice reads or writes (§30 below).
+
+### 13. Audit
+
+No new audit mechanism. Every material write this slice performs
+(AssessmentResponse insert/update, ControlTest insert) is already
+covered by migration 0009's existing triggers
+(`assessment_responses_audit_log`, `control_tests_audit_log`, both
+reusing `log_methodology_change()` unchanged) — verified directly by a
+dedicated test asserting real `audit_log` rows with correct
+`actor_user_id`/`entity_type`/`action`.
+
+### 14. Performance/query approach
+
+No N+1 anywhere in this slice's own code: the Assessment list is one
+`GROUP BY` query; the workspace's sidebar is two queries total
+(assessment header, then all control rows in one join); selecting a
+control adds exactly three more queries (Requirements, ControlTests,
+Evidence), only for that one control, never for the whole list. No
+premature caching, no search engine introduced (instructions §20).
+
+### 15. Accessibility/responsiveness
+
+Every input/select/textarea has a real `<label htmlFor>`; the search
+input is `type="search"`; error/status banners use `role="alert"`/
+`role="status"`; the sidebar's completion indicator pairs a colour
+(emerald/slate) with a `✓`/`—` glyph plus screen-reader-only text
+("Responded"/"Not yet responded") — never colour-only; `aria-current`
+marks the selected control in the sidebar; global visible focus rings
+(Slice A1's `globals.css`) apply unchanged. Layout is a CSS grid
+(`lg:grid-cols-[280px_1fr]`) that stacks to a single column below the
+`lg` breakpoint — desktop-first, degrades gracefully, no separate
+mobile experience built.
+
+### 16. Exact security tests
+
+All 12 required scenarios (instructions §19), each run against real
+PostgreSQL with no mocked permission function — see
+`tests/app/assessment-workspace.test.ts`:
+1. Tenant A cannot view Tenant B's Assessment.
+2. Organisation A1 cannot view Organisation A2's Assessment (same
+   tenant).
+3. Engagement A1 cannot view Engagement A1b's Assessment (same
+   organisation, different engagement).
+4. An unauthorized user (no membership at all) cannot update
+   AssessmentResponse.
+5. An unauthorized user cannot create ControlTest.
+6. AssessmentResponse cannot be changed after finalization.
+7. ControlTest cannot be created after finalization, where the
+   database requires locking.
+8. A cross-library Control cannot be attached to an Assessment pinned
+   to a different library version (a raw, direct INSERT attempt,
+   rejected by `assessment_controls`' own composite FKs).
+9. Evidence from another organisation cannot appear in the workspace,
+   even given its real id (RLS-filtered, not merely application-layer
+   filtered).
+10. Malicious browser-supplied ids cannot cross tenant/organisation/
+    engagement boundaries — `updateAssessmentResponse` re-derives scope
+    from the AssessmentControl's own row regardless of the caller's own
+    legitimate access elsewhere.
+11. Anonymous access is blocked (rejected at the GRANT layer —
+    `assessments` grants nothing to `anon` at all).
+12. A direct request that skips the application authorization layer
+    entirely is still rejected by RLS.
+
+### 17. Exact application tests
+
+Assessment list (real progress/methodology); Assessment access; Control
+display; Requirement mapping (including "no requirements mapped"); AssessmentResponse
+display (respondent/submitted-at); AssessmentResponse update + rationale
+update; ControlTest display (scoped to the correct control+assessment
+only); ControlTest creation; Evidence summary; progress calculation
+(explicitly verifying the "any response row counts, regardless of
+rating value" read model); finalized state; audit attribution for both
+AssessmentResponse and ControlTest writes.
+
+### 18. Exact full-suite count/results
+
+```
+npm run test:db   # fresh reset + full 10-directory suite incl. tests/app: 456/456 passing
+npm run test:db   # run again for stability: 456/456 passing, identical results
+```
+(432 tests carried forward from Slice B2 + 24 new in
+`tests/app/assessment-workspace.test.ts` = 456.)
+
+### 19. Typecheck/lint/build
+
+```
+npm run typecheck   # clean
+npx eslint .         # clean
+npm run build        # succeeds; both new/changed assessment routes correctly reported dynamic, none prerendered
+```
+
+### 20. Files changed
+
+- `lib/domain/assessments.ts` (substantially extended: `listAssessmentsForEngagement`,
+  `getControlRequirements`, `getControlTestsForControl`,
+  `getEvidenceSummaryForControl`, `createControlTest`; `getAssessmentDetail`
+  extended with progress/methodology-label/control-type/description/
+  system-suggested-rating/respondent-email; `updateAssessmentResponse`
+  unchanged in behavior)
+- `components/ui/badge.tsx` (`statusTone` extended with ControlTest/Evidence-review status mappings)
+- `app/(shell)/organisations/[organisationId]/engagements/[engagementId]/assessments/page.tsx` (new — Assessment list)
+- `app/(shell)/organisations/[organisationId]/engagements/[engagementId]/assessments/[assessmentId]/page.tsx` (rewritten — the workspace)
+- `app/(shell)/organisations/[organisationId]/engagements/[engagementId]/assessments/[assessmentId]/actions.ts` (extended — `createControlTestAction`; `updateAssessmentResponseAction`'s redirect now preserves workspace state)
+- `app/(shell)/organisations/[organisationId]/engagements/[engagementId]/page.tsx` (assessment section simplified to a summary + link to the new list page)
+- `tests/app/assessment-workspace.test.ts` (new, 24 tests)
+- `tests/app/helpers.ts` (re-exports `createRegulatoryReference`, `createRequirement`, `linkControlRequirement`, `createControlTest`)
+- `DECISIONS.md` (R-93)
+- `PROGRESS.md` (this entry)
+
+No `drizzle/migrations/*` change — confirmed unnecessary after direct
+inspection (§1/§12 above). No `DATA_MODEL.md` change — no new field or
+entity.
+
+### 21. Dependencies changed
+
+None. No `package.json` change this slice.
+
+### 22. Known limitations
+
+1. No "Finalize Assessment" action exists yet (DECISIONS.md R-93) — a
+   future slice needs a real "who may finalize" authorization answer
+   first.
+2. Secondary regulatory-reference citations
+   (`requirement_regulatory_references`) are not shown, only the
+   primary one — instructions §8 name only the primary path.
+3. ControlTest editing is not built — create + view only.
+4. No Evidence upload/linking UI (explicitly out of scope, instructions
+   §27) — the workspace only displays existing `EvidenceLink`
+   relationships.
+5. Carries forward Slice A1/B1/B2's own recorded limitation
+   (DECISIONS.md R-85/D-03): no real Supabase Auth backend is reachable
+   from this environment.
+
+### 23. Deferred decisions
+
+- Building the "Finalize Assessment" action and its real, narrower
+  authorization rule (DECISIONS.md R-93).
+- Showing secondary regulatory-reference citations per Requirement.
+- ControlTest editing/deletion.
+- Evidence upload, linking, and review-decision UI (a distinct future
+  slice per instructions §27).
+
+### 24. Recommended C2
+
+With the assessment workspace now real and navigable end-to-end, the
+natural next steps are either: (a) Evidence upload (Supabase Storage
+integration, deferred by D-03/this slice's own §27 exclusion) so the
+Evidence summary this slice already displays has something new to
+link to; or (b) the deferred Finalize action, once a genuine
+Role/Permission-based "may finalize" answer is decided. This report
+does not preempt the user's own choice.
+
+### 25. Git status
+
+All Slice C1 work is committed on `claude/primus-privacy-architecture-39p3gh`.
+
+### 26. Remote synchronization
+
+Pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Slice B2 — Organisation Membership + Engagement Creation (Session 15, 2026-09-01)
 

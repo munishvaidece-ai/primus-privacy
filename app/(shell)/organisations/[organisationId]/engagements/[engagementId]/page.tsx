@@ -54,28 +54,24 @@ export default async function EngagementDetailPage({
       </p>
 
       <section className="mt-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assessments</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assessments</h2>
+          <Link
+            href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/assessments`}
+            className="text-sm font-medium text-slate-900 underline"
+          >
+            View all ({engagement.assessments.length})
+          </Link>
+        </div>
         {engagement.assessments.length === 0 ? (
           <div className="mt-3 rounded-md border border-dashed border-slate-300 px-6 py-8 text-center text-sm text-slate-500">
             No assessments yet for this engagement.
           </div>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
-            {engagement.assessments.map((assessment) => (
-              <li key={assessment.id}>
-                <Link
-                  href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/assessments/${assessment.id}`}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-slate-50"
-                >
-                  <div>
-                    <span className="text-sm font-medium text-slate-900">{assessment.periodLabel}</span>
-                    <span className="ml-2 text-xs text-slate-500">{assessment.assessmentType}</span>
-                  </div>
-                  <Badge tone={statusTone(assessment.status)}>{assessment.status}</Badge>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <p className="mt-3 text-sm text-slate-600">
+            Most recent: {engagement.assessments[0]!.periodLabel} —{" "}
+            <Badge tone={statusTone(engagement.assessments[0]!.status)}>{engagement.assessments[0]!.status}</Badge>
+          </p>
         )}
       </section>
     </div>

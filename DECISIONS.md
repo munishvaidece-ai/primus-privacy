@@ -2341,3 +2341,37 @@ mutating shared, cross-test-file seed data (e.g. temporarily renaming a
 global `roles` row) purely to manufacture a failure point — the
 guarantee itself follows directly from `withRequestDb`'s already-tested
 mechanics, not from anything new this slice adds.
+
+### R-93 — Slice C1 does not build a "Finalize Assessment" action; the workspace only correctly respects an assessment that is already finalized
+
+**Decision:** No Server Action, domain function, or UI control in Slice
+C1 transitions `assessments.status` from `draft` to `finalized`. The
+workspace correctly *renders* a finalized assessment as fully read-only
+(no editable form for the response, rationale, or a new ControlTest is
+rendered at all — matching the server's own unconditional rejection,
+not merely a disabled button), and every write path
+(`updateAssessmentResponse`, `createControlTest`) correctly rejects a
+write against an already-finalized assessment. Finalization itself, for
+this slice, only ever happens via direct database action (a fixture, or
+a future slice) outside the application.
+**Rationale:** PHASE C's own brief never lists a "Finalize" route,
+Server Action, or button anywhere in its routing/UI-states sections —
+§16 ("Finalization") only describes the two *states* the workspace must
+correctly handle (draft/finalized), not a transition control between
+them. PRODUCT_UX_BLUEPRINT.md §7's own Assessment Workspace entry is
+more explicit about why: "finalization is a narrower, named permission
+(Engagement Manager, per PRODUCT_SPEC.md §2) — the UI must gate the
+'Finalize' action separately from the 'Save response' action." Slice
+A1/B1's own DECISIONS.md R-84 already established, and this slice
+continues, that no fine-grained Role/Permission action check is built
+on top of plain membership checks — the seeded `Permission` catalogue
+remains "only 8 illustrative rows" (PRODUCT_UX_BLUEPRINT.md §22), with
+nothing resembling a real "may finalize" permission to check.
+Implementing a "Finalize" action now would mean either building it
+against placeholder permission data (a false sense of granular control,
+the exact concern R-84 already raised) or silently falling back to
+plain engagement-membership-any-role, which is a real, consequential
+weakening relative to what PRODUCT_UX_BLUEPRINT.md's own design
+intends. Deferred, not silently decided: a future slice adding real
+finalization needs a genuine "who may finalize" authorization answer
+first, which is a decision this slice's own scope does not ask for.

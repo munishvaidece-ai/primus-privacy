@@ -28,6 +28,9 @@ export {
   publishControlLibraryVersion,
   retireControlLibraryVersion,
   createControl,
+  createRegulatoryReference,
+  createRequirement,
+  linkControlRequirement,
 } from "../control-library/helpers";
 
 export {
@@ -36,4 +39,5 @@ export {
   finalizeAssessment,
   addAssessmentControl,
   createAssessmentResponse,
+  createControlTest,
 } from "../assessment-engine/helpers";
