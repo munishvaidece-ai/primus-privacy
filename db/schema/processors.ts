@@ -85,5 +85,12 @@ export const processorVersions = pgTable(
     oneCurrentPerIdentity: uniqueIndex("processor_versions_one_current_key")
       .on(table.processorId)
       .where(sql`${table.isCurrent} = true`),
+    // Milestone 3 addition — same reasoning as system_versions'
+    // idSystemOrganisationUnique. Purely additive (DECISIONS.md).
+    idProcessorOrganisationUnique: unique("processor_versions_id_processor_id_organisation_id_key").on(
+      table.id,
+      table.processorId,
+      table.organisationId,
+    ),
   }),
 );

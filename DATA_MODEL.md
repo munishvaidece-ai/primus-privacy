@@ -198,6 +198,18 @@ session leaves them as-is rather than expanding that list unilaterally
 particular could plausibly move to the master-data tier later using the
 same mechanism).
 
+**Implementation clarification (Milestone 3, DECISIONS.md R-32/R-33):**
+`ProcessingActivity` also denormalizes `organisation_id`/`tenant_id`
+(not listed above, which names only `engagement_id` — the organisation/
+tenant are implied transitively through it) for the same reason every
+denormalized scope column since Milestone 1 exists: a composite FK to
+`Engagement`'s own `(id, organisation_id, tenant_id)` makes the copy
+provably consistent, and RLS checks it directly with no join. `lifecycle_
+status` is implemented as `draft`/`active`/`under_review`/`retired`
+(DECISIONS.md R-32); no transition-rule constraint exists yet. `DataFlow`
+(row above) remains unbuilt — not part of Milestone 3's scope
+(DECISIONS.md R-36).
+
 ### 5.3 Connecting the two tiers: version-pinned junctions
 
 `ProcessingActivity`'s many-to-many junctions to master data are the
@@ -221,7 +233,20 @@ ran" queries):
 are structural/administrative associations ("which part of the client
 does this engagement cover"), not compliance facts asserted during the
 engagement, so version-pinning doesn't apply to them (see §2's
-`BusinessUnit` row for this same distinction).
+`BusinessUnit` row for this same distinction). `ProcessingActivity.
+business_unit_id` gets the same direct-reference treatment for the same
+reason (DECISIONS.md R-37).
+
+**Implementation clarification (Milestone 3, DECISIONS.md R-34):** each
+junction's FK to a version table is implemented as a *triple* composite
+key — `(x_version_id, x_id, organisation_id) REFERENCES
+x_versions(id, x_id, organisation_id)` — not the version table's own
+pairwise `(id, organisation_id)` uniqueness from §5.1. The extra column
+proves the pinned version genuinely belongs to the specific master
+entity the junction also names (not just to the right organisation),
+closing a gap a pairwise check alone would leave open. Junction rows are
+insert/delete only — never updated in place (DECISIONS.md R-35): a
+changed pin is a removed link plus a new one, not an edited row.
 
 **Service-layer rule, not a schema-level guarantee:** when a consultant
 links a `ProcessingActivity` to a piece of master data, the domain service

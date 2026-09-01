@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, date, timestamp, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, date, timestamp, foreignKey, unique } from "drizzle-orm/pg-core";
 import { engagementTypeEnum, engagementStatusEnum } from "./enums";
 import { organisations } from "./organisations";
 
@@ -59,5 +59,17 @@ export const engagements = pgTable(
       foreignColumns: [table.id],
       name: "engagements_previous_engagement_fk",
     }),
+    // Milestone 3 addition: lets `processing_activities` composite-FK
+    // against (id, organisation_id, tenant_id), guaranteeing
+    // ProcessingActivity.{organisation_id,tenant_id} can never drift from
+    // its own engagement's — the same discipline as the FK above, one
+    // level deeper. Purely additive (a new UNIQUE constraint; no column
+    // or data change) — not a correction of Milestone 1, an extension
+    // for a consumer that didn't exist yet (DECISIONS.md).
+    idOrganisationTenantUnique: unique("engagements_id_organisation_id_tenant_id_key").on(
+      table.id,
+      table.organisationId,
+      table.tenantId,
+    ),
   }),
 );

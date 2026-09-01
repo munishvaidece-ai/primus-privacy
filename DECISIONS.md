@@ -1,11 +1,11 @@
 # PRIMUS PRIVACY — Architectural Decisions
 
-Status: Draft v0.5 (Session 5 / Milestone 2, 2026-09-01: added R-25
-through R-31, recording implementation decisions made while building the
-Client Master Data database layer — see PROGRESS.md for the milestone
-report. D-01/D-02 remain RESOLVED from Session 2; R-16 through R-24 from
-Sessions 3-4 stand unchanged). This log records
-material architectural decisions and
+Status: Draft v0.6 (Session 6 / Milestone 3, 2026-09-01: added R-32
+through R-39, recording implementation decisions made while building
+Processing Activity & the Version-Pinned Junction Layer — see
+PROGRESS.md for the milestone report. D-01/D-02 remain RESOLVED from
+Session 2; R-16 through R-31 from Sessions 3-5 stand unchanged). This log
+records material architectural decisions and
 their rationale, in the order they were made. Items requiring a human
 product/business decision that cannot be safely inferred from the brief are
 marked **DECISION REQUIRED** and are not assumed — implementation should
@@ -740,3 +740,164 @@ explicit, un-clever SQL (which is why the six SCD2 close-out triggers,
 whose column names genuinely differ per table, remain six separate
 functions rather than one dynamic-SQL one — see R-26 and the migration
 file's own comments).
+
+---
+
+## Milestone 3 implementation decisions (Session 6, 2026-09-01)
+
+Recorded while building Processing Activity & the Version-Pinned Junction
+Layer (`drizzle/migrations/0004_processing_activity.sql`,
+`0005_processing_activity_security.sql`). See PROGRESS.md for the full
+milestone report.
+
+### R-32 — `lifecycle_status` values adopted verbatim from Milestone 3's own instructions; no transition rules enforced
+
+**Decision:** `processing_activity_lifecycle_status` is
+`draft`/`active`/`under_review`/`retired`; any status may move to any
+other — no state-machine trigger restricts transitions.
+**Rationale:** DATA_MODEL.md §5.2 names `lifecycle_status` as a field
+without fixing its values. Milestone 3 instructions §10 explicitly say
+"If the document supports states such as: Draft, Active, Under Review,
+Retired, use the documented values" — that four-state set is adopted
+exactly, rather than inventing a competing lifecycle, since it's the
+instruction's own offered default in the absence of a DATA_MODEL.md
+definition. Transition rules ("can a Draft go straight to Retired?") are
+genuinely unspecified anywhere, and instruction §10 says to document that
+rather than silently build workflow logic — so no transition constraint
+exists. Not DECISION REQUIRED: the instruction itself supplied a
+reasonable default value set; only the transition-rule question is left
+open, and it's a additive, non-breaking thing to add later (a trigger
+checking OLD/NEW status) without a schema change.
+
+### R-33 — `processing_activities.owner_user_id` is a direct Drizzle `.references()`, unlike `created_by`/`updated_by`
+
+**Decision:** `owner_user_id` is declared with `.references(() =>
+users.id)` directly in `db/schema/processing-activities.ts`; `created_by`
+and `updated_by` still get their FK added via `ALTER TABLE` in the
+migration SQL, matching every other table since Milestone 1.
+**Rationale:** the `ALTER TABLE`-in-SQL pattern exists specifically to
+avoid a circular TypeScript module import (`users.ts` needs to reference
+`tenants.ts`/`organisations.ts`, so those files can't cleanly import
+`users.ts` back at the top level). `processing-activities.ts` has no such
+cycle — nothing in `users.ts` needs to import it — so there is no reason
+to apply the workaround to `owner_user_id` specifically; doing so anyway
+would be copying a pattern past the problem it solves. `created_by`/
+`updated_by` keep the established pattern for consistency across every
+table, even though (for this specific table) they technically wouldn't
+need to.
+
+### R-34 — Triple composite FK `(version_id, identity_id, organisation_id)`, extending Milestone 2's pairwise `(version_id, organisation_id)` pattern; requires new `UNIQUE` constraints on Milestone 1/2 tables, added as an additive extension migration
+
+**Decision:** every version-pinned junction's FK to a master-data version
+table references three columns at once —
+`(x_version_id, x_id, organisation_id) REFERENCES x_versions(id, x_id,
+organisation_id)` — not just `(x_version_id, organisation_id)` as
+Milestone 2's own version tables used internally. This requires new
+`UNIQUE(id, x_id, organisation_id)` constraints on all six version
+tables and a new `UNIQUE(id, organisation_id, tenant_id)` on
+`engagements`, added via `ALTER TABLE` (both in the TS schema files —
+`db/schema/systems.ts` etc. — and, correspondingly, in migration 0004's
+generated SQL, reordered — see R-39).
+**Rationale:** Milestone 2's pairwise FK only proves "this version
+belongs to *some* entity in this organisation" — it does not prove the
+version belongs to the *specific* identity (`system_id`, `processor_id`,
+…) the junction row also names. A junction row could otherwise pass its
+pairwise FK while `x_version_id` and `x_id` silently referred to two
+different, unrelated entities that both happen to share an organisation.
+The triple FK closes this gap completely, and — because the junction's
+single `organisation_id` column is the one both the
+Processing-Activity-side FK and the version-side FK constrain — also
+gets "the Processing Activity's organisation equals the version's
+organisation" for free, without a third check (Milestone 3 instructions
+§5 items 11-12). This is additive schema evolution on already-shipped
+tables (new `UNIQUE` constraints only; no column, data, or existing-FK
+change), not a correction of a Milestone 1/2 defect — those milestones
+were correct as far as they went; they simply didn't anticipate a
+consumer needing this stricter guarantee, which would have been
+premature to build before that consumer existed (Milestone 3 instructions
+§15 distinguishes "correcting an error" from this kind of extension, and
+this session treats it as the latter).
+
+### R-35 — Version-pinned junction tables are insert/delete only, never updated in place
+
+**Decision:** none of the six junction tables have an `UPDATE` grant or
+RLS policy for `authenticated`. "Changing" which version of a System (or
+Processor, Purpose, …) a Processing Activity is pinned to means deleting
+the old junction row and inserting a new one — never updating an existing
+row's `x_version_id`.
+**Rationale:** a version-pinned junction row's meaning *is* the specific
+version it names — DATA_MODEL.md §5.3 describes it as "what did this look
+like when the engagement ran," a fact asserted once. Allowing in-place
+updates would blur "we changed our mind about which version applies" with
+"we're now asserting a different fact," and would also reopen exactly the
+kind of accidental-history-rewrite risk every prior milestone's
+immutability guards exist to prevent. Delete-then-insert keeps each state
+change as two distinct, separately-audited events (a `delete` and an
+`insert` row in `audit_log` — DECISIONS.md R-38) rather than one opaque
+`update`.
+
+### R-36 — `ProcessingActivityNotice` and `DataFlow` remain unbuilt
+
+**Decision:** neither DATA_MODEL.md §5.3's `ProcessingActivityNotice`
+junction nor §5.2's `DataFlow` table exist in this milestone's schema.
+**Rationale:** `Notice` itself doesn't exist as a table (deferred since
+before Milestone 2 — DECISIONS.md R-15), so a junction to it isn't
+possible yet. `DataFlow` was never named in Milestone 3's instructions
+(§1-§14 name Processing Activity and its version-pinned links to the
+seven master-data entities specifically); building it without being
+asked would be exactly the kind of unrequested scope Milestone 3
+instructions §2 and §14 warn against. Both remain schema-ready to add
+later: `DataFlow`'s polymorphic endpoint design (DATA_MODEL.md §5.2) is
+unaffected by anything built this milestone, and a `ProcessingActivityNotice`
+junction would follow the exact same six-table pattern already
+established the moment `Notice` exists.
+
+### R-37 — `ProcessingActivity.business_unit_id` is a direct reference to the identity row, not version-pinned
+
+**Decision:** `business_unit_id` on `processing_activities` is a plain
+(composite-FK-guarded) reference to `business_units.id` — not a junction
+table, and not pinned to a specific state of the business unit the way
+System/Processor/etc. links are.
+**Rationale:** DATA_MODEL.md §5.3 explicitly carves Business Unit out of
+version-pinning already ("`EngagementBusinessUnitScope` and
+`EngagementMembership.business_unit_id` … reference `business_unit_id`
+directly, not a version — these are structural/administrative
+associations … not compliance facts asserted during the engagement").
+`ProcessingActivity.business_unit_id` is the same kind of association
+("which part of the client does this activity belong to"), so it gets
+the same treatment Milestone 2's `BusinessUnit` table itself already
+has (no version table at all) — this isn't a new decision, just applying
+an existing one consistently to a new consumer.
+
+### R-38 — A second, DELETE-aware generic audit-trigger function for junction tables
+
+**Decision:** `public.log_processing_activity_relationship_change()` is a
+new function, distinct from Milestone 2's `log_master_data_change()`,
+used only by the six junction tables' `AFTER INSERT OR DELETE` triggers.
+**Rationale:** `log_master_data_change()` reads `NEW.id`/
+`NEW.organisation_id`, which is `NULL` for a `DELETE` trigger (only `OLD`
+is populated then) — since junction tables need DELETE auditing (R-35)
+and `processing_activities` itself does not (it's never hard-deleted,
+matching every master-data identity table since Milestone 2), a single
+shared function would need to handle a case
+(`processing_activities` + `DELETE`) that should never actually occur.
+Two small, purpose-fitted functions were judged clearer than one function
+defensively handling a combination its own callers never use.
+
+### R-39 — Migration 0004's generated statement order was corrected before first use (new `UNIQUE` constraints moved ahead of the FKs that depend on them)
+
+**Decision:** `drizzle-kit generate` emitted the new `UNIQUE` constraints
+on `engagements`/the six version tables (R-34) *after* the composite FKs
+that reference them, in the same file — applying it as generated failed
+with "no unique constraint matching given keys." The statements were
+reordered (constraints first, then the FKs) within the same, still-unapplied
+generated file before it was ever run against any database.
+**Rationale:** not a correction of prior migration history (Milestone 3
+instructions §15) — migration 0004 had never been applied anywhere; this
+is the normal "review generated SQL before trusting it" step every
+migration in this project has gone through. Recorded here because it's a
+real, likely-to-recur drizzle-kit limitation (it doesn't topologically
+order cross-table `ALTER TABLE` statements within one generated file) —
+worth watching for in any future milestone that adds a `UNIQUE`
+constraint to an existing table in the same generation pass as a new
+table's FK against it.

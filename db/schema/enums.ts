@@ -68,3 +68,26 @@ export const dataSensitivityEnum = pgEnum("data_sensitivity", [
   "sensitive",
   "critical",
 ]);
+
+// --- Milestone 3 (Processing Activity & Version-Pinned Junction Layer) -----
+
+// DATA_MODEL.md §5.2 names `lifecycle_status` as a ProcessingActivity
+// field but does not fix its values. Milestone 3 instructions §10
+// explicitly offer this exact four-state set as the expected default
+// ("If the document supports states such as: Draft, Active, Under
+// Review, Retired, use the documented values") — adopted as-is rather
+// than inventing a competing lifecycle. No transition-rule constraint is
+// enforced (any status may move to any other): DATA_MODEL.md does not
+// specify transition rules, and instruction §10 says to document that
+// rather than silently building workflow logic — recorded in
+// DECISIONS.md.
+export const processingActivityLifecycleStatusEnum = pgEnum(
+  "processing_activity_lifecycle_status",
+  ["draft", "active", "under_review", "retired"],
+);
+
+// ProcessingActivityProcessor.role, per DATA_MODEL.md §5.3.
+export const processingActivityProcessorRoleEnum = pgEnum(
+  "processing_activity_processor_role",
+  ["processor", "joint_controller"],
+);

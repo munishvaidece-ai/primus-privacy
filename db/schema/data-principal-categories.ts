@@ -72,5 +72,14 @@ export const dataPrincipalCategoryVersions = pgTable(
     oneCurrentPerIdentity: uniqueIndex("data_principal_category_versions_one_current_key")
       .on(table.dataPrincipalCategoryId)
       .where(sql`${table.isCurrent} = true`),
+    // Milestone 3 addition — same reasoning as system_versions'
+    // idSystemOrganisationUnique. Purely additive (DECISIONS.md). Named
+    // shorter than the full "...data_principal_category_id..." form to
+    // stay under Postgres's 63-byte identifier limit.
+    idCategoryOrganisationUnique: unique("data_principal_category_versions_id_category_org_key").on(
+      table.id,
+      table.dataPrincipalCategoryId,
+      table.organisationId,
+    ),
   }),
 );

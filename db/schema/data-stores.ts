@@ -72,5 +72,14 @@ export const dataStoreVersions = pgTable(
     oneCurrentPerIdentity: uniqueIndex("data_store_versions_one_current_key")
       .on(table.dataStoreId)
       .where(sql`${table.isCurrent} = true`),
+    // Milestone 3 addition — same reasoning as system_versions'
+    // idSystemOrganisationUnique: lets the future ProcessingActivityDataStore
+    // junction prove a version belongs to THIS data store, in this org,
+    // in one composite FK. Purely additive (DECISIONS.md).
+    idDataStoreOrganisationUnique: unique("data_store_versions_id_data_store_id_organisation_id_key").on(
+      table.id,
+      table.dataStoreId,
+      table.organisationId,
+    ),
   }),
 );

@@ -54,5 +54,12 @@ export const purposeVersions = pgTable(
     oneCurrentPerIdentity: uniqueIndex("purpose_versions_one_current_key")
       .on(table.purposeId)
       .where(sql`${table.isCurrent} = true`),
+    // Milestone 3 addition — same reasoning as system_versions'
+    // idSystemOrganisationUnique. Purely additive (DECISIONS.md).
+    idPurposeOrganisationUnique: unique("purpose_versions_id_purpose_id_organisation_id_key").on(
+      table.id,
+      table.purposeId,
+      table.organisationId,
+    ),
   }),
 );

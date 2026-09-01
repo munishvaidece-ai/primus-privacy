@@ -1,11 +1,352 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 2 COMPLETE (Session 5): Client Master Data
-(the seven DATA_MODEL.md §5.1 entities, identity+SCD2-versioned)
-implemented, migrated, and tested against real PostgreSQL 16. No
-Processing Activity or anything downstream of it; no product UI.
-Milestone 1 (Session 4) and the architecture gate (Sessions 1-3) passed
-before this milestone began.
+Status: 2026-09-01 — Milestone 3 COMPLETE (Session 6): Processing
+Activity — the central privacy object — and the version-pinned junction
+layer connecting it to Milestone 2's master data, implemented, migrated,
+and tested against real PostgreSQL 16. No Controls, Assessments,
+Evidence, Risk, Findings, Remediation, DPIA, AI, or reports; no product
+UI. Milestones 1-2 (Sessions 4-5) and the architecture gate (Sessions
+1-3) passed before this milestone began.
+
+## Milestone 3 — Processing Activity & Version-Pinned Junction Layer (Session 6, 2026-09-01)
+
+**Scope:** exactly what MILESTONE 3 instructed — the `ProcessingActivity`
+table (engagement-scoped, tenant-isolated, organisation-consistent,
+historically preservable, auditable), its carry-forward mechanism, and
+the six version-pinned junctions connecting it to Milestone 2's master
+data (Data Principal Category, Personal Data Element, Purpose, System,
+Data Store, Processor — Business Unit is referenced directly, per
+DATA_MODEL.md §5.3's own carve-out, not via a junction). No Controls,
+Assessments, Evidence workflows, Risk, Findings, Remediation, DPIA, AI,
+dashboards, or reports — none of those tables exist anywhere in this
+schema. No ROPA/Data Inventory tables either — both remain, as instructed,
+future queries over what's built here, not separate datasets. No product
+UI beyond the unchanged Milestone-1 placeholder page.
+
+Read `DATA_MODEL.md` §5.2-§5.5 and the actual Milestone 1-2 code
+(`db/schema/engagements.ts`, the seven master-data schema files,
+migrations 0000-0003) fresh from disk before writing anything, per
+instruction — every mechanism below (denormalized scope columns,
+composite-FK consistency, `can_access_*` RLS reuse, `SECURITY DEFINER`
+audit triggers) is a direct, explicit extension of what Milestones 1-2
+already established, not a new one invented from scratch.
+
+### What was implemented
+
+- **Drizzle TS schema** (`db/schema/processing-activities.ts`,
+  `db/schema/processing-activity-links.ts`, 2 new files): `processingActivities`
+  (14 columns: `engagement_id`, denormalized `organisation_id`/`tenant_id`,
+  `name`, `description`, `business_unit_id`, `owner_user_id`,
+  `lifecycle_status`, `lawful_basis`, `carried_forward_from_id`, audit
+  columns) and six junction tables — `processingActivityDataPrincipalCategories`,
+  `processingActivityPersonalDataElements`, `processingActivityPurposes`,
+  `processingActivitySystems`, `processingActivityDataStores`,
+  `processingActivityProcessors` — 7 tables total, exactly matching
+  DATA_MODEL.md §5.2-§5.3's field list (Milestone 3 instructions §2's
+  explicit warning against inventing speculative fields was followed —
+  no fields beyond what DATA_MODEL.md and the milestone instructions
+  themselves named).
+- **Extended six existing Milestone 1-2 schema files** (`engagements.ts`
+  and the six version-table files) with new `UNIQUE` constraints —
+  additive only, no column or behavioral change — needed so the new
+  junction tables' composite FKs can prove full consistency in one shot
+  (DECISIONS.md R-34).
+- **Migration 0004** (`drizzle-kit` generated from the TS schema, then
+  hand-reordered — see "Known limitations"/DECISIONS.md R-39): all 7
+  new tables, 2 new enums (`processing_activity_lifecycle_status`,
+  `processing_activity_processor_role`), the composite FK
+  `processing_activities(engagement_id, organisation_id, tenant_id) →
+  engagements(id, organisation_id, tenant_id)` that makes
+  "ProcessingActivity.{tenant_id,organisation_id} != Engagement's" a
+  database-enforced impossibility, a self-referential composite FK for
+  `carried_forward_from_id` (same organisation only), and — for every
+  junction — a *triple* composite FK `(x_version_id, x_id,
+  organisation_id) → x_versions(id, x_id, organisation_id)` proving the
+  pinned version belongs to both the right master entity and the right
+  organisation in one constraint.
+- **Migration 0005** (hand-written, per DECISIONS.md R-02): audit-column
+  FKs; a reparenting guard blocking `{engagement_id,organisation_id,
+  tenant_id}` changes on `processing_activities` (not `business_unit_id`,
+  which is an ordinary, legitimately-mutable business field —
+  DECISIONS.md); RLS enabled with `FORCE` on all 7 tables and 21
+  policies, every one reusing Milestone 1's `can_access_engagement(uuid,
+  uuid)` unchanged (instruction §8: no second authorization framework);
+  `GRANT`/`REVOKE` statements — junction tables get `SELECT, INSERT,
+  DELETE` but no `UPDATE` for `authenticated` (relationship changes are
+  delete-then-insert, never edited in place — DECISIONS.md R-35); the
+  existing `log_master_data_change()` reused unchanged for
+  `processing_activities`, plus one new `DELETE`-aware audit function
+  (`log_processing_activity_relationship_change()`, DECISIONS.md R-38)
+  for the six junctions.
+
+### Migration names
+
+- `0004_processing_activity.sql`
+- `0005_processing_activity_security.sql`
+
+(Milestones 1-2's `0000`-`0003` were **not modified** — instruction §15.
+`drizzle/migrations/meta/_journal.json` and the matching snapshot were
+renumbered from `0003`/idx 3 to `0004`/idx 4 immediately after
+generation, resolving a filename collision with Milestone 2's
+hand-written `0003` file, the same procedure used for the equivalent
+Milestone 2 collision — `npx drizzle-kit generate` was re-run afterward
+and reported "No schema changes, nothing to migrate.")
+
+### Relationship summary
+
+`Engagement` 1→N `ProcessingActivity` (`engagement_id` FK, composite-FK
+guaranteed consistent with the engagement's own organisation/tenant).
+`ProcessingActivity` 0..1→(self, across engagements) via
+`carried_forward_from_id` (same organisation only). `ProcessingActivity`
+N←→N each of the six master-data entities via its dedicated junction
+table, each junction storing **both** the master identity id and the
+specific pinned version id (DATA_MODEL.md §5.3). `ProcessingActivity.
+business_unit_id` is a direct (non-version-pinned) reference to
+`business_units.id`, matching DATA_MODEL.md §5.3's explicit Business
+Unit carve-out. `ProcessingActivityProcessor` additionally carries a
+`role` (`processor`/`joint_controller`); `ProcessingActivityPersonalDataElement`
+additionally carries a per-link `sensitivity_note`. No polymorphic
+foreign keys anywhere in this milestone (instruction §6) — every
+relationship is an explicit, typed junction table.
+
+### Tenant/Organisation/Engagement consistency enforcement
+
+Database-enforced, not application-only (instruction §7):
+`processing_activities`'s composite FK to `engagements(id,
+organisation_id, tenant_id)` makes an inconsistent triple impossible to
+insert, and the `processing_activities_prevent_reparenting` trigger
+makes it impossible to *create* consistently and *then* silently drift —
+verified directly (a superuser bypassing RLS entirely still cannot
+insert a mismatched triple, and still cannot UPDATE
+`engagement_id`/`organisation_id`/`tenant_id` on an existing row).
+
+### RLS policy summary
+
+21 policies (3 each across all 7 tables: `processing_activities` gets
+SELECT/INSERT/UPDATE, the six junctions get SELECT/INSERT/DELETE — no
+table has all four, matching each table's actual mutation model).
+Every policy evaluates `public.can_access_engagement(engagement_id,
+organisation_id)` — Milestone 1's function, called with the two columns
+every Milestone-3 row carries directly, unchanged and unmodified
+(instruction §8). `anon` has zero grants on any of the 7 tables
+(verified directly, count = 0). Write protection verified directly, not
+just SELECT: a Tenant B user's `INSERT`/`UPDATE` against Tenant A's
+Processing Activity is rejected (RLS violation, or 0 rows affected since
+the row isn't visible to them at all), and a direct `UPDATE` against a
+junction table fails with "permission denied" before RLS is even
+evaluated (no grant exists at all).
+
+### Audit implementation
+
+`processing_activities` reuses Milestone 2's `log_master_data_change()`
+trigger (`AFTER INSERT OR UPDATE`) unchanged — creation, ordinary
+modification, status change, and retirement (a status `UPDATE` to
+`'retired'`) are all captured as ordinary audit entries; carry-forward is
+captured on the new row's own creation entry (`field_changes` includes
+`carried_forward_from_id`). The six junction tables get a new function,
+`log_processing_activity_relationship_change()` (`AFTER INSERT OR
+DELETE`), since `log_master_data_change()` reads `NEW`, which is null on
+`DELETE` — "relationship changes" (instruction §9) are captured as an
+`insert` entry when a link is created and a `delete` entry (with the
+removed link's own data in `field_changes`) when one is removed. Both
+functions remain `SECURITY DEFINER`, so audit entries are written
+regardless of the calling role's own grants on `audit_log`, and every
+entry is correctly attributed via `auth.uid()` — verified directly by a
+`psql` walk-through before the automated suite and again by
+`tests/processing-activity/audit.test.ts` afterward.
+
+### Historical-state test result (instruction §5, items 1-8 — the required scenario)
+
+Directly verified by `tests/processing-activity/carry-forward-scenario.test.ts`
+against the exact ABC Financial Services PA-014 scenario from the
+milestone instructions — **all 8 required demonstrations hold**:
+
+1. **PA-014-E1 remains unchanged** after all FY2027 work — its name,
+   engagement, and (unset) `carried_forward_from_id` are exactly as
+   created.
+2. **PA-014-E2 exists as a separate, distinct engagement-scoped record**
+   — a different id, under `engagement2027`, not a mutated copy of
+   PA-014-E1.
+3. **PA-014-E2 correctly records `carried_forward_from_id = PA-014-E1`.**
+4. **FY2026 resolves to the original master-data versions** — System
+   owner `Digital Banking`/hosting `India`, Processor `XYZ Analytics`
+   DPA `v1`.
+5. **FY2027 resolves to the new master-data versions** — System owner
+   `Technology`/hosting `Singapore`, Processor `ABC Analytics` DPA `v1`
+   — and XYZ is confirmed no longer linked to PA-014-E2 at all (a
+   genuine replacement, not a version bump on XYZ, per DATA_MODEL.md
+   §5.5).
+6. **Updating FY2027's relationships does not alter FY2026's** — a
+   further Purpose-link change on PA-014-E2 (delete + re-insert with a
+   new Purpose version) leaves PA-014-E1's own Purpose link completely
+   untouched.
+7. **A current-state query resolves the latest applicable master
+   versions**, entirely independent of any engagement (`systems JOIN
+   system_versions WHERE is_current`).
+8. **A historical query reconstructs the FY2026 state exactly** — a
+   single query joining PA-014-E1 through all three of its junctions
+   returns System/Data Store/Processor values matching FY2026 precisely,
+   plus the three Personal Data Element links (Name, PAN, Mobile)
+   captured at the time.
+
+### Carry-forward test result
+
+Covered by the same test file (items 2-3, 5-6 above) plus
+`tests/processing-activity/audit.test.ts`'s dedicated carry-forward audit
+case: the new engagement-scoped row, its `carried_forward_from_id`
+pointer, the re-resolution of System/Data Store to their now-current
+versions, and the wholesale Processor replacement (not a version bump)
+all verified directly against real data, not asserted from source
+reading.
+
+### Cross-tenant test result
+
+`tests/processing-activity/tenant-org-isolation.test.ts` — a Tenant A
+user can read their own tenant's Processing Activity; cannot read Tenant
+B's (neither by direct id lookup nor via an unfiltered listing);
+Organisation A1's member cannot read Organisation A2's Processing
+Activity even under the same tenant; an engagement-scoped user's access
+is exactly their `EngagementMembership`, no broader; an unaffiliated user
+and a fully anonymous request are both blocked (the latter at the grant
+level). Write protection verified separately (INSERT/UPDATE), not only
+SELECT.
+
+### Cross-organisation test result
+
+`tests/processing-activity/version-consistency.test.ts` — a Processing
+Activity cannot reference a master-data version belonging to another
+organisation, verified against the **real, shipped** junction tables now
+(not the Milestone 2 scratch-table stand-in, which this milestone
+supersedes for this specific property): tested for both a superuser
+bypassing RLS entirely and an authenticated user whose RLS `WITH CHECK`
+would otherwise have allowed the write, proving the composite FK is
+doing real, independent work. The same guarantee is separately confirmed
+to hold across tenants (not merely across sibling organisations under one
+tenant), and `ProcessingActivity` creation itself is confirmed to reject
+an inconsistent `(engagement, organisation, tenant)` triple the same way.
+
+### Full test count and exact results
+
+All of the following were run against a real local PostgreSQL 16.13
+database, reset from scratch before each full run — not type-only checks,
+not mocked:
+
+1. `npx tsc --noEmit` — **passed, zero errors**.
+2. `npm run lint` (`eslint .`) — **passed, zero errors/warnings**.
+3. `npx drizzle-kit generate` — succeeded (twice: once to produce
+   `0004_processing_activity.sql`, once afterward, after the statement
+   reordering and journal renumbering, to confirm "No schema changes,
+   nothing to migrate").
+4. `npx tsx scripts/apply-migrations.ts` — all 6 migration files applied
+   successfully via `scripts/reset-test-db.ts` (fresh database each run)
+   — only after fixing the statement-ordering issue in migration 0004
+   (DECISIONS.md R-39); the first attempt failed cleanly with a clear
+   Postgres error ("no unique constraint matching given keys"), was
+   diagnosed, and was fixed before any test was written against it.
+5. `npx next build` — **succeeded** (2 static routes — unchanged from
+   Milestone 1/2, confirming no UI was added).
+6. `npm run test:db` (`tsx scripts/reset-test-db.ts && vitest run
+   tests/rls tests/master-data tests/processing-activity`) — **75/75
+   tests passed**, run twice consecutively against a freshly reset
+   database each time:
+
+   ```
+   ✓ tests/processing-activity/carry-forward-scenario.test.ts   (8 tests)
+   ✓ tests/master-data/version-tenant-consistency.test.ts        (6 tests)
+   ✓ tests/master-data/system-versioning.test.ts                 (7 tests)
+   ✓ tests/processing-activity/audit.test.ts                     (6 tests)
+   ✓ tests/processing-activity/tenant-org-isolation.test.ts     (10 tests)
+   ✓ tests/master-data/entity-coverage.test.ts                   (6 tests)
+   ✓ tests/processing-activity/version-consistency.test.ts       (5 tests)
+   ✓ tests/rls/membership-boundaries.test.ts                     (7 tests)
+   ✓ tests/master-data/tenant-org-isolation.test.ts               (6 tests)
+   ✓ tests/rls/tenancy-consistency.test.ts                        (6 tests)
+   ✓ tests/rls/tenant-isolation.test.ts                           (5 tests)
+   ✓ tests/rls/engagement-access.test.ts                          (3 tests)
+   Test Files  12 passed (12)
+        Tests  75 passed (75)
+   ```
+
+   25 of these 75 are new this milestone (`tests/processing-activity/*`,
+   4 files); the other 50 (`tests/rls`, `tests/master-data`) are
+   Milestones 1-2's own suites, unmodified and still passing —
+   confirming Milestone 3 didn't regress anything earlier.
+
+   Unlike Milestones 1-2, **no test-writing bug was found this time** —
+   the full suite passed on its first run. The one real defect this
+   milestone surfaced (migration 0004's statement ordering, R-39) was
+   caught at the *migration-application* step, before any test was
+   written, by directly reviewing and applying the generated SQL against
+   real Postgres first (per this project's now-established discipline of
+   smoke-testing each mechanism by hand before writing the automated
+   suite against it).
+
+7. **Manual security inspection**, run directly against the test database
+   (not inferred from source alone), per instruction §17:
+   - `pg_class.relrowsecurity`/`relforcerowsecurity` — RLS enabled and
+     `FORCE`d on all 7 new tables.
+   - `pg_policies` — exactly 21 policies, matching the design (3 × 7).
+   - `information_schema.role_table_grants` — `anon` has zero grants on
+     any of the 7 tables; `authenticated` has exactly `SELECT, INSERT,
+     DELETE` on `processing_activity_systems` (representative of all six
+     junctions) — no `UPDATE`.
+   - `pg_constraint` (`pg_get_constraintdef`) — all 6 FKs on
+     `processing_activities` confirmed present with the exact expected
+     definitions (engagement/org/tenant triple, business unit, carried-
+     forward, owner, created/updated-by); the junction tables' triple
+     composite FKs confirmed likewise.
+   - `information_schema.triggers` — `processing_activities` has exactly
+     3 triggers (reparenting guard + audit log's two events).
+   - A direct `psql` attempt to `UPDATE processing_activity_systems ...
+     WHERE false` as `authenticated` failed with "permission denied"
+     before Postgres even evaluated the `WHERE` clause — confirming
+     historical junction records cannot be rewritten at the privilege
+     level, not merely discouraged by policy.
+
+### Known limitations
+
+1. **Same local-Postgres-plus-shim testing posture as Milestones 1-2**
+   (DECISIONS.md R-24) — D-03 (data residency) is still open.
+2. **No transition-rule enforcement on `lifecycle_status`** — any status
+   may move to any other (DECISIONS.md R-32). DATA_MODEL.md doesn't
+   specify transition rules, and the milestone instructions say to
+   document rather than silently build workflow logic for them.
+3. **`DataFlow` and `ProcessingActivityNotice` remain unbuilt**
+   (DECISIONS.md R-36) — `Notice` doesn't exist yet, and `DataFlow` was
+   not named in this milestone's scope.
+4. **No engagement-closed-freezes-everything-downstream trigger** — a
+   closed `Engagement`'s Processing Activities and junctions are not
+   automatically locked against further writes by a database trigger;
+   today that's an RLS/application-layer concern (a closed engagement's
+   members would need to still hold access to write to it, which is a
+   separate, not-yet-built permission question). Not required by this
+   milestone's instructions; worth flagging for the Assessment Engine
+   milestone, where "finalized means immutable" first becomes load-bearing
+   (DATA_MODEL.md §6).
+5. **Audit entries remain full-row JSON**, not field-level diffs — same
+   limitation noted in Milestone 2's report, now also true of
+   `processing_activities` and its junctions.
+6. **No migration-history tracking table still** — six files deep now,
+   still applied unconditionally in filename order by
+   `scripts/apply-migrations.ts`.
+
+### Next milestone
+
+Per the STOP CONDITION: this milestone is complete and the session stops
+here, before Controls/Assessment/Evidence/Risk/Findings/Remediation/UI.
+Recommended next milestone (not started, pending review/approval):
+**Milestone 4 — Regulatory Content & Control Library**, covering
+DATA_MODEL.md §6's `RegulatoryReference`, `Requirement`,
+`ControlLibraryVersion`, `Control`, and `ControlRequirement` — the
+practice-owned, versioned methodology layer that `Engagement.
+control_library_version_id` (deferred since Milestone 1, DECISIONS.md
+R-23) was always going to need, and the prerequisite for the Assessment
+Engine (`Assessment`, `AssessmentResponse`, `ControlTest`) after that.
+This is a deliberate choice to build the methodology/regulatory layer
+*before* Assessment, since Assessment references Control, not the other
+way around.
+
+## Milestone 2 — Client Master Data (Session 5, 2026-09-01)
 
 ## Milestone 2 — Client Master Data (Session 5, 2026-09-01)
 

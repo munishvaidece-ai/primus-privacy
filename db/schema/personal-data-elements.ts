@@ -57,5 +57,14 @@ export const personalDataElementVersions = pgTable(
     oneCurrentPerIdentity: uniqueIndex("personal_data_element_versions_one_current_key")
       .on(table.personalDataElementId)
       .where(sql`${table.isCurrent} = true`),
+    // Milestone 3 addition — same reasoning as system_versions'
+    // idSystemOrganisationUnique. Purely additive (DECISIONS.md). Named
+    // shorter than the full "...personal_data_element_id..." form to
+    // stay under Postgres's 63-byte identifier limit.
+    idElementOrganisationUnique: unique("personal_data_element_versions_id_element_org_key").on(
+      table.id,
+      table.personalDataElementId,
+      table.organisationId,
+    ),
   }),
 );

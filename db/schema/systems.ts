@@ -100,5 +100,18 @@ export const systemVersions = pgTable(
       table.id,
       table.organisationId,
     ),
+    // Milestone 3 addition: lets `processing_activity_systems` (the
+    // version-pinned junction) composite-FK against
+    // (system_version_id, system_id, organisation_id) in one shot —
+    // proving not just "this version belongs to this org" but "this
+    // version belongs to THIS system, in this org," closing the gap a
+    // pairwise FK alone would leave (a version genuinely of the right
+    // org but the wrong system within it). Purely additive — a new
+    // UNIQUE constraint, no column/data change (DECISIONS.md).
+    idSystemOrganisationUnique: unique("system_versions_id_system_id_organisation_id_key").on(
+      table.id,
+      table.systemId,
+      table.organisationId,
+    ),
   }),
 );

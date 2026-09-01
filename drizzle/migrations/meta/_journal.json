@@ -15,6 +15,13 @@
       "when": 1788249577915,
       "tag": "0002_client_master_data",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788251083239,
+      "tag": "0004_processing_activity",
+      "breakpoints": true
     }
   ]
 }
