@@ -355,3 +355,20 @@ export const remediationPriorityEnum = pgEnum("remediation_priority", [
 // decision (accepted/rejected), not an invented multi-state workflow
 // (Milestone 7 instructions §16).
 export const validationOutcomeEnum = pgEnum("validation_outcome", ["accepted", "rejected"]);
+
+// --- Milestone 8 (Maturity, DATA_MODEL.md §9) ------------------------------
+
+// MaturityAssessment.status. Not a field DATA_MODEL.md's own §9 table
+// names — MaturityAssessment itself is a Milestone 8 additive entity (see
+// maturity-assessments.ts / DECISIONS.md). A simple two-state lifecycle,
+// deliberately mirroring `assessment_status` (Milestone 5) exactly rather
+// than a distinct enum with the same two values: Milestone 8 instructions
+// §12 explicitly say "if the current architecture defines only a simple
+// finalized state, implement that rather than inventing a complex
+// workflow" — this is that same simple state, reusing the identical
+// draft/finalized vocabulary already approved for the entity Maturity
+// consumes (Assessment) rather than inventing a parallel naming scheme.
+export const maturityAssessmentStatusEnum = pgEnum("maturity_assessment_status", [
+  "draft",
+  "finalized",
+]);

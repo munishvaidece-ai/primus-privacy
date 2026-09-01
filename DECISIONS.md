@@ -1626,3 +1626,244 @@ separate, explicit `ValidationRecord` created by a human, exactly as
 required. Enforcing "evidence must exist first" at the DB layer would
 add a workflow constraint the architecture never asked for without
 strengthening that actual guarantee.
+
+## Milestone 8 — Maturity
+
+### R-72 — `MaturityAssessment` is an additive header/grouping entity — DATA_MODEL.md §9's own table names no such row
+
+**Decision:** A new `maturity_assessments` table anchors one Maturity
+computation "run" — one finalized source `Assessment`, one pinned
+`MaturityScoringMethodology`, one finalization event — that its
+`MaturityScore` rows (per-domain and the single overall row) hang off of
+via a composite FK. Milestone 8 instructions §2 explicitly name
+`MaturityAssessment` as one of the three approved entities to implement;
+DATA_MODEL.md §9's literal table has no such row — `MaturityScore`
+itself already carries `engagement_id`/`assessment_id`/`computed_at`
+directly, and its own prose already describes "a computed, versioned
+snapshot: per-domain scores AND an overall weighted score for a given
+Assessment/period" as one coherent unit.
+**Rationale:** Without a header row, "once a MaturityAssessment is
+finalized... its score/domain results/methodology version/source
+assessment context must not silently change" (instructions §12) would
+require locking an *ungrouped set* of `MaturityScore` rows together —
+fragile, and a break from this project's own composite-FK-first
+philosophy (every other milestone gives a "this is one coherent,
+lockable unit" concept its own row: `Assessment` for `AssessmentControl`/
+`AssessmentResponse`, `ControlLibraryVersion` for `Control`). This is the
+same posture as every other additive-but-necessary entity already on
+record (`EvidenceLink`, R-60; `ValidationRecord`'s reassessment-trigger
+columns, R-69) — implement what the architecture's own described
+behavior structurally requires, document it, never silently invent an
+unrelated scoring architecture (instructions §2's own warning).
+
+### R-73 — `MaturityScoringMethodology`: the same append-only/Tenant-scoped/pinned-by-reference shape as `RiskScoringModel`, applied to Maturity — not a new mechanism
+
+**Decision:** `maturity_scoring_methodologies` is Tenant-scoped, carries
+`is_active` closed out by a `BEFORE INSERT` trigger identical in shape to
+`risk_scoring_models`' own (Milestone 7, R-67), and stores a `definition`
+jsonb column the Maturity computation reads (a rating-to-domain-score
+map, plus level thresholds) rather than any hard-coded scoring constants
+anywhere in application code. `maturity_assessments.maturity_scoring_
+methodology_id` is `NOT NULL` and frozen by the reparenting guard.
+**Rationale:** Milestone 8 instructions §6 (CRITICAL) forbid hard-coding
+scoring values "unless DATA_MODEL.md or an existing approved decision
+explicitly specifies those values," and instruct: "if the scoring
+methodology is not yet finalized, implement the data structures required
+to support a configurable scoring methodology and use synthetic test
+configuration." DATA_MODEL.md §9 names no such table explicitly, but
+instructions §9 anticipate exactly this: "if a configurable maturity
+scoring model already exists in DATA_MODEL.md, use it. If not, implement
+only the minimum versioning structure required to make historical
+reproducibility possible." `RiskScoringModel` is the closest already-
+approved precedent for precisely this shape (a versioned, pinned,
+append-only scoring configuration) — reusing its mechanism rather than
+inventing a new one satisfies both instructions §9 and this project's
+standing rule against parallel authorization/versioning mechanisms
+(reaffirmed every milestone since Milestone 4). This milestone's own
+tests use a clearly synthetic `definition` (helpers.ts's default
+`rating_scores`/`levels` shape) — never presented as PRIMUS's final
+proprietary methodology, per instructions §16.
+
+### R-74 — `MaturityDomain` deliberately carries no versioning/append-only lifecycle of its own — a plain, Tenant-scoped, mutable-except-tenant_id row
+
+**Decision:** `maturity_domains` has ordinary mutable `name`/
+`description`/`code`/`is_active` fields (only `tenant_id` is frozen by a
+reparenting guard); it does not get `ControlLibraryVersion`'s draft/
+published/retired lifecycle or `RiskScoringModel`'s append-only posture.
+A domain's `name`/`description` remaining editable does not retroactively
+rewrite any already-computed `MaturityScore`, because a score references
+the domain by id only (DATA_MODEL.md §9's own `computed_from_control_
+test_ids` field already establishes "frozen reference to a frozen row,"
+not "frozen copy of the referenced row's content" — the same posture
+applies here) — a **known, accepted limitation**, not an oversight: if a
+domain is later renamed, a historical score's *displayed* domain label
+(via a live JOIN) reflects the current name, not the name at computation
+time. This is distinct from the score's actual numeric result, which
+never changes.
+**Rationale:** Milestone 8 instructions §4 explicitly warn against this
+exact failure mode in the other direction: "do NOT invent a large
+production domain framework if the architecture has not yet finalized
+the actual domains." DATA_MODEL.md §9 names no lifecycle for
+`MaturityDomain` at all (only for `MaturityScore`, which is the row
+instructions §12's finalization guarantee actually protects). Inventing
+a full versioned-domain-taxonomy mechanism here — to close the one
+narrow display-label gap above — would be exactly the over-engineered
+framework instructions §4 forbid, for a domain taxonomy this milestone
+is explicitly told is still synthetic/test-only and will be redesigned
+later as its own product/methodology exercise (instructions §16). The
+gap is real, narrow, and recorded here rather than silently built
+around.
+
+### R-75 — `MaturityDomainWeight`'s append-only close-out is scoped per (engagement, domain), not per Tenant — DATA_MODEL.md §9's own literal instruction, applied precisely
+
+**Decision:** `close_out_previous_active_maturity_domain_weight()`
+scopes its "close out the previous active row" logic to `WHERE
+engagement_id = NEW.engagement_id AND maturity_domain_id = NEW.
+maturity_domain_id` — narrower than `RiskScoringModel`'s/
+`MaturityScoringMethodology`'s own per-Tenant close-out, matching the
+narrower scope DATA_MODEL.md §9 itself specifies for this table: "it is
+engagement-scoped (one weight per engagement+domain)."
+**Rationale:** `MaturityDomainWeight` is client engagement data (unlike
+`MaturityDomain`/`MaturityScoringMethodology`, which are Tenant-owned
+practice content) — DATA_MODEL.md §9's own sentence is explicit about
+both the scope ("one weight per engagement+domain") and the immutability
+rule ("never edited after the engagement's MaturityScore rows have been
+computed from it... a re-weighting is a change for the *next* engagement/
+period"). Scoping the close-out per (engagement, domain) rather than
+globally per Tenant is not a design choice this milestone made freely —
+it is DATA_MODEL.md's own literal specification, implemented with the
+identical mechanism (BEFORE INSERT, SECURITY DEFINER, flip prior active
+row false) already proven twice (Milestone 2's SCD2 tables, Milestone
+7's `RiskScoringModel`).
+
+### R-76 — `MaturityAssessment.status` reuses the exact `draft`/`finalized` vocabulary and two-trigger reparenting+finalization pattern `Assessment` established, as its own distinct enum type
+
+**Decision:** `maturity_assessment_status` is a new Postgres enum with
+the same two values as `assessment_status` (Milestone 5), not a reused
+reference to that type. `maturity_assessments` gets two triggers, the
+same split `Assessment` itself uses (Milestone 5, migration 0009):
+`prevent_maturity_assessment_reparenting` (BEFORE UPDATE, always active,
+freezes `engagement_id`/`organisation_id`/`tenant_id`/`assessment_id`/
+`maturity_scoring_methodology_id`) and `enforce_maturity_assessment_
+finalization` (BEFORE UPDATE, blocks every field once `status =
+'finalized'` — "not even a no-op," `assessments_prevent_finalized_
+tampering`'s own exact wording — and auto-stamps `finalized_at` on the
+one legitimate `draft` → `finalized` transition, mirroring `control_
+library_versions.published_at`, Milestone 4).
+**Rationale:** Milestone 8 instructions §12: "if the current architecture
+defines only a simple finalized state, implement that rather than
+inventing a complex workflow." `Assessment`'s own two-state model is
+exactly that already-approved "simple finalized state" — DATA_MODEL.md
+names it for `Assessment` directly (§6) and this milestone's own
+instructions frame Maturity as consuming `Assessment`'s output, so
+reusing its exact vocabulary (not inventing a `computed`/`reviewed`/
+`published`/`archived` scheme) keeps the two entities' lifecycles legible
+together. A separate Postgres enum type (rather than literally sharing
+`assessment_status`) keeps `MaturityAssessment.status` and `Assessment.
+status` independently alterable in some later milestone without a
+migration having to touch both tables at once — a low-cost, standard
+practice already used for e.g. `regulatory_content_status` vs. `master_
+data_status` (R-40, Milestone 4), not evidence of two different
+concepts.
+
+### R-77 — `MaturityScore` is required to insert only while its parent `MaturityAssessment` is still draft — an insert-gate trigger, the same shape `AssessmentControl`'s finalization guard uses
+
+**Decision:** `enforce_maturity_score_draft_mutable()` (BEFORE INSERT)
+resolves the parent `MaturityAssessment`'s `status` and rejects the
+insert if already `'finalized'` — combined with `MaturityScore` carrying
+no UPDATE/DELETE grant at all (full immutability from the moment of
+creation, DATA_MODEL.md §9's own "never directly user-editable"), this
+makes a `MaturityAssessment`'s entire set of scores permanently closed
+the instant it is finalized, not merely each existing row individually
+frozen.
+**Rationale:** Without this gate, nothing would stop a stray extra
+`MaturityScore` row from being inserted against an already-finalized
+`MaturityAssessment` after the fact — a real historical-integrity gap
+instructions §12's "once finalized... its score/domain results... must
+not silently change" implies must not exist, the same reasoning Milestone
+5's `enforce_assessment_control_draft_mutable` (migration 0009) already
+established for a structurally identical situation (insert/delete-only
+child rows whose mutability is gated by a parent's finalization state,
+not by their own grants). Reused pattern, not a new mechanism.
+
+### R-78 — The two "at most one score per (assessment, domain-or-overall)" rules needed two different constraint types — an ordinary UNIQUE plus a partial UNIQUE INDEX — because Postgres treats NULL as distinct from NULL
+
+**Decision:** `maturity_scores_maturity_assessment_id_maturity_domain_id_key`
+(an ordinary Drizzle `unique()`, declared in the generated schema
+migration) enforces "at most one row per (MaturityAssessment, non-null
+domain)." A second, hand-written `CREATE UNIQUE INDEX ... WHERE
+maturity_domain_id IS NULL` (migration 0015) separately enforces "at most
+one overall (domain-null) row per MaturityAssessment" — a plain UNIQUE
+constraint cannot express this half at all, since Postgres's default
+UNIQUE semantics treat every NULL as distinct from every other NULL,
+so two overall rows would never collide on an ordinary constraint.
+**Rationale:** DATA_MODEL.md §9's own field list makes `maturity_domain_
+id` "nullable for the overall row" load-bearing, not incidental — a
+`MaturityAssessment` with two "overall" rows would be exactly as broken
+as one with two rows for the same domain, and instructions §13's "no
+unrestricted... relationships where explicit constraints are practical"
+extends naturally to uniqueness, not only foreign keys. The
+partial-index half necessarily lives in the hand-written security
+migration (0015), not the generated schema migration (0014) — Drizzle's
+schema builder has no declarative partial-unique-constraint primitive,
+the same reason every migration since 0001 keeps RLS/triggers/
+cross-module rules in a hand-written follow-up file (R-02).
+
+### R-79 — `computed_from_risk_ids`/`computed_from_validation_record_ids` are plain `uuid[]` traceability arrays, matching DATA_MODEL.md's own `computed_from_control_test_ids` shape exactly — deliberately NOT foreign-key-enforced, and NOT yet mathematically factored into any score
+
+**Decision:** Two additive array columns on `maturity_assessments` record
+which `Risk`/`ValidationRecord` rows were available and consulted at
+computation time — proof a signal was consumed, never a copy of its
+content, and never a second copy of the `Risk`/`ValidationRecord` tables
+themselves. Postgres cannot attach a `FOREIGN KEY` to an individual
+element of an array column, so — like DATA_MODEL.md's own literal
+`computed_from_control_test_ids` field, which carries the identical
+limitation — a nonexistent or wrong-tenant id can currently be stored in
+either array without being rejected at the database layer; this is
+demonstrated directly, not merely asserted, in `tests/maturity/
+consistency.test.ts`. Separately: this milestone's own computed
+`MaturityScore` values (§10's historical scenario included) are derived
+*only* from finalized `AssessmentResponse.effectiveness_rating` via the
+pinned methodology's `rating_scores` map — nothing in this schema, its
+triggers, or its tests derives a numeric score contribution from a
+Risk's rating or a ValidationRecord's outcome.
+**Rationale:** Milestone 8 instructions §7 require Maturity to be
+"capable of consuming signals from... Risk [residual risk]...
+Remediation/Validation [validated remediation outcomes]... without
+duplicating these objects into Maturity tables" — a plain id-array is
+the minimal structure satisfying "capable of consuming" and "without
+duplicating," and is the same shape DATA_MODEL.md's own field already
+uses for `ControlTest`, so extending it to two more source types (rather
+than inventing a junction-table mechanism, which would be its own
+"unrelated scoring architecture," instructions §2) is the smaller,
+already-precedented change. Instructions §10/§11 (CRITICAL) explicitly
+forbid inventing the mathematical relationship between Risk/Validation
+and a maturity score ("Risk and maturity may interact, but they are
+conceptually different... if the architecture has not yet specified the
+exact mathematical relationship, preserve the inputs and document the
+open methodology decision") — this is that open decision, explicitly
+preserved rather than silently resolved. A future milestone that defines
+the real PRIMUS methodology may choose to formalize these into proper
+junction tables with real FKs once the actual mathematical relationship
+is approved; nothing here forecloses that.
+
+### R-80 — `RemediationAction.status`/`ValidationRecord.outcome` still do not automatically alter any Maturity signal — reaffirmed, not re-litigated, this milestone
+
+**Decision:** No trigger, FK, or generated column anywhere in this
+migration reads `remediation_actions.status` or `validation_records.
+outcome` to derive a `MaturityScore`, a `MaturityAssessment`, or any
+other value. A `MaturityAssessment` is created, and its scores computed,
+only by an explicit application/consultant action referencing a
+finalized `Assessment` — never as a side effect of a remediation or
+validation event.
+**Rationale:** Milestone 7's R-71 already established that `Remediation
+Action.status` transitions are an application-layer state machine with
+no automatic downstream effects; Milestone 8 instructions §11 (CRITICAL)
+restate the same rule specifically for Maturity ("do not award maturity
+points merely because Remediation.status = validated... do not create
+automatic maturity jumps unless explicitly specified"). Recorded here
+explicitly, rather than left merely implicit in "no trigger exists for
+this," because instructions §11 name it as a CRITICAL rule this
+milestone's own historical scenario (§8) is required to demonstrate —
+DECISIONS.md is where every such CRITICAL invariant this project has
+built gets a citable record (R-71's own precedent).

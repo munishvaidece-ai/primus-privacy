@@ -584,6 +584,51 @@ one's already-computed, stored `MaturityScore`. This is what makes
 specific, by-then-frozen `MaturityDomainWeight` set — none of which a later
 engagement's configuration changes can reach back and alter.
 
+**Implementation clarification (Milestone 8, DECISIONS.md R-72 through
+R-80):** all entities in this section's table are now implemented, plus
+one additive grouping entity, `MaturityAssessment`, this table's own
+prose already implies ("a computed, versioned snapshot... for a given
+Assessment/period" describes one coherent unit) but does not name as a
+separate row — it anchors one finalized `Assessment` and one pinned
+`MaturityScoringMethodology` (below) that a `MaturityAssessment`'s own
+set of `MaturityScore` rows hang off of, and is the row this section's
+own finalization/reproducibility guarantee actually locks (R-72).
+`MaturityScoringMethodology` (Tenant-scoped, append-only, mirrors
+`RiskScoringModel`'s exact shape) is the "configurable scoring
+methodology" this section's own second paragraph implies but does not
+name explicitly — the vehicle for the rating-to-domain-score mapping and
+maturity-level thresholds a real Maturity engine would read, never
+hard-coded (R-73). No production domain taxonomy, scoring weights,
+maturity levels, or thresholds were invented here — every domain/
+methodology this milestone's own tests create is explicitly named as
+synthetic/test content, not PRIMUS's eventual proprietary methodology.
+
+`MaturityScore.score` is stored per the 1–5 scale this section already
+specifies; `maturity_level` is an additive field (a resolved,
+human-readable label from the pinned methodology's own level-threshold
+table, stored once at computation time — not derived live at read time,
+matching `AssessmentResponse.effectiveness_rating`'s own posture). No
+scoring *engine* exists yet — this milestone builds and tests the data
+structures a future engine would read and write, the same posture
+`RiskScoringModel` already established for Risk (Milestone 7): nothing
+in this schema computes a `MaturityScore` value automatically; every
+score in this milestone's own tests is written directly, simulating what
+a future engine's calculation would produce.
+
+Two additive traceability arrays, `computed_from_risk_ids`/`computed_
+from_validation_record_ids` (on `MaturityAssessment`, mirroring this
+section's own `computed_from_control_test_ids` field on `MaturityScore`
+exactly), record which `Risk`/`ValidationRecord` rows were available and
+considered at computation time, satisfying this document's own "Risk...
+residual risk" and "Remediation/Validation... validated remediation
+outcomes" source-signal language without duplicating either table. Like
+`computed_from_control_test_ids` itself, these are plain arrays, not
+foreign-key-enforced per element (R-79) — and, per the architecture's own
+explicit caution against inventing an unapproved Risk-to-Maturity or
+Validation-to-Maturity formula, neither array's contents are yet
+mathematically factored into any stored score; the open methodology
+question is preserved, not silently resolved (R-79/R-80).
+
 ## 10. Audit, Quality Review & Reporting
 
 | Entity | Purpose | Key fields |

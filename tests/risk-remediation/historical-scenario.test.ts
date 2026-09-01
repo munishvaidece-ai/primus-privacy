@@ -171,9 +171,18 @@ describe("Historical scenario: ABC Financial FY2026 — Risk, Finding, Remediati
   });
 
   // 8. No automatic maturity improvement occurs.
-  it("8. no Maturity table exists anywhere in this schema — no automatic maturity improvement is even possible", async () => {
+  //
+  // Written when Milestone 7 was the most recent milestone (no Maturity
+  // table existed at all yet — instructions §17-19 forbade building one).
+  // Milestone 8 has since implemented Maturity (DATA_MODEL.md §9); the
+  // real invariant this test protects — "nothing about this remediation/
+  // validation scenario ever automatically produces or improves a
+  // maturity result" — is now checked directly against those tables:
+  // zero MaturityAssessment rows exist anywhere in this tenant, because
+  // nothing in this scenario ever computed one.
+  it("8. no automatic maturity improvement occurs — no MaturityAssessment was ever computed for this scenario", async () => {
     const { rows } = await asFixtureSetup((c) =>
-      c.query(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name ILIKE '%maturity%'`),
+      c.query(`SELECT id FROM maturity_assessments WHERE tenant_id = $1`, [tenant]),
     );
     expect(rows).toHaveLength(0);
   });

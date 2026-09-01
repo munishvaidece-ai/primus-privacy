@@ -1,17 +1,413 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 7 COMPLETE (Session 10): Risk, Findings &
-Remediation — RiskScoringModel, Risk, Finding, RemediationAction, and
-ValidationRecord, the post-assessment action layer built on Milestone
-5/6's AssessmentResponse/Evidence, with configurable/versioned risk
-scoring pinned for historical reproducibility, EvidenceLink extended to
-two more subject types, and the CRITICAL semantic rule that remediation
-completion never itself proves control effectiveness or improves
-maturity — only an explicit ValidationRecord does, and only by recording
-that a reassessment happened — implemented, migrated, and tested against
-real PostgreSQL 16. No Maturity, Dashboards, Reporting, DPIA, AI,
-Continuous Compliance, or polished UI. Milestones 1-6 (Sessions 4-9) and
-the architecture gate (Sessions 1-3) passed before this milestone began.
+Status: 2026-09-01 — Milestone 8 COMPLETE (Session 11): Maturity —
+MaturityScoringMethodology, MaturityDomain, MaturityDomainWeight,
+MaturityDomainControlMapping, MaturityAssessment, and MaturityScore, a
+historically-reproducible maturity layer that consumes finalized
+Assessment Responses (and preserves, without mathematically consuming,
+Risk/Validation signals) without duplicating the Assessment/Risk/
+Evidence/Remediation systems, with configurable/versioned scoring
+methodology pinned for historical reproducibility (mirroring Milestone
+7's RiskScoringModel exactly), and the CRITICAL rule that Maturity is
+conceptually distinct from compliance percentage, controls-passed count,
+risk score, or findings-closed count — implemented, migrated, and tested
+against real PostgreSQL 16. No Dashboards, Reporting, DPIA, AI, Continuous
+Compliance, or polished UI. Milestones 1-7 (Sessions 4-10) and the
+architecture gate (Sessions 1-3) passed before this milestone began.
+
+## Milestone 8 — Maturity (Session 11, 2026-09-01)
+
+**Scope:** exactly what MILESTONE 8 instructed — `MaturityScoringMethodology`,
+`MaturityDomain`, `MaturityDomainWeight`, `MaturityDomainControlMapping`,
+`MaturityAssessment`, `MaturityScore`, per DATA_MODEL.md §9. No
+Dashboards, Reporting, DPIA, AI, Continuous Compliance, or polished UI —
+none of those exist anywhere in this milestone's changes. The core
+principle instructions §1 states — Maturity is NOT compliance percentage,
+NOT number of controls passed, NOT risk score, NOT number of findings
+closed — governs every schema decision below; the numeric scores this
+milestone's own tests write are computed in the test code itself (the
+same "store and pin the configuration, don't build a calculator"
+posture Milestone 7 established for RiskScoringModel), never derived
+automatically from RemediationAction.status or ValidationRecord.outcome.
+
+Read `DATA_MODEL.md` §9/§12, `DECISIONS.md` R-66 through R-71, and the
+actual Milestone 5/6/7 code (`db/schema/assessments.ts`,
+`db/schema/assessment-controls.ts`, `db/schema/control-tests.ts`,
+`db/schema/risk-scoring-models.ts`, `db/schema/risks.ts`,
+`db/schema/validation-records.ts`, migrations 0008-0013) fresh from disk
+before writing anything, per instruction. One genuine schema ambiguity
+was found and documented before making a consequential choice
+(DECISIONS.md R-72, per instructions' own established practice): §9's
+literal DATA_MODEL.md table names no `MaturityAssessment` row at all —
+the milestone brief's own §2 explicitly requires implementing one
+anyway, so it is added as an additive grouping/header entity the
+architecture's own prose already implies but never separately names.
+
+### What was implemented
+
+- **Drizzle TS schema** (6 new files): `db/schema/maturity-scoring-
+  methodologies.ts` (`MaturityScoringMethodology` — Tenant-scoped,
+  append-only, `definition` jsonb, `is_active`, mirrors `RiskScoringModel`
+  exactly); `db/schema/maturity-domains.ts` (`MaturityDomain` — Tenant-
+  scoped, ordinarily mutable except `tenant_id`, no versioning framework
+  invented); `db/schema/maturity-domain-weights.ts`
+  (`MaturityDomainWeight` — engagement-scoped, append-only per
+  (engagement, domain), `weight` numeric with a positive-value CHECK);
+  `db/schema/maturity-domain-control-mappings.ts`
+  (`MaturityDomainControlMapping` — Tenant-scoped junction, insert/
+  delete only, mirrors `RiskControl`'s Control-half); `db/schema/
+  maturity-assessments.ts` (`MaturityAssessment` — the additive header:
+  `assessment_id` [NOT NULL, frozen], `maturity_scoring_methodology_id`
+  [NOT NULL, frozen], `status` [draft/finalized], `finalized_at`
+  [trigger-stamped], additive `computed_from_risk_ids`/`computed_from_
+  validation_record_ids` uuid arrays); `db/schema/maturity-scores.ts`
+  (`MaturityScore` — `maturity_domain_id` [nullable for the overall row],
+  `maturity_domain_weight_id` [nullable, pinned], `score` [1-5 CHECK],
+  additive `maturity_level`, `computed_from_control_test_ids` [DATA_
+  MODEL.md's own literal traceability field]).
+- **New enum**: `maturity_assessment_status` (draft/finalized — a
+  separate Postgres type reusing `assessment_status`'s exact vocabulary,
+  not a reference to it).
+- **Migration 0014** (`drizzle-kit` generated; drizzle-kit's own
+  numbering collided with the existing hand-written
+  `0013_risk_findings_remediation_security.sql` — the same recurring
+  renumbering ritual as every prior milestone, renamed to
+  `0014_maturity.sql`): 6 new tables, 1 new enum, every composite FK/
+  CHECK/UNIQUE described above. No statement-ordering fix or deferred-
+  CHECK-constraint issue this time (every new UNIQUE lives on a brand-new
+  table's own `CREATE TABLE`, not appended to a pre-existing one, so the
+  R-39-class ordering bug this project has hit in every milestone since
+  Milestone 3 simply had nothing to trigger it on).
+- **Migration 0015** (hand-written, per DECISIONS.md R-02): a partial
+  `UNIQUE INDEX` enforcing "at most one overall (domain-null)
+  `MaturityScore` row per `MaturityAssessment`" (DECISIONS.md R-78 — a
+  plain `UNIQUE` constraint cannot express this, since Postgres treats
+  every `NULL` as distinct); audit-column FKs; reparenting guards
+  (`MaturityDomain`'s covering `tenant_id` only; `MaturityAssessment`'s
+  covering the scope quintuple — engagement/organisation/tenant/
+  assessment/methodology); **two** append-only close-out triggers
+  (`MaturityScoringMethodology`'s, per-Tenant, and `MaturityDomainWeight`'s,
+  per-engagement-and-domain — DECISIONS.md R-75); `MaturityAssessment`'s
+  finalization guard (`enforce_maturity_assessment_finalization`, mirrors
+  `Assessment`'s own two-trigger reparenting+finalization split exactly
+  — DECISIONS.md R-76); a `require_finalized_assessment_for_maturity`
+  BEFORE INSERT trigger enforcing instructions §7's "finalized Assessment
+  Responses" requirement at the database layer; a `MaturityScore` insert-
+  gate trigger (`enforce_maturity_score_draft_mutable`, DECISIONS.md
+  R-77) mirroring Milestone 5's `enforce_assessment_control_draft_
+  mutable`; RLS enabled with `FORCE` on all 6 tables and 15 policies —
+  `MaturityScoringMethodology`/`MaturityDomain` get the same
+  `can_access_tenant`/`is_active_tenant_member` asymmetry as
+  `RiskScoringModel`/`ControlLibraryVersion` (R-47); everything else
+  uses symmetric `can_access_engagement` (or the Tenant-scoped-junction
+  variant `MaturityDomainControlMapping` uses, mirroring `control_
+  requirements`); `GRANT`/`REVOKE` statements —
+  `MaturityScoringMethodology`/`MaturityDomainWeight`/`MaturityScore` all
+  get `SELECT,INSERT` only, no `UPDATE`/`DELETE` ever; audit triggers
+  reusing `log_methodology_change()`/`log_methodology_relationship_
+  change()` **unchanged** for a fifth milestone in a row.
+- **The CRITICAL semantic-separation invariant** (instructions §1/§10/
+  §11): no trigger, FK, or generated column anywhere in this schema
+  reads `remediation_actions.status` or `validation_records.outcome` to
+  derive a `MaturityScore`/`MaturityAssessment` value; the two additive
+  Risk/Validation traceability arrays on `MaturityAssessment` record that
+  those signals were *available and considered*, never that they were
+  *mathematically factored in* — the open Risk-to-Maturity/Validation-to-
+  Maturity formula is explicitly preserved, not silently resolved
+  (DECISIONS.md R-79/R-80). Verified via the Vitest suite AND a
+  standalone `psql` transaction.
+- **Historical reproducibility / methodology versioning** (instructions
+  §9): `MaturityAssessment.maturity_scoring_methodology_id` is `NOT NULL`
+  and frozen by the reparenting guard; `MaturityScoringMethodology` rows
+  are never edited or deleted once superseded. Verified by `methodology-
+  versioning.test.ts` — a MaturityAssessment computed under Methodology
+  v1 resolves to v1's unchanged `definition` after Methodology v2 is
+  introduced.
+- **Finalized-maturity immutability** (instructions §12): once a
+  `MaturityAssessment.status = 'finalized'`, no further UPDATE of any
+  kind succeeds (not even a no-op); `MaturityScore` rows are fully
+  immutable from the moment of creation (no UPDATE/DELETE grant at all)
+  and cannot even be *inserted* once the parent is finalized.
+
+### Testing performed (exact commands, run in this order)
+
+1. `npm run typecheck` — clean, repeated after every schema/migration/
+   test change.
+2. `npm run db:generate` — generated migration 0014; collided with
+   `0013_risk_findings_remediation_security.sql`'s numbering (the same
+   recurring drizzle-kit issue as every prior milestone) — renamed to
+   `0014_maturity.sql`, `meta/_journal.json`/`meta/0014_snapshot.json`
+   fixed, re-ran `db:generate` to confirm "No schema changes, nothing to
+   migrate."
+3. Reviewed the generated SQL directly: no statement-ordering fix needed
+   (see "What was implemented" above) — applied to a fresh database
+   cleanly on the first attempt.
+4. Hand-wrote migration 0015; applied to a fresh database — succeeded
+   cleanly.
+5. `npx vitest run tests/maturity` — ran the new suite. **Failed** on
+   first run with five distinct bugs, all found by actually executing
+   the tests, not by inspection:
+   - Two test files (`immutability.test.ts`, `consistency.test.ts`) each
+     called `pool.end()` in more than one `describe` block's `afterAll`
+     — a genuine test-authoring bug (this project's own established
+     convention, followed inconsistently here, is exactly one `pool.
+     end()` call per file, in the last block only) — fixed by removing
+     the duplicate calls.
+   - `audit.test.ts`'s actor-attribution test attempted a raw INSERT into
+     `maturity_domains` (Tenant-scoped content, requires `is_active_
+     tenant_member`) using a user who only holds OrganisationMembership
+     — a test-authoring bug, not a schema bug — fixed by switching the
+     target to `maturity_assessments` (client engagement data, symmetric
+     `can_access_engagement`).
+   - `crud.test.ts` attempted to insert a `ControlTest` tied to an
+     `assessment_id` *after* that Assessment had already been finalized
+     in the same `beforeAll` — violates Milestone 5's own finalization-
+     immutability guard (working as designed) — a test-ordering bug,
+     fixed by creating the ControlTest before finalizing.
+   - `methodology-versioning.test.ts` found a **genuine schema bug**:
+     introducing Methodology v2 did not close out v1's `is_active` flag.
+     Diagnosed correctly as a real omission, not a test bug — migration
+     0015 defined the append-only close-out trigger for `MaturityDomain
+     Weight` but never wrote the equivalent trigger for
+     `MaturityScoringMethodology` itself (DECISIONS.md R-73 describes the
+     mechanism as mirroring `RiskScoringModel`'s exactly; the trigger
+     mirroring it was simply missing). **Fixed** by adding `close_out_
+     previous_active_maturity_scoring_methodology()` (BEFORE INSERT,
+     identical shape to `risk_scoring_models_close_out_previous`) to
+     migration 0015, re-applied to a fresh database, re-verified.
+   - `tenant-isolation.test.ts` had two bugs: (a) a test created an
+     Assessment referencing a ControlLibraryVersion *before* pinning that
+     library version to the Assessment's own Engagement, violating the
+     `assessments_engagement_control_library_version_fk` composite FK
+     (a test-ordering bug, fixed by reordering); (b) the "authorized user
+     CAN write" positive-control test used an org-scoped user to write
+     `MaturityDomain` (Tenant-scoped content), which correctly failed —
+     fixed by adding a genuine TenantMembership-holding fixture user for
+     that one positive-control assertion, rather than weakening the
+     table's own read/write asymmetry.
+6. Re-ran `npx vitest run tests/maturity` after all six fixes —
+   **64/64 passing**.
+7. `npx vitest run tests/rls tests/master-data tests/processing-activity
+   tests/control-library tests/assessment-engine tests/evidence tests/
+   risk-remediation` — all 298 pre-existing tests still passing against
+   the post-Milestone-8 schema, **after** one necessary correction: the
+   Milestone 7 historical-scenario suite's own check #8 ("no Maturity
+   table exists anywhere in this schema") was written when Maturity did
+   not yet exist and would now trivially and correctly fail once it does
+   — the assertion was updated (not deleted, not weakened) to check the
+   real invariant it always meant to protect: zero `MaturityAssessment`
+   rows exist for that scenario's tenant, because nothing in it ever
+   computed one. Documented here rather than silently patched.
+8. `npm run test:db` (fresh reset + full suite: `tests/rls` +
+   `tests/master-data` + `tests/processing-activity` + `tests/control-
+   library` + `tests/assessment-engine` + `tests/evidence` + `tests/
+   risk-remediation` + `tests/maturity`) — **362/362 passing**. Run
+   **twice** in full (fresh `reset-test-db` each time) to prove
+   stability — 362/362 both times, identical results.
+9. `npm run lint` — clean.
+10. `npm run build` (`next build`) — compiles successfully, static pages
+    generated, no type or lint errors.
+11. Direct `psql` inspection of the resulting database: `relrowsecurity`/
+    `relforcerowsecurity` confirmed `t`/`t` on all 6 new tables;
+    `pg_policies` confirmed all 15 new policies with the expected
+    commands (including the `MaturityScoringMethodology`/`MaturityDomain`
+    read/write asymmetry); `information_schema.role_table_grants`
+    confirmed `authenticated` has exactly the intended privileges per
+    table (`MaturityScoringMethodology`/`MaturityDomainWeight`/
+    `MaturityScore`: `INSERT,SELECT` only) and `anon`/`PUBLIC` have none;
+    `pg_constraint` confirmed all 40 FK/UNIQUE/CHECK constraints;
+    `pg_indexes` confirmed the hand-written partial `UNIQUE INDEX`
+    separately; `information_schema.triggers` confirmed 16 triggers
+    present with correct timing/events, including both close-out
+    triggers, the two-trigger `MaturityAssessment` reparenting+
+    finalization split, the finalized-Assessment-required INSERT gate,
+    and the `MaturityScore` insert-gate. One standalone `psql`
+    transaction (outside vitest, using `SET ROLE authenticated` +
+    `SAVEPOINT`s) reproduced, directly against the database: (a)
+    introducing MethodologyV2 flips MethodologyV1's `is_active` false
+    while its `definition` remains byte-for-byte unchanged; (b) the
+    `authenticated` role gets `permission denied` attempting to UPDATE or
+    DELETE MethodologyV1, proving the no-grant-at-all append-only
+    enforcement directly, not merely by absence of a passing test; (c) a
+    finalized `MaturityAssessment` rejects even a genuinely no-op UPDATE;
+    (d) the finalized `MaturityAssessment` still resolves to Methodology
+    v1.0's unchanged `definition` after v2 exists and is active —
+    historical maturity/scoring configuration cannot be silently
+    rewritten, demonstrated end-to-end.
+
+### tests/maturity (7 new files, 64 new tests)
+
+- `crud.test.ts` (6 tests): creation/read coverage for all six tables,
+  including the required "control test must be created before its
+  Assessment is finalized" ordering, and a finalize-after-scoring
+  MaturityAssessment lifecycle.
+- `methodology-versioning.test.ts` (5 tests): the required §9 test — a
+  MaturityAssessment pins the active methodology at creation time;
+  introducing v2 closes out v1 without altering v1's content; a
+  MaturityAssessment created under v1 continues to resolve to v1 after
+  v2 exists; v1 cannot be edited/deleted through any ordinary path even
+  after being superseded; a MaturityAssessment's own methodology pin is
+  itself frozen.
+- `immutability.test.ts` (13 tests, four `describe` blocks):
+  `MaturityDomain`'s reparenting guard (tenant_id frozen, ordinary fields
+  freely editable); `MaturityDomainWeight`'s no-UPDATE/DELETE grant and
+  append-only close-out behavior, plus its positive-weight CHECK;
+  `MaturityAssessment`'s "cannot create from a non-finalized Assessment"
+  precondition, its reparenting guard, the draft→finalized auto-stamp,
+  the direct-`finalized_at`-write rejection, and full lock-out once
+  finalized (including an attempted unfinalize and a no-op UPDATE);
+  `MaturityScore`'s no-UPDATE/DELETE grant, its insert-gate once the
+  parent is finalized, and its 1-5 score-range CHECK.
+- `consistency.test.ts` (10 tests, four `describe` blocks): the §13
+  referential-integrity suite — a MaturityAssessment's assessment_id must
+  match its own engagement/organisation/tenant (cross-engagement
+  rejected) and its methodology must be same-tenant (cross-tenant
+  rejected); a MaturityScore's domain must be same-tenant and its pinned
+  weight same-engagement (both rejected cross-scope); the weight-
+  requires-domain CHECK; both "at most one score per domain/overall per
+  assessment" uniqueness rules; MaturityDomainControlMapping's cross-
+  tenant Control rejection; and the explicit, demonstrated limitation
+  that the two traceability arrays are not FK-enforced per element
+  (DECISIONS.md R-79).
+- `historical-scenario.test.ts` (8 tests): the exact §8 ABC Financial
+  FY2026/FY2027 scenario — Assessment A1 finalized (C1=Implemented,
+  C2=Partially Implemented, C3=Not Implemented), Risk residual=High, one
+  remediation validated, MaturityAssessment MA1 computed and finalized
+  (domain/overall score 3/"Defined"); FY2027's Assessment A2
+  (C3→Implemented), a new superseding Risk, MaturityAssessment MA2
+  (domain/overall score 4/"Managed"); all 8 required checks: MA1
+  unchanged; MA1 still linked to Assessment A1/FY2026; MA1's scores
+  unchanged (exact row ids); MA2 is a distinct row linked to A2/FY2027;
+  MA2's scores differ; MA1 cannot be rewritten (direct attempt rejected,
+  audit history shows only insert+one finalize update); FY2026 maturity
+  fully reconstructable in one query; MA1's methodology/version remains
+  identifiable and unchanged.
+- `tenant-isolation.test.ts` (14 tests): the §14 RLS suite — Tenant A can
+  access its own maturity data; Tenant A blocked from Tenant B; Organisation
+  A1 blocked from Organisation A2 (same tenant); engagement-scoped access
+  proven exact; unauthorized reads/writes blocked; anonymous denied at the
+  grant level for all 6 tables; cross-tenant source Assessment and
+  methodology relationships both rejected by composite FK; a positive
+  write case (via a genuine TenantMembership holder) proving the blocks
+  are real; the MaturityScoringMethodology read/write asymmetry.
+- `audit.test.ts` (8 tests): creation/material-update/finalization/
+  methodology-association audit coverage for all 6 tables, a full
+  historical-reconstruction-from-audit-log check, and `auth.uid()` actor
+  attribution.
+
+### Files changed
+
+- New: `db/schema/maturity-scoring-methodologies.ts`,
+  `db/schema/maturity-domains.ts`, `db/schema/maturity-domain-weights.ts`,
+  `db/schema/maturity-domain-control-mappings.ts`,
+  `db/schema/maturity-assessments.ts`, `db/schema/maturity-scores.ts`,
+  `drizzle/migrations/0014_maturity.sql`,
+  `drizzle/migrations/0015_maturity_security.sql`,
+  `drizzle/migrations/meta/0014_snapshot.json`,
+  `tests/maturity/helpers.ts`, `tests/maturity/crud.test.ts`,
+  `tests/maturity/methodology-versioning.test.ts`,
+  `tests/maturity/immutability.test.ts`,
+  `tests/maturity/consistency.test.ts`,
+  `tests/maturity/historical-scenario.test.ts`,
+  `tests/maturity/tenant-isolation.test.ts`, `tests/maturity/audit.test.ts`.
+- Modified: `db/schema/enums.ts` (new `maturity_assessment_status` enum),
+  `db/schema/index.ts` (barrel exports), `package.json` (new
+  `test:maturity` script, `test:db` extended, description bumped),
+  `drizzle/migrations/meta/_journal.json` (renumbering fix),
+  `tests/risk-remediation/historical-scenario.test.ts` (one assertion
+  corrected — see "Testing performed" item 7), `DATA_MODEL.md` (one
+  additive implementation-clarification paragraph after §9),
+  `DECISIONS.md` (R-72 through R-80), `PROGRESS.md` (this entry).
+- Unchanged: `ARCHITECTURE.md`, `SECURITY.md`, `PRODUCT_SPEC.md`,
+  `ROADMAP.md`, `README.md`, and every migration/schema file from
+  Milestones 1-7 (`0000`-`0013`, and every `db/schema/*.ts` file this
+  milestone didn't touch, apart from the one enums.ts addition).
+
+### Known limitations (documented, not silently built around)
+
+- No Maturity scoring **engine** exists — this milestone builds and
+  tests the data structures (methodology, domains, weights, mappings,
+  assessments, scores) a future engine would read from and write to;
+  every `MaturityScore` value in this milestone's own tests is written
+  directly by test code simulating that future computation, not produced
+  by any automatic calculation.
+- `computed_from_risk_ids`/`computed_from_validation_record_ids` (and
+  DATA_MODEL.md's own `computed_from_control_test_ids`) are plain
+  `uuid[]` arrays with no per-element foreign key — Postgres cannot
+  express that constraint on an array column. A nonexistent or wrong-
+  tenant id can currently be stored in either array without rejection;
+  demonstrated directly (not just noted) in `tests/maturity/
+  consistency.test.ts`. Resolving this (e.g. real junction tables) is
+  deferred to whichever future milestone defines the real mathematical
+  relationship these arrays currently only preserve as an open question
+  (DECISIONS.md R-79).
+- `MaturityDomain.name`/`description` remain ordinarily mutable and are
+  NOT versioned/snapshotted onto historical `MaturityScore` rows — a
+  domain rename after the fact changes what a historical score's domain
+  *label* resolves to via a live JOIN, though never the score's own
+  numeric value (DECISIONS.md R-74). A deliberate economy decision,
+  matching instructions §4's explicit "do NOT invent a large production
+  domain framework."
+- The exact mathematical relationship between Risk (residual rating),
+  Validation outcomes, and a Maturity score remains an explicitly open,
+  undecided methodology question (instructions §10/§11) — this
+  milestone preserves the inputs (traceability arrays) without
+  resolving it, per direct instruction.
+- No final PRIMUS maturity domains, scoring weights, levels, formulas,
+  benchmarks, or industry thresholds exist anywhere in this milestone —
+  every domain/methodology/level created in this milestone's tests is
+  explicitly named and commented as synthetic/test content only.
+- Carried forward, unaddressed (out of scope this milestone): every
+  Milestone 4-7 limitation already on record (published `Requirement`
+  content not independently frozen by publish state; `Assessment`'s
+  two-state status only; the storage-authorization-only testing scope
+  for Evidence/DocumentVersion; the CONSULTANT_INTERNAL/CLIENT_VISIBLE
+  `visibility` column not RLS-enforced; `RemediationAction.status`
+  transitions not database-enforced).
+- No UI of any kind was built (none was requested) — every table above
+  was exercised exclusively through direct SQL/RLS-aware test clients.
+
+### Explicitly deferred methodology decisions (instructions §17)
+
+- The actual PRIMUS maturity domain taxonomy (which domains exist, what
+  they're called, how many there are).
+- The actual scoring formula/weights mapping AssessmentResponse ratings
+  (and any other signal) to a domain score and an overall weighted score.
+- The actual maturity-level labels/thresholds (this milestone's test
+  methodology uses illustrative labels like "Ad Hoc"/"Developing"/
+  "Defined"/"Managed"/"Optimized," explicitly as placeholders, not as a
+  proposed final taxonomy).
+- Whether/how Risk (residual rating) mathematically influences a Maturity
+  score, and by how much.
+- Whether/how a validated remediation outcome mathematically influences a
+  Maturity score, and by how much.
+- Industry benchmarks or peer-comparison thresholds — not represented in
+  this schema at all yet.
+
+### Recommended Milestone 9
+
+With the CRITICAL Milestone 7/8 rule now enforced end-to-end (no
+automatic maturity/risk change from remediation completion; no automatic
+maturity value from any raw signal), the codebase has every entity
+DATA_MODEL.md §1-§9 names, fully tested for historical reproducibility,
+tenancy, and auditability. The natural next layer is either (a) DPIA/SDF
+Screening (DATA_MODEL.md §7 — the two Assessment specializations
+deferred since Milestone 5), or (b) the actual PRIMUS Maturity
+methodology as a deliberate product/methodology design exercise (populate
+real `MaturityScoringMethodology`/`MaturityDomain`/`MaturityDomainWeight`
+content, still without building dashboards/reporting/UI) — the user's
+own milestone brief frames this as a decision to make after reviewing
+the Maturity architecture this milestone delivers, not one for this
+report to preempt.
+
+### Git status / remote synchronization status
+
+All Milestone 8 work is committed on `claude/primus-privacy-architecture-39p3gh`
+and pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Milestone 7 — Risk, Findings & Remediation (Session 10, 2026-09-01)
 

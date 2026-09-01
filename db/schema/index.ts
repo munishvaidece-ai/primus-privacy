@@ -3,8 +3,9 @@
 // & Version-Pinned Junction Layer) + Milestone 4 (Regulatory Content &
 // Control Library) + Milestone 5 (Assessment Engine) + Milestone 6
 // (Evidence & Document Management) + Milestone 7 (Risk, Findings &
-// Remediation). See PROGRESS.md for what's deliberately not here yet
-// (Maturity, DPIA, AI, dashboards, reporting, and everything downstream).
+// Remediation) + Milestone 8 (Maturity). See PROGRESS.md for what's
+// deliberately not here yet (DPIA, AI, dashboards, reporting, and
+// everything downstream).
 export * from "./enums";
 export * from "./tenants";
 export * from "./organisations";
@@ -40,3 +41,9 @@ export * from "./finding-links";
 export * from "./remediation-actions";
 export * from "./remediation-links";
 export * from "./validation-records";
+export * from "./maturity-scoring-methodologies";
+export * from "./maturity-domains";
+export * from "./maturity-domain-weights";
+export * from "./maturity-domain-control-mappings";
+export * from "./maturity-assessments";
+export * from "./maturity-scores";
