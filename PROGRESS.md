@@ -1,19 +1,418 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 8A COMPLETE (Session 12): Historical
-Maturity Integrity Hardening — a narrowly-scoped, additive fix closing
-the one limitation Milestone 8's own final report identified:
-MaturityScore now snapshots the referenced MaturityDomain's name/code/
-description at computation time (a database-trigger-populated, never
-application-settable, permanently-frozen record), so a finalized
-historical maturity result remains semantically reproducible even after
-the current MaturityDomain definition is later renamed, revised, or
-retired. No feature work, no UI, no DPIA/SDF, no reporting, no maturity-
-engine redesign; MaturityScoringMethodology/MaturityDomainWeight
-versioning, MaturityScore immutability, and MaturityAssessment
-finalization are all unchanged. Implemented, migrated, and tested against
-real PostgreSQL 16. Milestone 8 (Session 11) and everything before it
-passed before this hardening began.
+Status: 2026-09-01 — Slice A1 COMPLETE (Session 13): Application
+Foundation — Phase A of the actual PRIMUS product, built on top of the
+now-approved Milestones 1-8A domain model. Supabase Auth (login/logout/
+session refresh via `@supabase/ssr`), a single centralized session-
+resolution layer (`lib/auth/session.ts`), a single centralized
+application-layer authorization service (`lib/authorization/service.ts`,
+built on the existing TenantMembership → OrganisationMembership →
+EngagementMembership model — no new role database), a request-scoped
+database access layer that runs every query through the exact same
+`SET LOCAL ROLE authenticated` + `request.jwt.claim.sub` mechanism
+Supabase's own request layer uses (and every RLS test since Milestone 1
+already exercises), the first authenticated application shell
+(Organisations → Organisation detail → Engagement detail → Assessment
+detail), and the first real vertical slice — an authorized consultant
+recording an `AssessmentResponse` through a Server Action, database
+mutation, and audit trail, with the database's own finalization
+guard (Milestone 5) still the real enforcement even if the application
+layer's own check were ever bypassed. No new domain tables, no schema
+change, no migration. Real PostgreSQL throughout — no mock data. No
+Evidence UI, Risk UI, Findings, Remediation, Maturity UI, client portal,
+dashboards, or reporting (all deliberately out of this slice). Milestone
+8A (Session 12) and everything before it passed before this slice began.
+
+## Slice A1 — Application Foundation (Session 13, 2026-09-01)
+
+**Scope:** exactly what PHASE A / Slice A1 instructed — authentication,
+session resolution, a centralized authorization service, the first
+application shell, and one real vertical slice (AssessmentResponse
+update). No Evidence upload, Risk UI, Findings, Remediation, Maturity
+UI, client portal, dashboards, reporting, AI, DPIA, SDF, or
+notifications — none of those exist anywhere in this slice's changes.
+No new domain table, no migration, no schema change — the existing
+Milestones 1-8A domain model is used exactly as built.
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`,
+`ROADMAP.md`, `package.json`, the existing `app/`/`db/schema/`/`tests/`
+structure fresh from disk before writing anything, per instruction. Two
+findings from that reading were decisive:
+- No Supabase project has ever been provisioned for this repository
+  (DECISIONS.md D-03, still unresolved) — no live Supabase Auth backend
+  (cloud project, unreachable via this environment's network egress
+  proxy; nor a local `supabase start` instance, since the Docker daemon
+  itself is unavailable here) exists to authenticate against. This
+  bounds what could be tested end-to-end (see "Testing performed" and
+  "Known limitations" below) but does not change what was built: real,
+  correct `@supabase/ssr`-based integration code, exactly matching the
+  documented pattern, wired to the exact env vars `.env.example` already
+  named.
+- Migration 0001's own `can_access_organisation`/`can_access_tenant` SQL
+  functions do **not** grant a pure `TenantMembership` holder implicit
+  read access to every client organisation — confirmed by direct
+  inspection of the existing RLS policies, not assumed — matching
+  SECURITY.md §3's own explicit "no implicit cross-client access" rule.
+  The new application-layer authorization service mirrors this exactly
+  (DECISIONS.md R-83), rather than the broader reading
+  PRODUCT_UX_BLUEPRINT.md's own screen-inventory prose might otherwise
+  suggest.
+
+### What was implemented
+
+- **Stack additions** (`package.json`, all exact-pinned per this
+  project's existing convention): `@supabase/ssr@0.12.5`,
+  `@supabase/supabase-js@2.112.4` (Supabase Auth), `zod@3.24.4` (input
+  validation, ARCHITECTURE.md §2), `server-only@0.0.1` (build-time
+  guard against a server module being bundled into client JS),
+  `tailwindcss@3.4.19`/`postcss@8.5.26`/`autoprefixer@10.5.4` (styling,
+  ARCHITECTURE.md §2), `clsx@2.1.1`/`tailwind-merge@3.6.0`/
+  `class-variance-authority@0.7.1` (the standard shadcn/ui class-
+  composition helpers — a small, hand-written `Button`/`Badge` pair
+  rather than the full shadcn CLI scaffold, which needs network access
+  to their component registry and pulls in many Radix packages this
+  slice doesn't need). No second backend framework, no second
+  authentication provider, no second authorization system, no
+  microservices.
+- **Supabase Auth integration** (`lib/supabase/server.ts`,
+  `lib/supabase/middleware.ts`, `middleware.ts`, `lib/auth/actions.ts`):
+  the current `@supabase/ssr`-documented Next.js App Router pattern —
+  a server client built from `next/headers`' `cookies()` for Server
+  Components/Actions, a middleware-based session-refresh helper
+  (re-validates against Supabase Auth on every request, not merely
+  decoding a cookie), and `signIn`/`signOut` Server Actions. Login only
+  (email/password); no social login, SSO, MFA, password reset UI,
+  invitations, or account management, per instruction.
+- **Session resolution** (`lib/auth/session.ts`): one reusable
+  `getAuthenticatedUser()`/`requireAuthenticatedUser()` pair — every
+  protected page/layout calls this, none reinvents it. Accepts an
+  optional injectable Supabase-Auth-shaped client so its own control
+  flow (not the third-party SDK) is what a unit test exercises (see
+  "Testing performed").
+- **Centralized authorization service** (`lib/authorization/service.ts`):
+  `isActiveTenantMember`/`isActiveOrganisationMember`/
+  `isActiveEngagementMember`/`canAccessOrganisation`/
+  `canAccessEngagement`/`canAccessTenant` and their `require*Access`
+  throwing variants (`NotFoundOrForbiddenError`) — real Drizzle queries
+  against `tenant_memberships`/`organisation_memberships`/
+  `engagement_memberships`, independently re-implementing (not calling)
+  migration 0001's own SQL functions, per SECURITY.md §2/R-07's
+  explicit two-independently-implemented-layers rationale (DECISIONS.md
+  R-83). No new role/permission database; no fine-grained `Role`/
+  `Permission`-based action check yet (DECISIONS.md R-84 — the seeded
+  `Permission` catalogue is still only 8 illustrative rows, per
+  `db/seed/roles.ts`'s own comment).
+- **Request-scoped database access** (`lib/db/request-client.ts`):
+  `withRequestDb(userId, fn)` opens one Postgres connection per request,
+  executes `SET LOCAL ROLE authenticated`/`anon` + sets
+  `request.jwt.claim.sub` (the exact mechanism `tests/rls/helpers.ts`'s
+  `asUser`/`asAnon` have exercised since Milestone 1, and the same one
+  Supabase's own request layer uses in production), then hands the
+  caller a Drizzle instance scoped to that connection — every RLS policy
+  written since Milestone 1 applies to every query this slice issues,
+  unchanged, unweakened (DECISIONS.md R-85 records the one honest gap:
+  no real Supabase project exists to connect as its production-shaped
+  `authenticator` role, so `DATABASE_URL` still resolves to the local
+  Postgres superuser, exactly like every migration/seed script since
+  Milestone 1 — the `SET LOCAL ROLE` discipline is what actually
+  enforces RLS for every code path built, not the connection's own
+  ceiling privilege).
+- **Domain read/write functions** (`lib/domain/organisations.ts`,
+  `lib/domain/engagements.ts`, `lib/domain/assessments.ts`): real,
+  typed Drizzle queries against the existing schema —
+  `listAccessibleOrganisations` (relies on RLS's own filtering — no
+  redundant application-layer list-filter, since there is no more
+  specific question to ask of a plain list read than what RLS already
+  answers), `getOrganisationDetail`, `getEngagementDetail`,
+  `getAssessmentDetail`, and `updateAssessmentResponse` — the last of
+  these is the vertical-slice write path, following instructions §14's
+  exact ordering (authenticate → resolve session → derive engagement/
+  organisation from the `AssessmentControl`'s own database row, never
+  from browser-supplied ids → validate input → mutate → rely on RLS as
+  backstop). A pre-check against `Assessment.status = 'finalized'`
+  gives a clean, generic error; the database's own finalization trigger
+  (Milestone 5's `enforce_assessment_response_draft_mutable`) is the
+  actual, unconditional enforcement even if that pre-check were somehow
+  bypassed — its raised Postgres error is caught and translated into
+  the same clean `AssessmentFinalizedError`, never surfaced raw.
+- **Application shell** (`app/(shell)/layout.tsx`,
+  `components/shell/nav.tsx`, `components/shell/user-menu.tsx`): one
+  `requireAuthenticatedUser()` call protects the entire route group;
+  global nav shows only "Organisations" (Dashboard/Engagements-as-a-
+  standalone-item/Methodology/Administration are real, planned
+  destinations per PRODUCT_UX_BLUEPRINT.md §6 with no page built behind
+  them yet — omitted rather than linked to a page that doesn't exist,
+  per instruction §8's "only show items that are actually supported").
+  Session indicator + logout (a plain Server Action form, works without
+  client-side JavaScript).
+- **Routing** (`app/login/`, `app/(shell)/organisations/`,
+  `.../[organisationId]/`, `.../engagements/[engagementId]/`,
+  `.../assessments/[assessmentId]/`): matches
+  PRODUCT_UX_BLUEPRINT.md §14's route tree exactly for the segments this
+  slice builds; every dynamic path segment is presentation only — every
+  Server Action/data fetch behind it re-resolves the caller's actual
+  membership server-side, so a crafted URL to an engagement the caller
+  has no membership on fails identically to a genuinely nonexistent one
+  (SECURITY.md §13).
+- **Organisations / Organisation detail / Engagement detail / Assessment
+  detail pages**: real PostgreSQL data only; empty/loading/error/
+  unauthorized/not-found/finalized-locked states all implemented (see
+  `app/(shell)/loading.tsx`, `app/(shell)/error.tsx`,
+  `app/not-found.tsx`, and each page's own inline empty-state markup).
+- **The AssessmentResponse vertical slice**
+  (`.../assessments/[assessmentId]/page.tsx` + `actions.ts`): displays
+  every `AssessmentControl` in scope with its Control's own code/title
+  and current response; an authorized consultant edits via an inline
+  form (effectiveness rating + rationale) posting to a Server Action —
+  the browser never writes to Postgres directly. A finalized
+  assessment renders every response as locked, read-only text, with no
+  editable control rendered at all (not merely a disabled one) —
+  matching, not merely hoping to match, the database's own unconditional
+  rejection.
+- **Accessibility baseline** (instructions §24): real `<label>`s on
+  every form input, a global visible focus ring (`app/globals.css`),
+  semantic `<button>`/`<a>`/`<form>` elements throughout, `role="alert"`
+  on error messages, `role="status"` + visually-hidden text on the
+  loading state, and status badges (`components/ui/badge.tsx`) that
+  always pair colour with a visible text label — never colour alone.
+
+### Testing performed (exact commands, run in this order)
+
+1. `npm run typecheck` — clean, repeated after every file added.
+2. `npx eslint .` — clean, repeated after every file added.
+3. `npm run build` (`next build`) — **failed once**: Next.js attempted to
+   statically prerender `/` and `/organisations` at build time, and both
+   throw (by design) when `NEXT_PUBLIC_SUPABASE_URL`/
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` are unset, since no Supabase project
+   is configured in this environment. Diagnosed correctly as a route-
+   segment-configuration gap, not a code bug: every route under
+   `app/(shell)/` and the root `/` route depend on the caller's session
+   and live database access and can never be correctly prerendered —
+   fixed by adding `export const dynamic = "force-dynamic"` to
+   `app/(shell)/layout.tsx` (cascades to every nested segment) and
+   `app/page.tsx`. Re-ran — succeeded; every route under `/organisations`
+   and `/login` and `/` correctly reported as `ƒ` (server-rendered on
+   demand), none prerendered.
+4. `npx tsc --noEmit` / `npx eslint .` re-run after the build fix —
+   clean.
+5. `npx vitest run tests/app` — **failed twice** before passing, both
+   genuine test-infrastructure gaps, not application bugs:
+   - Vitest has no built-in resolution for this project's own `@/*`
+     tsconfig path alias (Next.js resolves it via its own webpack
+     config; Vitest/Vite do not read `tsconfig.json`'s `paths`
+     automatically) — fixed by adding the same alias to
+     `vitest.config.ts`'s own `resolve.alias`.
+   - The real `server-only` npm package (now an explicit dependency,
+     see above) unconditionally throws unless the bundler applies
+     Next.js's own special "server" resolve condition — a build-time-
+     only guard with no runtime behavior of its own to test. Vitest has
+     no such condition, so importing any module carrying `import
+     "server-only"` always threw, regardless of correctness. Fixed with
+     a documented test-only alias (`tests/shims/server-only.ts`, a
+     no-op module) in `vitest.config.ts` — the real Next.js build
+     (`npm run build`) continues to use the real npm package and its
+     real enforcement; only the Vitest process is affected.
+   - Also found and fixed during this pass (not build/tooling issues):
+     `lib/auth/session.ts` originally wrapped `getAuthenticatedUser` in
+     React's `cache()` for per-request memoization — `cache` does not
+     exist in the plain `react@18.3.1` package this project pins (only
+     in Next.js's own internal, patched React copy used during its own
+     build, which is why `npm run build` itself never surfaced this).
+     Removed rather than special-cased further — a minor, deliberate
+     simplification (DECISIONS.md-adjacent, recorded in "Known
+     limitations" below), not required for correctness.
+6. Re-ran `npx vitest run tests/app` after both fixes — **20/20
+   passing** (`session.test.ts` 5, `authorization.test.ts` 6,
+   `assessments.test.ts` 9). One test-authoring bug found and fixed
+   along the way: the required "direct malicious request" scenario
+   (§21 item 6) initially reused an already-finalized Assessment from
+   an earlier test in the same file, so Postgres's `BEFORE INSERT`
+   finalization trigger fired before RLS's own `WITH CHECK` could —
+   masking which mechanism actually rejected the write. Fixed by using
+   a fresh, still-draft Assessment for that one scenario, isolating it
+   to RLS's own tenant/engagement scoping specifically.
+7. `npm run test:db` (fresh reset + full suite, now including
+   `tests/app`) — **390/390 passing**. Run **twice** in full (fresh
+   `reset-test-db` each time) to prove stability — 390/390 both times,
+   identical results.
+8. `rm -rf .next && npm run build` — re-verified clean after the
+   `cache()` removal.
+9. Browser-security checks (instructions §23), performed directly, not
+   assumed: `grep`'d the built `.next/static` client bundle output for
+   `SUPABASE_SERVICE_ROLE_KEY`/`DATABASE_URL`/`postgres://`/
+   `service_role` — none found. Also confirmed **zero** `NEXT_PUBLIC_*`
+   references exist anywhere in the client bundle at all, because this
+   slice's login/logout flow is entirely Server-Action-based — no
+   browser-side Supabase client is instantiated anywhere in Slice A1,
+   so there is no client-side exposure surface for the public
+   URL/anon key either, not merely no exposure of the *secret* values.
+   Confirmed exactly one `"use client"` module exists in this slice
+   (`app/(shell)/error.tsx`, required by Next.js for error boundaries)
+   and it receives only a generic `Error` object and a `reset()`
+   callback — no server/database data is ever serialized into it.
+10. Direct git-status check confirming no `drizzle/migrations/**` or
+    `db/schema/**` file was touched by this slice (instructions §22/§20)
+    — none were.
+
+### tests/app (3 new files, 20 new tests)
+
+- `session.test.ts` (5 tests — Authentication, instructions §21): the
+  required "unauthenticated protected-route test" (`getAuthenticatedUser`
+  returns `null`; `requireAuthenticatedUser` throws Next.js's own
+  `NEXT_REDIRECT` error targeting `/login` — asserted on the error's
+  `digest`, not merely "it threw") and "authenticated session test"
+  (`getAuthenticatedUser`/`requireAuthenticatedUser` correctly resolve
+  and return a real user), plus a Supabase-error-reporting case. Uses a
+  stand-in satisfying `SupabaseAuthClientLike` — stubs only the
+  third-party Supabase SDK boundary (see "Known limitations" for
+  exactly why), never any authorization logic.
+- `authorization.test.ts` (6 tests — the exact six required scenarios,
+  against real PostgreSQL): (1) Tenant A cannot access Tenant B's
+  organisation; (2) Tenant A cannot access Tenant B's engagement;
+  (3) Organisation A1 cannot access Organisation A2's engagement, same
+  tenant; (4) a user without engagement access cannot update
+  AssessmentResponse (and nothing is written); (5) a finalized
+  assessment's response cannot be mutated by an otherwise-authorized
+  user (and the response is provably unchanged); (6) a direct request
+  that skips the application authorization layer entirely (a raw
+  `INSERT` issued directly, bypassing `lib/domain/assessments.ts`) is
+  still rejected — by RLS itself, proving the database backstop is
+  real, not merely trusted because the application layer happens to
+  check first.
+- `assessments.test.ts` (9 tests — Application, instructions §21):
+  `listAccessibleOrganisations`, `getOrganisationDetail` (success +
+  not-found error state), `getEngagementDetail` (success + not-found
+  error state), `getAssessmentDetail` (the control grid with the real
+  Control's own code/title), `updateAssessmentResponse` (create, then
+  an idempotent-by-control second update proving no duplicate row is
+  created), and audit attribution (the resulting `audit_log` row is
+  correctly attributed to the acting user).
+
+### Files changed
+
+- New: `middleware.ts`, `lib/supabase/server.ts`,
+  `lib/supabase/middleware.ts`, `lib/auth/session.ts`,
+  `lib/auth/actions.ts`, `lib/db/request-client.ts`,
+  `lib/authorization/service.ts`, `lib/domain/organisations.ts`,
+  `lib/domain/engagements.ts`, `lib/domain/assessments.ts`,
+  `lib/utils.ts`, `components/ui/button.tsx`, `components/ui/badge.tsx`,
+  `components/shell/nav.tsx`, `components/shell/user-menu.tsx`,
+  `app/globals.css`, `app/login/page.tsx`, `app/not-found.tsx`,
+  `app/(shell)/layout.tsx`, `app/(shell)/loading.tsx`,
+  `app/(shell)/error.tsx`, `app/(shell)/organisations/page.tsx`,
+  `app/(shell)/organisations/[organisationId]/page.tsx`,
+  `app/(shell)/organisations/[organisationId]/engagements/
+  [engagementId]/page.tsx`, `app/(shell)/organisations/
+  [organisationId]/engagements/[engagementId]/assessments/
+  [assessmentId]/page.tsx`, `.../assessments/[assessmentId]/actions.ts`,
+  `tailwind.config.js`, `postcss.config.js`, `tests/app/helpers.ts`,
+  `tests/app/session.test.ts`, `tests/app/authorization.test.ts`,
+  `tests/app/assessments.test.ts`, `tests/shims/server-only.ts`.
+- Modified: `app/layout.tsx` (imports `globals.css`), `app/page.tsx`
+  (real redirect logic, `force-dynamic`), `package.json` (new
+  dependencies, `test:app` script, `test:db` extended, description
+  unchanged — this is application-layer work on top of an already-
+  described domain foundation, not a new domain milestone),
+  `.env.example` (clarifying comments — no new variables needed; the
+  two Supabase public-config vars this slice actually uses were already
+  documented), `vitest.config.ts` (path alias + the `server-only` test
+  shim), `DECISIONS.md` (R-83 through R-85), `PROGRESS.md` (this entry).
+- Unchanged: every `drizzle/migrations/**` and `db/schema/**` file —
+  no migration, no schema change, confirmed via `git status` before
+  committing. `DATA_MODEL.md` — no genuine domain clarification was
+  required by this slice (it builds application code around the
+  existing model, not a new domain concept).
+
+### Known limitations (documented, not silently built around)
+
+- **No live Supabase Auth backend is reachable from this environment**
+  (DECISIONS.md D-03, still unresolved): neither a cloud Supabase
+  project (network egress to `supabase.co`/`ghcr.io`/`registry-1.docker.io`
+  is blocked by this environment's own proxy — confirmed directly, not
+  assumed) nor a local `supabase start` instance (the Docker daemon
+  itself is unavailable in this environment — confirmed via `docker
+  info`). Consequence: the actual `supabase.auth.getUser()`/
+  `signInWithPassword()`/`signOut()` network calls have never executed
+  against a real backend anywhere in this project's history, and could
+  not be exercised end-to-end in this slice. What *is* tested for real,
+  against real PostgreSQL: every authorization decision this
+  application makes, once a `userId` is in hand (`tests/app/
+  authorization.test.ts`), and this module's own null/redirect control
+  flow given a resolved-or-not session (`tests/app/session.test.ts`,
+  via a stand-in satisfying the Supabase SDK's own minimal interface,
+  not a stub of any authorization logic). A real login cannot be
+  clicked through in this environment until real
+  `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` values
+  exist — an infrastructure/provisioning blocker (D-03), not a code gap.
+- `getAuthenticatedUser` is called independently by the shell layout and
+  by each leaf page (no per-request memoization) — a minor, deliberate
+  simplification after `React.cache()` proved unavailable in this
+  project's own pinned `react@18.3.1` (only present in Next.js's
+  internal, patched React copy). Costs one extra `auth.getUser()` call
+  per page render; correctness is unaffected. A future slice could
+  reintroduce memoization via a different mechanism if this becomes a
+  measured performance concern.
+- The authorization service checks membership existence only, not
+  fine-grained `Role`/`Permission` actions (DECISIONS.md R-84) — the
+  seeded permission catalogue remains 8 illustrative rows
+  (`db/seed/roles.ts`), not the full set ARCHITECTURE.md/SECURITY.md's
+  own prose names. No screen in this slice needs a finer check than
+  "does this user have engagement access at all" (the one mutation —
+  AssessmentResponse update — has no separate "finalize" or role-
+  specific gate to enforce yet).
+- `canAccessTenant` (`lib/authorization/service.ts`) is intentionally
+  narrower than migration 0001's own `can_access_tenant` SQL function —
+  it checks tenant-wide membership only, not "any organisation
+  accessible under this tenant" — because no screen in this slice
+  needs the broader form (DECISIONS.md R-83).
+- The application's database connection cannot yet use a production-
+  shaped `authenticator` role (DECISIONS.md R-85) — a continuation of
+  D-03, now load-bearing for real application code rather than only
+  test/tooling code. RLS enforcement itself is unaffected (every query
+  still runs under `SET LOCAL ROLE authenticated`/`anon`).
+- No dev/demo seed data (organisations/engagements/assessments) was
+  added beyond what the test suite itself creates — deliberately: a
+  synthetic dev user cannot actually log in through the real
+  application in this environment without a live Supabase project to
+  issue it a session (the same D-03 gap above), so a seed script's
+  practical value right now is limited. A reasonable, low-cost addition
+  for the first environment with real Supabase credentials configured,
+  deferred rather than built speculatively.
+- No end-to-end/browser test (Playwright or similar) was written — the
+  required test areas (instructions §21) are covered by direct tests of
+  the actual Server Component/Server Action functions the real pages
+  call (the standard, legitimate way to test Next.js Server Actions —
+  they are plain exported async functions) plus `npm run build`'s own
+  full compile of every route; spinning up real browser E2E
+  infrastructure is a larger, separately-scoped investment better
+  suited to a future slice, not silently skipped but not attempted
+  here either.
+- Every other Milestone 1-8A known limitation (D-03/D-04/D-05/D-06,
+  storage/signed-URLs, malware scanning, the permission-catalogue
+  completeness gap, etc.) remains exactly as previously documented and
+  is unaffected by this slice.
+
+### Recommended next application slice
+
+With authentication, session resolution, authorization, the shell, and
+one real vertical slice proven end-to-end, PRODUCT_UX_BLUEPRINT.md §23's
+own build sequence (Phase B: Organisation/Engagement management
+breadth — creation forms, membership management, Client Master Data
+screens) is the natural next step; alternatively, deepening Phase C
+(the full Assessment workspace — Control Test recording, Evidence
+linkage) over the one AssessmentControl-row slice built here. Either
+is a reasonable next slice; this report does not preempt the user's own
+choice between them.
+
+### Git status / remote synchronization status
+
+All Slice A1 work is committed on `claude/primus-privacy-architecture-39p3gh`
+and pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Milestone 8A — Historical Maturity Integrity Hardening (Session 12, 2026-09-01)
 

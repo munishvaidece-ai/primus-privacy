@@ -1963,3 +1963,111 @@ apply it to today, and can be added later, by a future migration, without
 disturbing anything this migration does — the additive columns and
 trigger already in place would simply gain a more accurate one-time
 backfill pass whenever real historical data actually exists to backfill.
+
+## Slice A1 — Application Foundation (Authentication + Session Resolution + Authorization + Application Shell)
+
+None of the three decisions below contradicts or overrides any approved
+architecture document — each is a straightforward implementation choice
+within the bounds ARCHITECTURE.md/SECURITY.md already set, recorded here
+per this project's own established convention rather than escalated,
+consistent with the great majority of the R-NN log to date.
+
+### R-83 — The application authorization service independently re-implements the membership-lookup logic migration 0001's SQL functions already contain, rather than calling them
+
+**Decision:** `lib/authorization/service.ts`'s `isActiveTenantMember` /
+`isActiveOrganisationMember` / `isActiveEngagementMember` /
+`canAccessOrganisation` / `canAccessEngagement` / `canAccessTenant` are
+plain Drizzle queries against `tenant_memberships` /
+`organisation_memberships` / `engagement_memberships` — the same tables
+and the same active-membership/status logic as `is_active_tenant_member`
+/ `is_active_organisation_member` / `is_active_engagement_member` /
+`can_access_organisation` / `can_access_engagement` / `can_access_tenant`
+(migration 0001) — but written independently in TypeScript, not by
+calling those SQL functions from the application layer.
+**Rationale:** SECURITY.md §2's own stated reason for having two
+authorization layers is that they are independently implemented and
+must independently agree: "if they ever disagree, that disagreement is
+itself a bug to fix immediately, not a signal to relax either layer."
+Having the application layer literally delegate to the same SQL
+functions RLS itself calls would collapse two layers into one
+(a single implementation, invoked twice) rather than the two
+independently-reasoned checks SECURITY.md §2/R-07 actually describe.
+The literal logic (active-status membership lookups, the same fallback
+shape — org-wide-or-any-engagement-under-it for organisations,
+engagement-or-org-wide for engagements) is deliberately identical
+between the two implementations, because it is the same real business
+rule; only the mechanism (TypeScript query vs. SQL function) differs.
+One consequence, confirmed directly during Slice A1 implementation
+(not merely assumed): `can_access_organisation`/`can_access_tenant`
+(migration 0001) do **not** grant a pure `TenantMembership` holder
+(e.g. Platform Administrator with no client-specific membership at all)
+implicit read access to every client organisation's row — SECURITY.md
+§3's own explicit rule ("Practice staff do not get implicit cross-client
+access within their own tenant") — so `canAccessOrganisation` in
+`lib/authorization/service.ts` deliberately does **not** fall back to
+tenant-wide membership either, matching the real, already-approved RLS
+behavior rather than a more permissive reading PRODUCT_UX_BLUEPRINT.md's
+own screen-inventory prose might otherwise suggest. `canAccessTenant`
+is implemented only as far as this slice actually needs it (tenant-wide
+membership only, no "any accessible organisation under this tenant"
+fallback) — no screen in Slice A1 needs the broader form (Methodology/
+Administration are out of scope, instructions §19); it is a narrower,
+honestly-incomplete mirror of `can_access_tenant`'s SQL definition, and
+is documented as such in the code rather than either silently
+implemented in full ahead of a need or silently left inconsistent with
+its own docstring.
+
+### R-84 — The authorization service checks membership existence only — no `Role`/`Permission`/`RolePermission` fine-grained action check is built in Slice A1
+
+**Decision:** `requireEngagementAccess`/`requireOrganisationAccess`/
+`requireTenantAccess` answer "does this user have ANY active membership
+granting access to this scope," not "does this user's specific Role
+grant the specific action being attempted." The one mutation this slice
+performs (`AssessmentResponse` update) is gated by engagement access
+plus the database's own finalization trigger (Milestone 5) — nothing
+in this slice checks, for example, "does this user's Role include a
+`assessment_response.write` permission."
+**Rationale:** PRODUCT_UX_BLUEPRINT.md §22 (Backend/Domain Gaps) already
+flagged the seeded `Permission` catalogue as "only 8 illustrative rows,
+not the full fine-grained set" ARCHITECTURE.md/SECURITY.md's own prose
+describes (`db/seed/roles.ts`'s own comment: "not an exhaustive
+catalogue... enough to prove RolePermission works end to end") — there
+is no real fine-grained permission data yet to check against. Building
+a `Role`/`Permission`-based gate now would mean checking against
+placeholder data, which is worse than not checking at all (a false
+sense of granular control). PHASE A instructions §19 also explicitly
+scope this slice to shell + navigation + the one vertical slice, not a
+general-purpose action-permission framework. This is a genuine,
+consciously-scoped limitation, not an oversight — recorded here and in
+PROGRESS.md's "Known limitations," to be closed by whichever future
+slice actually needs a role-specific write gate (e.g. "only a
+Consultant, not a Client Contributor, may finalize an Assessment").
+
+### R-85 — The application's own database connection cannot yet use a production-shaped, RLS-only-capable role — a continuation of D-03's already-recorded limitation, now load-bearing for real application code, not only test/tooling code
+
+**Decision:** `lib/db/request-client.ts`'s connection pool reads
+`DATABASE_URL` exactly as every migration/seed script has since
+Milestone 1 — in every environment this project has actually run in,
+that resolves to the local Postgres superuser, not a Supabase-
+provisioned `authenticator` role (a `LOGIN` role restricted to `SET
+ROLE anon/authenticated/service_role` and nothing else, which is what a
+real deployed Supabase project would provide). Every function in that
+module still unconditionally executes `SET LOCAL ROLE authenticated`/
+`anon` (+ the `request.jwt.claim.sub` GUC) before running a single
+domain query, so RLS is genuinely, independently re-checked on every
+request this slice's application code issues — this does not weaken
+enforcement for the actual code paths built.
+**Rationale:** No Supabase project has ever been provisioned for this
+repository (DECISIONS.md D-03, still unresolved) — there is no
+`authenticator` role to connect as. D-03 was recorded as a Milestone-1-
+era limitation affecting migration/seed/test tooling; Slice A1 is the
+first point real, user-facing application code inherits the same
+limitation, so it is re-recorded here specifically for that reason,
+not because the underlying fact has changed. The connection's *ceiling*
+privilege (what the connecting role could theoretically do if this
+module's own `SET LOCAL ROLE` discipline were ever bypassed by a future
+code change) is broader than a production `authenticator` role would
+allow — a real, tracked production-readiness gap (PROGRESS.md), closed
+automatically once a real Supabase project is provisioned and
+`DATABASE_URL` is repointed at its `authenticator` connection string,
+requiring no code change to `lib/db/request-client.ts` itself.

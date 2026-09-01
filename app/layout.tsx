@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
+import "./globals.css";
 
 export const metadata = {
   title: "PRIMUS PRIVACY",
-  description:
-    "PRIMUS PRIVACY — architecture and database-foundation phase. No product UI has been built yet.",
+  description: "PRIMUS PRIVACY — DPDP advisory and continuous compliance platform.",
 };
 
-// Minimal root layout — required for a valid Next.js App Router project.
-// This is NOT product UI. Milestone 1 is database-only; see PROGRESS.md.
+// Root layout — shared by both /login and the authenticated shell
+// (app/(shell)/layout.tsx). No authentication check happens here; the
+// shell layout is where protected routes actually enforce it (PHASE A
+// instructions §5/§8), so this file stays a plain, unauthenticated shell
+// every route (including /login) can render inside.
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
