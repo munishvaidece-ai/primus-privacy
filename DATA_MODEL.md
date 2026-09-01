@@ -545,10 +545,23 @@ different application-level semantics.
 
 **Implementation clarification (Slice C5, DECISIONS.md R-104):**
 `RemediationAction.owner_id` received the identical tenant-scoping
-hardening — the third and, for this project's current schema, final
-instance of this pattern (after `Risk.owner_id`/`Finding.owner_id` in
-Slices C3.1/C4). No field was renamed, removed, or given different
-application-level semantics.
+hardening (after `Risk.owner_id`/`Finding.owner_id` in Slices C3.1/C4).
+No field was renamed, removed, or given different application-level
+semantics. (Correction — see the Slice C6 note immediately below: this
+was not the final instance of the pattern, as first believed.)
+
+**Implementation clarification (Slice C6, DECISIONS.md R-107):**
+`ValidationRecord.validated_by` received the identical tenant-scoping
+hardening — a fourth instance of this pattern, found in the same
+unprotected shape during Slice C6's own fresh schema read. The Slice C5
+note above described its own fix as "the third and... final instance";
+that was inaccurate, and this note is the honest correction rather than
+a silent rewrite of the earlier one. No field was renamed, removed, or
+given different application-level semantics — `validated_by` still
+identifies the single acting user who recorded the validation
+(self-only, never a caller-assigned target); only its referential-
+integrity guarantee was strengthened to match every other owner/
+validator column in this document.
 
 `ValidationRecord.triggers_control_reassessment_id` is implemented as
 two separate nullable FK columns (`triggers_control_test_id`/

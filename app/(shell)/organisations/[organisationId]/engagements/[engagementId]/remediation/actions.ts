@@ -7,6 +7,7 @@ import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { withRequestDb } from "@/lib/db/request-client";
 import { updateRemediationAction, InvalidRemediationInputError } from "@/lib/domain/remediation";
 import { uploadEvidence, InvalidFileError } from "@/lib/domain/evidence";
+import { createValidationRecord, InvalidValidationInputError, ValidationRationaleRequiredError } from "@/lib/domain/validation";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 
 function remediationDetailPath(organisationId: string, engagementId: string, remediationActionId: string): string {
@@ -164,6 +165,153 @@ export async function uploadRemediationEvidenceAction(formData: FormData): Promi
       errorMessage = "You do not have access to upload evidence here.";
     } else {
       console.error("uploadRemediationEvidenceAction failed", err);
+      errorMessage = "Something went wrong uploading this evidence. Please try again.";
+    }
+  }
+
+  if (errorMessage) {
+    redirect(withQueryFlag(detailPath, "error", errorMessage));
+  }
+
+  revalidatePath(detailPath);
+  redirect(withQueryFlag(detailPath, "saved", "1"));
+}
+
+const createValidationRecordSchema = z.object({
+  organisationId: z.string().uuid(),
+  engagementId: z.string().uuid(),
+  remediationActionId: z.string().uuid(),
+  outcome: z.enum(["accepted", "rejected"]),
+  rationale: z.string().trim().max(4000).optional(),
+});
+
+/**
+ * Slice C6 (PHASE C — VALIDATION, instructions §4/§14): the ONLY way a
+ * ValidationRecord is created — RemediationAction detail's "Validation"
+ * section → Create Validation. Every ValidationRecord this application
+ * ever writes always sets `validatedBy` to the acting user
+ * (self-validation-only, instructions §8) and never touches
+ * `remediation_actions.status` (instructions §11/§29 — see
+ * `createValidationRecord`, lib/domain/validation.ts, for the full
+ * reasoning). This is a create-only form — there is no corresponding
+ * "edit validation" action, matching PRODUCT_UX_BLUEPRINT.md's own
+ * "record a new validation, never edit the existing one."
+ */
+export async function createValidationRecordAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+
+  const raw = {
+    organisationId: formData.get("organisationId"),
+    engagementId: formData.get("engagementId"),
+    remediationActionId: formData.get("remediationActionId"),
+    outcome: formData.get("outcome"),
+    rationale: formData.get("rationale") ?? undefined,
+  };
+  const detailPath =
+    typeof raw.organisationId === "string" && typeof raw.engagementId === "string" && typeof raw.remediationActionId === "string"
+      ? remediationDetailPath(raw.organisationId, raw.engagementId, raw.remediationActionId)
+      : "/organisations";
+
+  const parsed = createValidationRecordSchema.safeParse(raw);
+  if (!parsed.success) {
+    redirect(withQueryFlag(detailPath, "error", parsed.error.issues[0]?.message ?? "Invalid input."));
+  }
+
+  let errorMessage: string | null = null;
+  try {
+    await withRequestDb(user.id, (db) =>
+      createValidationRecord(db, user.id, {
+        remediationActionId: parsed.data.remediationActionId,
+        outcome: parsed.data.outcome,
+        rationale: parsed.data.rationale?.length ? parsed.data.rationale : null,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof ValidationRationaleRequiredError) {
+      errorMessage = err.message;
+    } else if (err instanceof InvalidValidationInputError) {
+      errorMessage = err.message;
+    } else if (err instanceof NotFoundOrForbiddenError) {
+      errorMessage = "You do not have access to validate this remediation action.";
+    } else {
+      console.error("createValidationRecordAction failed", err);
+      errorMessage = "Something went wrong recording this validation. Please try again.";
+    }
+  }
+
+  if (errorMessage) {
+    redirect(withQueryFlag(detailPath, "error", errorMessage));
+  }
+
+  revalidatePath(detailPath);
+  redirect(withQueryFlag(detailPath, "saved", "1"));
+}
+
+const uploadValidationEvidenceSchema = z.object({
+  organisationId: z.string().uuid(),
+  engagementId: z.string().uuid(),
+  remediationActionId: z.string().uuid(),
+  validationRecordId: z.string().uuid(),
+  title: z.string().trim().min(2, "Title must be at least 2 characters.").max(200, "Title must be 200 characters or fewer."),
+});
+
+/**
+ * Slice C6 (instructions §9): submits Evidence directly against an
+ * EXISTING ValidationRecord, using the same Evidence/EvidenceLink
+ * architecture extended this slice to accept a `validation_record` link
+ * target (lib/domain/evidence.ts) — never a second attachment system.
+ * The record must already exist (`evidence_links_validation_record_
+ * scope_fk` requires a real `validation_record_id`), so this action is
+ * only ever reachable from a specific, already-created ValidationRecord
+ * row in the history list — never offered before the record is created.
+ * `evidenceType` is fixed to `"other"`, mirroring
+ * `uploadRemediationEvidenceAction`'s identical reasoning.
+ */
+export async function uploadValidationEvidenceAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+
+  const raw = {
+    organisationId: formData.get("organisationId"),
+    engagementId: formData.get("engagementId"),
+    remediationActionId: formData.get("remediationActionId"),
+    validationRecordId: formData.get("validationRecordId"),
+    title: formData.get("title"),
+  };
+  const detailPath =
+    typeof raw.organisationId === "string" && typeof raw.engagementId === "string" && typeof raw.remediationActionId === "string"
+      ? remediationDetailPath(raw.organisationId, raw.engagementId, raw.remediationActionId)
+      : "/organisations";
+
+  const parsed = uploadValidationEvidenceSchema.safeParse(raw);
+  if (!parsed.success) {
+    redirect(withQueryFlag(detailPath, "error", parsed.error.issues[0]?.message ?? "Invalid input."));
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    redirect(withQueryFlag(detailPath, "error", "A file is required."));
+  }
+
+  let errorMessage: string | null = null;
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    await withRequestDb(user.id, (db) =>
+      uploadEvidence(db, user.id, {
+        organisationId: parsed.data.organisationId,
+        engagementId: parsed.data.engagementId,
+        title: parsed.data.title,
+        evidenceType: "other",
+        linkTo: { type: "validation_record", validationRecordId: parsed.data.validationRecordId },
+        file: { buffer, filename: file.name, mimeType: file.type || "application/octet-stream" },
+      }),
+    );
+  } catch (err) {
+    if (err instanceof InvalidFileError) {
+      errorMessage = err.message;
+    } else if (err instanceof NotFoundOrForbiddenError) {
+      errorMessage = "You do not have access to upload evidence here.";
+    } else {
+      console.error("uploadValidationEvidenceAction failed", err);
       errorMessage = "Something went wrong uploading this evidence. Please try again.";
     }
   }

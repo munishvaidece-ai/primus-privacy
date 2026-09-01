@@ -1,33 +1,327 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C5 (Remediation Actions) COMPLETE (Session
-22): the existing (Milestone 7, database-only) RemediationAction/
-RemediationFinding model now has a real, traceable consultant workflow
-— create a RemediationAction from a Finding's own detail page, an
-engagement-wide Remediation list, a RemediationAction detail/edit page
-(title/description/priority/status/due_date/owner all genuinely
-editable), full Remediation → Finding → Risk → Assessment → Control →
-AssessmentResponse traceability composed entirely from EXISTING read
-functions one layer deeper than Finding detail's own composition, and
-— for the first time in this Risk/Finding/Remediation chain — a
-genuine DIRECT Evidence relationship: `lib/domain/evidence.ts` was
-extended to support `remediation_action` as an EvidenceLink target, an
-already-approved database subject type since Milestone 7 whose
-application-layer support simply hadn't been built yet (DECISIONS.md
-R-106). The one schema change Slice C4's own report flagged in advance
-was made: `remediation_actions.owner_id` — found in the identical
-unprotected shape `risks.owner_id`/`findings.owner_id` had before their
-own fixes — is now database-enforced tenant-scoped via migration 0022,
-closing the last remaining instance of this pattern in the current
-schema (DECISIONS.md R-104), verified by both the automated suite and a
-standalone raw-`psql` attack demonstration. Remediation creation/
-editing is explicitly NOT blocked by Assessment finalization, priority
-is never automatically copied from the source Finding/Risk, and status
-transitions carry no invented order (DECISIONS.md R-105). Validation is
-explicitly NOT built — any existing `ValidationRecord` is shown
-read-only. Full details in the "Slice C5" section below. STOP after C5
-per explicit instruction — no Validation/Maturity/Client Portal/
-Reporting/AI.
+Status: 2026-09-01 — Slice C6 (Validation) COMPLETE (Session 23): the
+existing (Milestone 7, database-only) ValidationRecord model now has a
+real, traceable consultant workflow, closing the chain Assessment →
+Response/ControlTest → Evidence → Risk → Finding → Remediation Action →
+Validation → Closure. `lib/domain/validation.ts` is new
+(`createValidationRecord`/`listValidationRecordsForRemediation`/
+`getValidationRecordDetail`); creation is embedded in the
+RemediationAction detail page (PRODUCT_UX_BLUEPRINT.md row #16: "not a
+top-level screen"), not a new route — a full validation history (every
+past record, most recent first, including superseded/rejected ones)
+plus a create-only form (outcome + rationale, required on rejection,
+reusing the exact Slice C2 `ReviewRationaleRequiredError` precedent).
+`validated_by` is always the acting user (self-validation-only,
+preserved as-is), never touches `remediation_actions.status` (no
+trigger anywhere connects the two tables — the definitive evidence
+instructions §11 required before ruling this out), and every decision
+field remains permanently frozen by the pre-existing
+`prevent_validation_record_tampering` trigger (migration 0013) — a
+correction is always a new ValidationRecord, never an edit. Evidence
+was extended a fourth and final time to support `validation_record` as
+an EvidenceLink target (DECISIONS.md R-110), completing all four
+subject types this schema has carried since Milestone 7. The one
+schema gap this slice found — `validation_records.validated_by` in the
+identical unprotected shape `risks.owner_id`/`findings.owner_id`/
+`remediation_actions.owner_id` had before their own fixes — is now
+database-enforced tenant-scoped via migration 0023 (DECISIONS.md
+R-107), which is also an honest correction: Slice C5's own report
+called its fix "the third and... final instance" of this pattern; this
+is a fourth. 615 tests pass (57 files), including a new 33-test
+`tests/app/validation.test.ts` and a standalone raw-SQL attack
+demonstration outside the suite. Full details in the "Slice C6" section
+below. STOP after C6 per explicit instruction — no
+Maturity/Client Portal/Reporting/AI.
+
+## Slice C6 — Validation (Session 23, 2026-09-01)
+
+**Scope:** exactly what PHASE C — VALIDATION / Slice C6 instructed —
+turn the existing (Milestone 7, database-only) ValidationRecord model
+into a real, traceable consultant workflow: RemediationAction → Create
+Validation → authenticate → authorize → validate → persist → audit →
+show Validation, embedded in the RemediationAction detail page. No
+Maturity, Client Portal, Reporting, or AI UI anywhere in this slice's
+changes. No reassessment-linking UI (`triggers_control_test_id`/
+`triggers_assessment_response_id` remain read-only, per
+PRODUCT_UX_BLUEPRINT.md's own "later link reassessment" framing —
+DECISIONS.md R-111). No standalone Validation route (blueprint's own
+"not a top-level screen" — DECISIONS.md R-112). No automatic
+`remediation_actions.status` transition on validation (DECISIONS.md
+R-108).
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, the
+ValidationRecord/RemediationAction/Finding/Risk/Assessment/Evidence
+schemas, the existing authorization service, the Remediation domain
+(`lib/domain/remediation.ts`), the Evidence domain
+(`lib/domain/evidence.ts`), the RemediationAction detail page, existing
+UI components, existing tests, and every relevant migration fresh from
+disk before writing anything, per instruction.
+
+### 1. Existing Validation architecture discovered
+
+`validation_records` (DATA_MODEL.md §8, migrations 0012/0013):
+`remediation_action_id` (the ONLY subject FK — attached to
+RemediationAction alone, never directly to Finding/Risk/Assessment),
+`tenant_id`/`organisation_id`/`engagement_id` (denormalized from the
+owning RemediationAction), `validated_by` (found unprotected — item
+15), `validated_at` (timestamptz, defaults `now()`), `outcome`
+(`validation_outcome` enum: `accepted`/`rejected` only — no third
+value), `rationale` (additive text, nullable), `triggers_control_test_id`/
+`triggers_assessment_response_id` (two nullable FKs implementing the
+single conceptual "reassessment trigger" DATA_MODEL.md describes — a
+real FK can only target one table; at most one may be set, and only
+when `outcome = 'accepted'`, both enforced by CHECK constraints),
+`created_at`/`created_by`. Every decision field
+(`remediation_action_id`/`tenant_id`/`organisation_id`/`engagement_id`/
+`validated_by`/`validated_at`/`outcome`/`rationale`) is frozen after
+creation by the existing `prevent_validation_record_tampering` trigger
+(migration 0013, BEFORE UPDATE) — the sole exception is the two
+reassessment-trigger columns, each settable exactly once from NULL.
+Nothing in migration 0012/0013 connects `validation_records` to
+`remediation_actions.status` — grepped directly, confirmed absent (item
+6/DECISIONS.md R-108). No genuine discrepancy was found between
+DATA_MODEL.md and the actual schema.
+
+### 2. The 10 critical semantic questions (instructions §3), answered from the repo
+
+1. **What does a ValidationRecord attach to?** RemediationAction only —
+   `remediation_action_id` is its one subject FK; no direct Finding/Risk/
+   Assessment column exists.
+2. **What makes a RemediationAction "considered validated"?** Nothing
+   automatic at the database level — no trigger, no generated column,
+   no view computes this from `validation_records`. It is purely a
+   human read of the history a consultant chooses to act on via a
+   separate, explicit `updateRemediationAction` status change.
+3. **Does the record carry the final decision, or is it derived
+   later?** The record itself is the final decision — `outcome` is set
+   at creation and immutable afterward; nothing derives it from
+   elsewhere.
+4. **How does Evidence relate to Validation?** Only indirectly via
+   EvidenceLink's `validation_record` subject type (item 5) — no direct
+   column on `validation_records` itself.
+5. **Is the record mutable at all?** No, except the two
+   once-settable reassessment-trigger columns (item 1).
+6. **Are multiple validations per RemediationAction expected?** Yes —
+   nothing limits a RemediationAction to one ValidationRecord;
+   PRODUCT_UX_BLUEPRINT.md itself frames correction as "record a new
+   validation," not "edit the existing one."
+7. **Does creating a ValidationRecord change RemediationAction.status?**
+   No — no trigger connects them (item 1/DECISIONS.md R-108).
+8. **Is validation self-only or does it need a validator picker?**
+   Self-only, matching `respondentId`/`testerId`/`ownerUserId`'s
+   identical established pattern (re-verified by grep before writing
+   any code).
+9. **Is closure a separate concept or implied by status?** Implied
+   only — `remediation_action_status`'s `closed` value is the only
+   representation; no separate "closure" table/column/event exists.
+10. **Is there a standalone Validation screen in the UX blueprint?**
+    No — row #16 explicitly says "not a top-level screen."
+
+No STOP condition was triggered for any of these — each resolved
+unambiguously from direct schema/migration/blueprint inspection.
+
+### 3. Validation creation workflow
+
+`lib/domain/validation.ts`'s `createValidationRecord`: Browser → Server
+Action (`createValidationRecordAction`, added to the RemediationAction
+detail page's own `actions.ts`) → authenticate → look up the
+RemediationAction's own authoritative row → `requireEngagementAccess` →
+validate (`outcome` is one of the two real enum values; `rationale`
+required if `outcome = 'rejected'`, reusing Slice C2's
+`ReviewRationaleRequiredError` precedent as
+`ValidationRationaleRequiredError`) → insert `validation_records`
+(`validatedBy` always the acting user; `validatedAt`/`outcome`/
+`rationale` as given; the two reassessment-trigger columns always left
+NULL — item 4 below) → PostgreSQL (one transaction, one insert) → RLS →
+audit (existing `validation_records_audit_log` trigger — no new audit
+mechanism) → `revalidatePath`/redirect back to the RemediationAction
+detail page. Mirrors `createRemediationAction`'s (Slice C5) exact
+shape: only `remediationActionId` identifies the source context;
+tenant/organisation/engagement scope is always re-derived server-side
+from the RemediationAction's own authoritative row, never trusted from
+the caller (instructions §4/§10).
+
+### 4. Reassessment-trigger columns: not set by this slice
+
+`createValidationRecord` never sets `triggers_control_test_id`/
+`triggers_assessment_response_id` — PRODUCT_UX_BLUEPRINT.md's own
+"later link reassessment" language marks this as intentionally future
+work, and instructions §12 forbid inventing auto-reopen/cascade
+behavior beyond what's explicit (DECISIONS.md R-111). The
+RemediationAction detail page's validation-history list does show,
+read-only, whether a record has either column set ("Reassessment
+recorded against this validation"), honestly reflecting the current
+row rather than assuming it's always empty — but nothing in this
+slice's UI can set them.
+
+### 5. Evidence ↔ ValidationRecord relationship
+
+`evidence_links` has carried a genuine, fully-built `validation_record`
+subject type (column, CHECK-constraint branch, composite scope FK)
+since Milestone 7 — the fourth and final EvidenceLink subject type this
+schema defines, alongside `assessment_response`/`control_test`
+(Slice C2) and `remediation_action` (Slice C5). `lib/domain/
+evidence.ts`'s `LinkTarget` union and `resolveLinkSubject` were
+extended with this fourth case (DECISIONS.md R-110); the two
+`evidenceLinks.insert()` call sites (`uploadEvidence`/
+`createEvidenceForVersion`) now pass `validationRecordId` through. New
+read functions `getEvidenceSummaryForValidationRecord` (single record)
+and `getEvidenceSummaryForValidationRecords` (batched, `inArray`) mirror
+`getEvidenceSummaryForRemediationAction`'s exact shape — the batched
+variant exists specifically so the RemediationAction detail page's full
+validation-history-plus-evidence render issues one query total, not one
+per record (instructions §32, no N+1). Assessment finalization is
+structurally not applicable (ValidationRecord has no Assessment
+relationship at all), so the `validation_record` branch returns
+`assessmentStatus: null`, identical to the `remediation_action`
+branch's own established conclusion. The RemediationAction detail
+page's Validation section shows each history record's own evidence
+inline, plus a per-record "Add evidence to this validation" form
+(`uploadValidationEvidenceAction`) — only reachable once the record
+already exists, since `evidence_links_validation_record_scope_fk`
+requires a real `validation_record_id`.
+
+### 6. Validator (`validated_by`) tenant-scoping — migration 0023
+
+Direct inspection found `validation_records.validated_by` in the exact
+same unprotected shape `risks.owner_id`/`findings.owner_id`/
+`remediation_actions.owner_id` were in before their own fixes — a
+plain `validated_by → users(id)` FK, no tenant consistency check.
+Migration `0023_validation_record_validator_tenant_scoping.sql` applies
+the identical fix a fourth time: drops the plain FK, adds a composite
+`validation_records_validated_by_tenant_fk (validated_by, tenant_id) →
+users(id, tenant_id)`, reusing the same `users_id_tenant_id_key`
+constraint migration 0020 already added — no new supporting constraint,
+no RLS/GRANT/audit-trigger change, no other table touched
+(DECISIONS.md R-107). `db/schema/validation-records.ts` was updated to
+match. Applied and verified via `psql \d+ validation_records` — the new
+FK is present, the old plain FK is gone, `evidence_links_validation_
+record_scope_fk` still correctly references the table. **Correction to
+the record:** Slice C5's own PROGRESS.md/DATA_MODEL.md entries describe
+`remediation_actions.owner_id`'s fix as "the third and... final
+instance of this pattern." That was inaccurate — this is a fourth
+instance. The C5 entries are left as originally written (never silently
+rewritten); this slice's own DATA_MODEL.md and DECISIONS.md entries
+carry the honest forward correction instead.
+
+### 7. Historical integrity (instructions §21) — the primary C6 requirement
+
+Directly tested (`tests/app/validation.test.ts`, "21/28" test): a
+ValidationRecord (`V1`) is created against a RemediationAction; the
+RemediationAction's own `status`/`title` are then changed via direct
+SQL, well after `V1` was recorded; a full snapshot of `V1` taken before
+and after that state change is asserted byte-for-byte identical. A
+second test confirms a *rejected* ValidationRecord's `outcome` cannot
+later be silently flipped to `accepted` via direct SQL. Both rely on
+the pre-existing `prevent_validation_record_tampering` trigger
+(migration 0013) — this slice added no new immutability mechanism,
+only proved the existing one holds under the exact "create, then change
+other things, then verify the record is unchanged" scenario the
+instructions describe.
+
+### 8. Remediation-status test (instructions §29) — no silent mutation
+
+A dedicated test creates a ValidationRecord and asserts
+`remediation_actions.status` is byte-identical before and after —
+then, independently, queries `information_schema.triggers` for every
+trigger on `remediation_actions` and asserts none matches
+`/validat/i`, the definitive schema-level proof rather than an
+inference from one row's behavior.
+
+### 9. Multiple-validation test (instructions §27)
+
+A dedicated test creates a rejected `V1` followed by an accepted `V2`
+against the same RemediationAction, then confirms both remain fully
+queryable via `listValidationRecordsForRemediation` (full history,
+most recent first) and `getValidationRecordDetail` (each individually,
+with its own correct `outcome`) — never collapsed, never overwritten.
+
+### 10. Security tests (instructions §25) — 17 scenarios
+
+All 17 implemented in `tests/app/validation.test.ts`, mirroring
+`tests/app/remediation.test.ts`'s exact numbering/style: cross-tenant
+read (1), cross-organisation read same tenant (2), cross-engagement
+read same organisation (3), the same three for create (4-6), anonymous
+access rejected for SELECT and INSERT (7), unauthorized (no
+membership) create (8) and read (9), cross-tenant validator rejected on
+INSERT (10) and UPDATE (10b), migration-0023 safety for NULL/same-
+tenant validators (11b), self-validation-only proven structurally (11),
+forged-scope raw INSERT rejected by RLS (12), forged-scope
+Server-Action-shaped call rejected even with a real id (13), the
+RemediationAction relationship cannot cross a tenant boundary via raw
+SQL (14), the full chain stays tenant-safe end-to-end (15), no
+status-linking trigger exists (16), and audit attribution identifies
+the acting user (17).
+
+### 11. Evidence linking verification (instructions §24)
+
+A dedicated test uploads Evidence against Tenant A's own
+ValidationRecord (succeeds) and then attempts the identical upload
+against Tenant B's ValidationRecord using a Tenant A actor (rejected
+with `NotFoundOrForbiddenError`, resolved inside `resolveLinkSubject`'s
+tenant check before any insert is attempted).
+
+### 12. Traceability test (instructions §26)
+
+A dedicated test builds a fresh Assessment → Control → Risk → Finding →
+Remediation → Validation → Evidence chain end-to-end through the real
+domain functions, confirms every hop's detail read surfaces the next
+(RemediationAction detail's own `validationRecords` includes the new
+record; the ValidationRecord's own detail surfaces its source
+RemediationAction and its own directly-linked Evidence), and confirms
+Tenant B cannot traverse any part of it — not the ValidationRecord
+detail, not the RemediationAction detail, and its own Evidence summary
+for the ValidationRecord comes back empty rather than erroring for a
+nonexistent-looking id.
+
+### 13. Direct database inspection (instructions §30/§36)
+
+`psql \d+ validation_records` confirmed: the new composite validator FK
+present, the old plain FK gone, the `validation_records_remediation_
+action_scope_fk`/`triggers_control_test_scope_fk`/`triggers_assessment_
+response_scope_fk` composite FKs unchanged, RLS policies
+(`validation_records_select`/`_insert`/`_update`) unchanged, GRANTs
+unchanged (`authenticated` has INSERT/SELECT/UPDATE only — no DELETE),
+`validation_records_prevent_tampering`/`validation_records_audit_log`
+triggers unchanged. `evidence_links`'s `validation_record_id` CHECK
+branch and its own composite scope FK confirmed present and correct.
+
+A standalone raw-SQL attack demonstration, run OUTSIDE the vitest
+suite against the same reset test database (a genuine `SET LOCAL ROLE
+authenticated` + `set_config('request.jwt.claim.sub', ...)` session,
+the identical mechanism the RLS test harness itself uses — never a
+superuser bypass), attempted four real attacks using real fixture data
+pulled from the database: (1) a cross-tenant `validated_by` INSERT —
+rejected with `validation_records_validated_by_tenant_fk`; (2) a
+cross-tenant ValidationRecord creation via forged scope columns —
+rejected with `validation_records_remediation_action_scope_fk`; (3) a
+plain cross-tenant SELECT — zero rows returned (RLS); (4) a
+cross-tenant EvidenceLink pointed at another tenant's
+`validation_record_id` — rejected with `evidence_links_validation_
+record_scope_fk`. All four rejected exactly as expected.
+
+### 14. Test results
+
+`tests/app/validation.test.ts` — 33/33 passing standalone. Full
+`tests/app` — 245/245 passing (12 files). Full `npm run test:db` (fresh
+reset + entire suite) — **57 test files, 615 tests, all passing**, run
+twice for stability with identical counts both times. `npm run
+typecheck` clean. `npx eslint .` clean, zero warnings. `npm run build`
+succeeds — production build compiles, all routes generate correctly,
+including the extended RemediationAction detail route.
+
+### 15. What was NOT built (explicit STOP boundaries honored)
+
+No Maturity, no Client Portal, no Reporting, no AI — none of those four
+appear anywhere in this slice's diff. No standalone Validation route
+(DECISIONS.md R-112). No reassessment-linking UI (DECISIONS.md R-111).
+No automatic RemediationAction status transition on validation
+(DECISIONS.md R-108). No validator/user picker or directory — self-
+validation-only preserved exactly as it already existed. No new
+immutability mechanism — the existing Milestone-7 tampering trigger is
+the entire enforcement, verified rather than duplicated.
 
 ## Slice C5 — Remediation Actions (Session 22, 2026-09-01)
 

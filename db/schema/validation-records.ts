@@ -54,7 +54,13 @@ export const validationRecords = pgTable(
     organisationId: uuid("organisation_id").notNull(),
     engagementId: uuid("engagement_id").notNull(),
 
-    validatedBy: uuid("validated_by").references(() => users.id),
+    // Slice C6 (migration 0023, DECISIONS.md R-107): no plain
+    // `.references(() => users.id)` here — the composite
+    // `validatorTenantFk` below (referencing `users(id, tenant_id)`,
+    // not `users(id)` alone) is the real constraint, mirroring
+    // `risks.owner_id`'s/`findings.owner_id`'s/`remediation_actions.
+    // owner_id`'s identical Slices C3.1/C4/C5 fix.
+    validatedBy: uuid("validated_by"),
     validatedAt: timestamp("validated_at", { withTimezone: true }).notNull().defaultNow(),
     outcome: validationOutcomeEnum("outcome").notNull(),
     rationale: text("rationale"),
@@ -87,6 +93,17 @@ export const validationRecords = pgTable(
         remediationActions.engagementId,
       ],
       name: "validation_records_remediation_action_scope_fk",
+    }),
+    // Slice C6 (migration 0023): tenant consistency for the validator —
+    // conditionally active (skipped when validated_by is null), proves
+    // whoever `validated_by` names belongs to this exact
+    // ValidationRecord's own tenant. Mirrors `risks`'/`findings`'/
+    // `remediation_actions`' identical `ownerTenantFk` (Slices
+    // C3.1/C4/C5, DECISIONS.md R-107).
+    validatorTenantFk: foreignKey({
+      columns: [table.validatedBy, table.tenantId],
+      foreignColumns: [users.id, users.tenantId],
+      name: "validation_records_validated_by_tenant_fk",
     }),
     // Conditionally active (skipped when null): proves the reassessment
     // ControlTest belongs to this same Organisation — deliberately

@@ -1,0 +1,40 @@
+-- PRIMUS PRIVACY — Migration 0023: ValidationRecord validator tenant scoping.
+--
+-- Hand-written (DECISIONS.md R-02). Slice C6 instructions §23 explicitly
+-- direct: "If ValidationRecord contains a validator/owner user id:
+-- verify tenant-safe ownership... use the established (user_id,
+-- tenant_id) → users(id, tenant_id) pattern where appropriate." Direct
+-- inspection of `validation_records.validated_by` (migration 0012)
+-- found it in the EXACT same unprotected shape `risks.owner_id`/
+-- `findings.owner_id`/`remediation_actions.owner_id` were in before
+-- their own fixes (migrations 0020/0021/0022) — a plain `validated_by →
+-- users(id)` FK, no tenant consistency check. This migration applies
+-- the fourth instance of the identical fix, reusing the SAME
+-- supporting unique constraint migration 0020 already added
+-- (`users_id_tenant_id_key`) — no new unique constraint needed. See
+-- DECISIONS.md for a direct inventory of this codebase's remaining
+-- actor-attribution columns and which ones do/don't yet have the same
+-- hardening.
+--
+-- Same safety argument as migrations 0020/0021/0022, applied to
+-- `validation_records`: `validated_by` remains nullable, so a
+-- multi-column FK with a NULL member is skipped entirely (Postgres
+-- MATCH SIMPLE default) — every existing NULL-validator row is
+-- unaffected. Every ValidationRecord row this slice's own
+-- `lib/domain/validation.ts` creates only ever sets `validated_by` to
+-- the acting user's own id (never an arbitrary target — Slice C6
+-- preserves the existing self-validation-only posture, instructions
+-- §8), and that user's own tenant was already proven to match the
+-- RemediationAction's (and therefore the ValidationRecord's own)
+-- tenant by `requireEngagementAccess` before the write — so no row
+-- created by this application can violate the new constraint, and no
+-- backfill is required. `validated_by` is additionally protected by the
+-- EXISTING `validation_records_prevent_tampering` trigger (migration
+-- 0013), which independently rejects ANY update to `validated_by`
+-- regardless of tenant — this migration adds a second, independent
+-- database-level guarantee on top, not a replacement for it. No RLS
+-- policy, GRANT, or audit trigger is touched. No unrelated table is
+-- restructured.
+
+ALTER TABLE "validation_records" DROP CONSTRAINT "validation_records_validated_by_users_id_fk";
+ALTER TABLE "validation_records" ADD CONSTRAINT "validation_records_validated_by_tenant_fk" FOREIGN KEY ("validated_by", "tenant_id") REFERENCES "users"("id", "tenant_id");

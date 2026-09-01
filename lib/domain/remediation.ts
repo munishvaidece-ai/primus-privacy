@@ -13,9 +13,12 @@ import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authori
 // hardened for owner tenant-scoping in migration 0022 (mirroring Slices
 // C3.1/C4's identical `risks.owner_id`/`findings.owner_id` fix — see
 // DECISIONS.md R-104). No schema redesign, no new junction. Validation
-// itself is explicitly out of scope (PHASE C5 instructions §23) — this
-// module only ever READS `validation_records` for display, never
-// creates/updates one.
+// itself was explicitly out of scope through Slice C5 (PHASE C5
+// instructions §23) — this module still only ever READS
+// `validation_records` for display, never creates/updates one; Slice C6
+// (PHASE C — VALIDATION) adds the actual creation path in the sibling
+// lib/domain/validation.ts module instead, keeping the two domains
+// separate.
 
 export class InvalidRemediationInputError extends Error {
   constructor(message: string) {
@@ -301,6 +304,8 @@ export interface RemediationValidationRow {
   validatedByEmail: string | null;
   validatedAt: Date;
   rationale: string | null;
+  triggersControlTestId: string | null;
+  triggersAssessmentResponseId: string | null;
 }
 
 export interface RemediationActionDetail {
@@ -334,13 +339,13 @@ export interface RemediationActionDetail {
  * deeper. No duplicate read path, no copied Finding/Risk/Evidence
  * metadata (instructions §5's "do not duplicate source data").
  *
- * `validationRecords` is a plain, read-only list of any existing
- * `ValidationRecord` rows for this RemediationAction (instructions
- * §11/§23: "show its current relationship/state accurately... do NOT
- * build Validation actions") — always empty in practice through Slice
- * C5, since nothing in this application creates one yet, but resolved
- * honestly rather than assumed empty, in case one is ever created
- * directly in the database.
+ * `validationRecords` is the FULL, read-only ValidationRecord history
+ * for this RemediationAction, most recent first — every record,
+ * including any earlier rejected/superseded ones (Slice C6 instructions
+ * §6/§27: multiple validations are normal, never collapsed to "just the
+ * latest"). Creating a ValidationRecord is a separate, explicit action
+ * (`createValidationRecord`, lib/domain/validation.ts) invoked from the
+ * page that reads this detail — this function itself only ever reads.
  */
 export async function getRemediationActionDetail(
   db: RequestDb,
@@ -386,6 +391,8 @@ export async function getRemediationActionDetail(
       validatedByEmail: users.email,
       validatedAt: validationRecords.validatedAt,
       rationale: validationRecords.rationale,
+      triggersControlTestId: validationRecords.triggersControlTestId,
+      triggersAssessmentResponseId: validationRecords.triggersAssessmentResponseId,
     })
     .from(validationRecords)
     .leftJoin(users, eq(users.id, validationRecords.validatedBy))

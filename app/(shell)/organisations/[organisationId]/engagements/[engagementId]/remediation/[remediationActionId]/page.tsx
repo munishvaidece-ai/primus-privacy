@@ -6,11 +6,11 @@ import { getRemediationActionDetail } from "@/lib/domain/remediation";
 import { getFindingDetail } from "@/lib/domain/findings";
 import { getRiskDetail } from "@/lib/domain/risks";
 import { getControlTestsForControl } from "@/lib/domain/assessments";
-import { getEvidenceSummaryForControl, getEvidenceSummaryForRemediationAction } from "@/lib/domain/evidence";
+import { getEvidenceSummaryForControl, getEvidenceSummaryForRemediationAction, getEvidenceSummaryForValidationRecords } from "@/lib/domain/evidence";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 import { Badge, riskRatingTone, findingStatusTone, remediationStatusTone, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { updateRemediationActionAction, uploadRemediationEvidenceAction } from "../actions";
+import { updateRemediationActionAction, uploadRemediationEvidenceAction, createValidationRecordAction, uploadValidationEvidenceAction } from "../actions";
 
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"] as const;
 const STATUS_OPTIONS = ["open", "in_progress", "evidence_submitted", "validated", "closed"] as const;
@@ -21,11 +21,15 @@ const INPUT_CLASS =
 // identity, status, priority, owner, due date, an edit form, source
 // Finding(s), the full Finding → Risk → Assessment → Control →
 // AssessmentResponse → Evidence chain (composed from EXISTING functions,
-// one layer deeper than Finding detail's own composition), Evidence
+// one layer deeper than Finding detail's own composition), and Evidence
 // submitted DIRECTLY against this remediation action (the real,
-// EvidenceLink `remediation_action` subject type, extended this slice),
-// and any existing ValidationRecord shown read-only — Validation itself
-// is not built (instructions §23).
+// EvidenceLink `remediation_action` subject type, extended this slice).
+//
+// Slice C6 (PHASE C — VALIDATION, instructions §13/§14/§15): the
+// "Validation" section below is embedded here, not a top-level screen
+// (PRODUCT_UX_BLUEPRINT.md row #16) — the full validation history, a
+// create-validation form, and per-record evidence upload (the
+// EvidenceLink `validation_record` subject type, extended this slice).
 export default async function RemediationActionDetailPage({
   params,
   searchParams,
@@ -86,7 +90,7 @@ export default async function RemediationActionDetailPage({
 
   const primaryControl = risk?.sourceControls[0] ?? null;
 
-  const [controlTestRows, indirectEvidenceRows, directEvidenceRows] = await withRequestDb(user.id, async (db) => {
+  const [controlTestRows, indirectEvidenceRows, directEvidenceRows, validationEvidenceRows] = await withRequestDb(user.id, async (db) => {
     const tests =
       risk?.sourceAssessment && primaryControl ? await getControlTestsForControl(db, risk.sourceAssessment.id, primaryControl.id) : [];
     const indirect =
@@ -94,7 +98,11 @@ export default async function RemediationActionDetailPage({
         ? await getEvidenceSummaryForControl(db, risk.sourceAssessmentResponse?.id ?? null, tests.map((t) => t.id))
         : [];
     const direct = await getEvidenceSummaryForRemediationAction(db, remediation.id);
-    return [tests, indirect, direct] as const;
+    const validationEvidence = await getEvidenceSummaryForValidationRecords(
+      db,
+      remediation.validationRecords.map((v) => v.id),
+    );
+    return [tests, indirect, direct, validationEvidence] as const;
   });
 
   return (
@@ -364,25 +372,108 @@ export default async function RemediationActionDetailPage({
 
         <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Validation</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Every validation is a permanent, immutable record — correcting an earlier decision means recording a new
+            validation, never editing an existing one. The full history below always includes every past record.
+          </p>
+
           {remediation.validationRecords.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-500">
-              Not yet validated — Validation is a future stage of this application, not yet implemented (Slice C5 is
-              Remediation Actions only).
-            </p>
+            <p className="mt-2 text-sm text-slate-500">Not yet validated.</p>
           ) : (
-            <ul className="mt-2 space-y-2">
-              {remediation.validationRecords.map((v) => (
-                <li key={v.id} className="rounded border border-slate-100 p-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <Badge tone={v.outcome === "accepted" ? "positive" : "critical"}>{v.outcome}</Badge>
-                    <span className="text-xs text-slate-500">{new Date(v.validatedAt).toLocaleDateString()}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">By {v.validatedByEmail ?? "—"}</p>
-                  {v.rationale ? <p className="mt-1 text-slate-700">{v.rationale}</p> : null}
-                </li>
-              ))}
+            <ul className="mt-2 space-y-3">
+              {remediation.validationRecords.map((v) => {
+                const evidenceForRecord = validationEvidenceRows.filter((e) => e.validationRecordId === v.id);
+                return (
+                  <li key={v.id} className="rounded border border-slate-100 p-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <Badge tone={statusTone(v.outcome)}>{v.outcome}</Badge>
+                      <span className="text-xs text-slate-500">{new Date(v.validatedAt).toLocaleString()}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">By {v.validatedByEmail ?? "—"}</p>
+                    {v.rationale ? <p className="mt-1 text-slate-700">{v.rationale}</p> : null}
+                    {v.triggersControlTestId || v.triggersAssessmentResponseId ? (
+                      <p className="mt-1 text-xs text-slate-500">Reassessment recorded against this validation.</p>
+                    ) : null}
+
+                    {evidenceForRecord.length > 0 ? (
+                      <ul className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+                        {evidenceForRecord.map((e) => (
+                          <li key={e.evidenceLinkId} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="text-slate-700">
+                              {e.title} · {e.originalFilename}
+                            </span>
+                            <Badge tone={statusTone(e.reviewStatus)}>{e.reviewStatus}</Badge>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs font-medium text-slate-600">Add evidence to this validation</summary>
+                      <form
+                        action={uploadValidationEvidenceAction}
+                        className="mt-2 space-y-2"
+                        encType="multipart/form-data"
+                      >
+                        <input type="hidden" name="organisationId" value={params.organisationId} />
+                        <input type="hidden" name="engagementId" value={params.engagementId} />
+                        <input type="hidden" name="remediationActionId" value={remediation.id} />
+                        <input type="hidden" name="validationRecordId" value={v.id} />
+                        <div>
+                          <label htmlFor={`validationEvidenceTitle-${v.id}`} className="block text-xs font-medium text-slate-700">
+                            Title
+                          </label>
+                          <input
+                            id={`validationEvidenceTitle-${v.id}`}
+                            name="title"
+                            type="text"
+                            required
+                            maxLength={200}
+                            className={INPUT_CLASS}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor={`validationEvidenceFile-${v.id}`} className="block text-xs font-medium text-slate-700">
+                            File (PDF, image, Office document, or text — 25MB max)
+                          </label>
+                          <input id={`validationEvidenceFile-${v.id}`} name="file" type="file" required className={INPUT_CLASS} />
+                        </div>
+                        <Button type="submit" size="sm">
+                          Submit evidence
+                        </Button>
+                      </form>
+                    </details>
+                  </li>
+                );
+              })}
             </ul>
           )}
+
+          <form action={createValidationRecordAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+            <input type="hidden" name="organisationId" value={params.organisationId} />
+            <input type="hidden" name="engagementId" value={params.engagementId} />
+            <input type="hidden" name="remediationActionId" value={remediation.id} />
+
+            <p className="text-xs font-medium text-slate-700">Record a new validation</p>
+            <div>
+              <label htmlFor="outcome" className="block text-xs font-medium text-slate-700">
+                Outcome
+              </label>
+              <select id="outcome" name="outcome" required defaultValue="accepted" className={INPUT_CLASS}>
+                <option value="accepted">Accepted</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="rationale" className="block text-xs font-medium text-slate-700">
+                Rationale <span className="font-normal text-slate-500">(required if rejected)</span>
+              </label>
+              <textarea id="rationale" name="rationale" rows={2} maxLength={4000} className={INPUT_CLASS} />
+            </div>
+            <Button type="submit" size="sm">
+              Record validation
+            </Button>
+          </form>
         </section>
       </div>
     </div>

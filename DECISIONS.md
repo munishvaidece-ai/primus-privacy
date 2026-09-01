@@ -2946,3 +2946,150 @@ subject (RemediationAction has no Assessment relationship at all), so
 with `null` meaning "not applicable, never blocked" for this one
 subject type — not a weakening of the existing finalization check for
 `assessment_response`/`control_test`, which are unchanged.
+
+### R-107 — `validation_records.validated_by` given the same tenant-scoping fix as `risks.owner_id`/`findings.owner_id`/`remediation_actions.owner_id` — a fourth instance, not a third-and-final one (Slice C6)
+
+**Decision:** Migration `0023_validation_record_validator_tenant_scoping.sql`
+drops `validation_records`' plain `validated_by → users(id)` FK and
+replaces it with a composite `validation_records_validated_by_tenant_fk
+(validated_by, tenant_id) → users(id, tenant_id)`, reusing the same
+`users_id_tenant_id_key` unique constraint migration 0020 already
+added — no new supporting constraint needed.
+`db/schema/validation-records.ts` was updated to match (plain
+`.references()` removed, a `validatorTenantFk` composite `foreignKey`
+added to the table's extra-config block).
+**Correction to the record:** Slice C5's own PROGRESS.md entry
+describes `remediation_actions.owner_id`'s fix as "the third and, for
+this project's current schema, final instance of this pattern." That
+claim was made in good faith at the time but was incomplete — direct
+inspection of `validation_records.validated_by` during Slice C6 found
+it in the exact same unprotected shape. This is a fourth instance, not
+a third-and-final one. Per this project's own "do not rewrite
+historical decisions" posture, the C5 entry itself is left as written;
+this note is the honest forward correction instead.
+**Rationale:** Slice C6 instructions §23 explicitly direct: "If
+ValidationRecord contains a validator/owner user id: verify
+tenant-safe ownership... use the established (user_id, tenant_id) →
+users(id, tenant_id) pattern where appropriate." `validated_by`
+qualifies exactly. Safety argument (identical to R-101/R-102/R-104):
+the column is nullable, so the new composite FK's NULL-member skip
+(Postgres MATCH SIMPLE default) leaves every existing NULL-validator
+row untouched; `lib/domain/validation.ts`'s own `createValidationRecord`
+only ever sets `validatedBy` to the acting user (never a caller-
+supplied target — see R-109), and `requireEngagementAccess` already
+proved that user's tenant matches the RemediationAction's (and
+therefore the ValidationRecord's) tenant before the write, so no row
+this application creates can violate the new constraint and no
+backfill is required. `validated_by` is additionally protected by the
+pre-existing `validation_records_prevent_tampering` trigger (migration
+0013), which independently rejects any UPDATE to `validated_by`
+regardless of tenant — the new FK is a second, independent guarantee,
+not a replacement. Both `tests/app/validation.test.ts` (application
+layer) and a standalone raw-SQL demonstration (instructions §36, not
+part of the vitest suite) confirmed a genuine cross-tenant `validated_by`
+INSERT is rejected with this exact constraint name, and that a
+cross-tenant UPDATE attempt is independently rejected by the tampering
+trigger.
+
+### R-108 — Creating a ValidationRecord never mutates `remediation_actions.status` — no invented status transition (Slice C6)
+
+**Decision:** `createValidationRecord` (`lib/domain/validation.ts`)
+writes only to `validation_records` and never touches
+`remediation_actions.status`. Reflecting a validation outcome in the
+RemediationAction's own status (e.g. moving it to `validated`/`closed`)
+remains a separate, explicit action the consultant takes via the
+existing (Slice C5) `updateRemediationAction`.
+**Rationale:** Slice C6 instructions §11 (marked CRITICAL) forbid
+auto-implementing a Validation→status transition "unless the
+architecture explicitly requires it." Direct inspection of migration
+0013 — grepping every trigger declared for `event_object_table =
+'remediation_actions'` — found none referencing `validation_records`
+at all; the only two triggers on `remediation_actions` are its own
+audit-log trigger and (mirroring R-104) nothing else. This is the
+definitive, database-level evidence that no such transition is part of
+the approved architecture: inventing one in the application layer
+would contradict the schema, not merely go beyond it.
+`tests/app/validation.test.ts`'s test #29 asserts this directly (a
+RemediationAction's `status` is read before and after
+`createValidationRecord`, confirmed unchanged) and independently
+queries `information_schema.triggers` to confirm no trigger name on
+`remediation_actions` matches `/validat/i`.
+
+### R-109 — Rejecting a ValidationRecord requires a rationale, reusing the Evidence-review precedent (Slice C2/C6)
+
+**Decision:** `createValidationRecord` throws
+`ValidationRationaleRequiredError` when `outcome = 'rejected'` and no
+non-blank `rationale` was supplied — enforced server-side, not merely
+as a form `required` attribute.
+**Rationale:** This is not an invented workflow rule — it reuses the
+identical precedent `reviewEvidence`/`ReviewRationaleRequiredError`
+(Slice C2) already established in this exact codebase for the
+structurally identical "reviewer rejects, must say why" decision.
+Instructions §13 name "rationale" as an expected ValidationRecord
+field; requiring it specifically on rejection (not on acceptance)
+matches both the Evidence-review precedent and ordinary audit-trail
+practice — an acceptance needs no justification beyond the decision
+itself, a rejection does. `validatedBy` is always the acting user
+(instructions §8's "preserve self-validation-only") — the same
+self-only pattern `respondentId`/`testerId`/`ownerUserId` already use
+throughout this codebase (verified by grep before writing this
+module); `createValidationRecord`'s own input type has no
+caller-assignable validator field at all.
+
+### R-110 — Evidence/EvidenceLink extended to support `validation_record` as a link target — the fourth and final subject type (Slice C6)
+
+**Decision:** `lib/domain/evidence.ts`'s `LinkTarget` union,
+`resolveLinkSubject`, and the two `evidenceLinks` insert call sites
+were extended with a fourth case, `validation_record`, alongside the
+existing `assessment_response`/`control_test`/`remediation_action`
+cases (Slices C2/C5). New read functions
+`getEvidenceSummaryForValidationRecord` and its batched variant
+`getEvidenceSummaryForValidationRecords` mirror
+`getEvidenceSummaryForRemediationAction`'s exact shape, scoped to
+`evidence_links.validation_record_id`.
+**Rationale:** Mirrors R-106's identical reasoning one subject type
+later. `evidence_links` has carried a genuine, fully-built
+`validation_record` subject type (column, CHECK-constraint branch,
+composite scope FK) since Milestone 7 — DATA_MODEL.md §8's own
+sentence names it explicitly. Slice C5 left it "structurally
+unreachable" at the application layer only because Validation itself
+was out of scope through that slice; Slice C6 instructions §9 direct
+using the existing EvidenceLink architecture, stopping only if
+unsupported — it is fully supported, so no STOP was needed. Assessment
+finalization is structurally not applicable (ValidationRecord has no
+Assessment relationship), so `resolveLinkSubject`'s `validation_record`
+branch returns `assessmentStatus: null`, identical to the
+`remediation_action` branch's own conclusion. The batched
+`getEvidenceSummaryForValidationRecords` (accepting an array of ids,
+not just one) exists specifically so the RemediationAction detail page
+— which renders the FULL validation history plus each record's own
+evidence — issues one query for all of a RemediationAction's
+ValidationRecords' evidence, never one query per record (instructions
+§32, no N+1).
+
+### R-111 — Reassessment-trigger UI (`triggers_control_test_id`/`triggers_assessment_response_id`) not built this slice (Slice C6)
+
+**Decision:** `createValidationRecord` never sets either
+reassessment-trigger column; the UI shows them read-only (when a future
+mechanism ever sets them) but offers no way to set them from this
+slice's own forms.
+**Rationale:** PRODUCT_UX_BLUEPRINT.md row #16 itself frames this as
+future work: "Validate (accepted/rejected) + rationale, later link
+reassessment." Instructions §12 forbid inventing auto-reopen/cascade
+behavior beyond what's explicit; nothing in this slice's brief asks
+for a reassessment-linking form, and the blueprint's own "later"
+language is the authoritative signal that it is intentionally
+deferred, not merely omitted by oversight.
+
+### R-112 — No standalone Validation list route; embedded in RemediationAction detail only (Slice C6)
+
+**Decision:** No `/validation` or similar top-level/engagement-level
+route was built. `listValidationRecordsForRemediation` and
+`getValidationRecordDetail` exist as domain functions (used directly by
+the RemediationAction detail page, and available for a future
+standalone view if ever needed) but nothing routes to a bare
+ValidationRecord URL yet.
+**Rationale:** PRODUCT_UX_BLUEPRINT.md row #16's own explicit language:
+"Validation panel (embedded in Remediation detail, not a top-level
+screen)." Instructions §15 make engagement-level visibility conditional
+on the UX blueprint actually requiring it — it explicitly does not.

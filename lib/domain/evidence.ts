@@ -14,6 +14,7 @@ import {
   assessmentResponses,
   controlTests,
   remediationActions,
+  validationRecords,
   auditLog,
   users,
 } from "@/db/schema";
@@ -88,18 +89,22 @@ export interface EvidenceFile {
 type LinkTarget =
   | { type: "assessment_response"; assessmentResponseId: string }
   | { type: "control_test"; controlTestId: string }
-  | { type: "remediation_action"; remediationActionId: string };
+  | { type: "remediation_action"; remediationActionId: string }
+  | { type: "validation_record"; validationRecordId: string };
 
 interface ResolvedLinkSubject {
-  subjectType: "assessment_response" | "control_test" | "remediation_action";
+  subjectType: "assessment_response" | "control_test" | "remediation_action" | "validation_record";
   assessmentResponseId: string | null;
   controlTestId: string | null;
   remediationActionId: string | null;
-  // null for a `remediation_action` subject — RemediationAction has no
-  // Assessment relationship at all (DATA_MODEL.md §8), so Assessment
-  // finalization is structurally not applicable to it (Slice C5
-  // instructions §20/§22) — never blocked, never a false "finalized"
-  // read for a subject with no Assessment to be finalized.
+  validationRecordId: string | null;
+  // null for a `remediation_action`/`validation_record` subject —
+  // neither has an Assessment relationship at all (DATA_MODEL.md §8),
+  // so Assessment finalization is structurally not applicable to them
+  // (Slice C5 instructions §20/§22; Slice C6 instructions §22 reaches
+  // the identical conclusion for ValidationRecord) — never blocked,
+  // never a false "finalized" read for a subject with no Assessment to
+  // be finalized.
   assessmentStatus: string | null;
 }
 
@@ -146,6 +151,7 @@ async function resolveLinkSubject(
       assessmentResponseId: row.id,
       controlTestId: null,
       remediationActionId: null,
+      validationRecordId: null,
       assessmentStatus: row.assessmentStatus,
     };
   }
@@ -171,28 +177,61 @@ async function resolveLinkSubject(
       assessmentResponseId: null,
       controlTestId: row.id,
       remediationActionId: null,
+      validationRecordId: null,
       assessmentStatus: row.assessmentStatus,
     };
   }
 
+  if (linkTo.type === "remediation_action") {
+    const [row] = await db
+      .select({
+        id: remediationActions.id,
+        tenantId: remediationActions.tenantId,
+        organisationId: remediationActions.organisationId,
+        engagementId: remediationActions.engagementId,
+      })
+      .from(remediationActions)
+      .where(eq(remediationActions.id, linkTo.remediationActionId))
+      .limit(1);
+    if (!row || row.tenantId !== tenantId || row.organisationId !== organisationId || row.engagementId !== engagementId) {
+      throw new NotFoundOrForbiddenError();
+    }
+    return {
+      subjectType: "remediation_action",
+      assessmentResponseId: null,
+      controlTestId: null,
+      remediationActionId: row.id,
+      validationRecordId: null,
+      assessmentStatus: null,
+    };
+  }
+
+  // linkTo.type === "validation_record" (Slice C6, instructions §9): the
+  // fourth and final EvidenceLink subject type this project's own schema
+  // already defines (DATA_MODEL.md §8: "Evidence attaches to...
+  // ValidationRecord via the same generic EvidenceLink used everywhere
+  // else"). Mirrors the `remediation_action` branch above exactly —
+  // ValidationRecord has no Assessment relationship either, so
+  // `assessmentStatus` is always null here too.
   const [row] = await db
     .select({
-      id: remediationActions.id,
-      tenantId: remediationActions.tenantId,
-      organisationId: remediationActions.organisationId,
-      engagementId: remediationActions.engagementId,
+      id: validationRecords.id,
+      tenantId: validationRecords.tenantId,
+      organisationId: validationRecords.organisationId,
+      engagementId: validationRecords.engagementId,
     })
-    .from(remediationActions)
-    .where(eq(remediationActions.id, linkTo.remediationActionId))
+    .from(validationRecords)
+    .where(eq(validationRecords.id, linkTo.validationRecordId))
     .limit(1);
   if (!row || row.tenantId !== tenantId || row.organisationId !== organisationId || row.engagementId !== engagementId) {
     throw new NotFoundOrForbiddenError();
   }
   return {
-    subjectType: "remediation_action",
+    subjectType: "validation_record",
     assessmentResponseId: null,
     controlTestId: null,
-    remediationActionId: row.id,
+    remediationActionId: null,
+    validationRecordId: row.id,
     assessmentStatus: null,
   };
 }
@@ -329,6 +368,7 @@ export async function uploadEvidence(
       assessmentResponseId: subject.assessmentResponseId,
       controlTestId: subject.controlTestId,
       remediationActionId: subject.remediationActionId,
+      validationRecordId: subject.validationRecordId,
       createdBy: userId,
     });
 
@@ -477,6 +517,7 @@ export async function createEvidenceForVersion(
       assessmentResponseId: subject.assessmentResponseId,
       controlTestId: subject.controlTestId,
       remediationActionId: subject.remediationActionId,
+      validationRecordId: subject.validationRecordId,
       createdBy: userId,
     });
   } catch (err) {
@@ -660,7 +701,7 @@ export interface EvidenceSummaryRow {
   documentId: string;
   documentVersionId: string;
   originalFilename: string;
-  linkedVia: "assessment_response" | "control_test" | "remediation_action";
+  linkedVia: "assessment_response" | "control_test" | "remediation_action" | "validation_record";
 }
 
 /**
@@ -709,10 +750,10 @@ export async function getEvidenceSummaryForControl(
     .orderBy(desc(evidence.collectedAt));
 
   // The WHERE clause above only ever matches assessment_response/
-  // control_test links — `remediation_action` is resolved by the
-  // dedicated getEvidenceSummaryForRemediationAction below instead
-  // (Slice C5), and `validation_record` is structurally unreachable
-  // here (Validation is out of scope through Slice C5) — but the
+  // control_test links — `remediation_action` and `validation_record`
+  // are resolved by their own dedicated
+  // getEvidenceSummaryForRemediationAction/getEvidenceSummaryFor
+  // ValidationRecord functions below instead (Slices C5/C6) — but the
   // column's own DB type covers all four; narrowed explicitly rather
   // than widening this function's own return type.
   return rows as EvidenceSummaryRow[];
@@ -757,6 +798,70 @@ export async function getEvidenceSummaryForRemediationAction(
     .orderBy(desc(evidence.collectedAt));
 
   return rows as EvidenceSummaryRow[];
+}
+
+/**
+ * The Evidence summary for one ValidationRecord (Slice C6, instructions
+ * §9): the fourth and final `EvidenceLink` subject type — reuses the
+ * identical read shape `getEvidenceSummaryForRemediationAction` above
+ * already established, scoped to `evidence_links.validation_record_id`
+ * instead. Still read-only metadata only — no file bytes, no
+ * `storage_path`, no signed URL.
+ */
+export async function getEvidenceSummaryForValidationRecord(
+  db: RequestDb,
+  validationRecordId: string,
+): Promise<EvidenceSummaryRow[]> {
+  const rows = await getEvidenceSummaryForValidationRecords(db, [validationRecordId]);
+  return rows.filter((r) => r.validationRecordId === validationRecordId);
+}
+
+export interface ValidationEvidenceSummaryRow extends EvidenceSummaryRow {
+  validationRecordId: string;
+}
+
+/**
+ * Batched variant of `getEvidenceSummaryForValidationRecord` (Slice C6,
+ * instructions §32 — no N+1): one query for ALL of a RemediationAction's
+ * ValidationRecords' evidence at once, tagged with which record each row
+ * belongs to, mirroring `getEvidenceSummaryForControl`'s own
+ * `controlTestIds` batching. Used by the RemediationAction detail page,
+ * which shows the full validation history plus each record's own
+ * evidence — never one query per ValidationRecord row.
+ */
+export async function getEvidenceSummaryForValidationRecords(
+  db: RequestDb,
+  validationRecordIds: string[],
+): Promise<ValidationEvidenceSummaryRow[]> {
+  if (validationRecordIds.length === 0) return [];
+
+  const rows = await db
+    .select({
+      id: evidence.id,
+      evidenceLinkId: evidenceLinks.id,
+      title: evidence.title,
+      evidenceType: evidence.evidenceType,
+      reviewStatus: evidence.reviewStatus,
+      qualityRating: evidence.qualityRating,
+      reviewedByEmail: users.email,
+      reviewedAt: evidence.reviewedAt,
+      reviewRationale: evidence.reviewRationale,
+      validUntil: evidence.validUntil,
+      collectedAt: evidence.collectedAt,
+      documentId: documentVersions.documentId,
+      documentVersionId: evidence.documentVersionId,
+      originalFilename: documentVersions.originalFilename,
+      linkedVia: evidenceLinks.subjectType,
+      validationRecordId: evidenceLinks.validationRecordId,
+    })
+    .from(evidenceLinks)
+    .innerJoin(evidence, eq(evidence.id, evidenceLinks.evidenceId))
+    .innerJoin(documentVersions, eq(documentVersions.id, evidence.documentVersionId))
+    .leftJoin(users, eq(users.id, evidence.reviewedBy))
+    .where(inArray(evidenceLinks.validationRecordId, validationRecordIds))
+    .orderBy(desc(evidence.collectedAt));
+
+  return rows as ValidationEvidenceSummaryRow[];
 }
 
 export interface DocumentVersionRow {
