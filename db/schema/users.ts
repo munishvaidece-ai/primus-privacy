@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { userStatusEnum } from "./enums";
 import { tenants } from "./tenants";
 import { organisations } from "./organisations";
@@ -21,19 +21,32 @@ import { organisations } from "./organisations";
 // Practice-side (PRIMUS) users have `client_org_id = NULL`; client-side
 // users have it set. Every user has a required `tenant_id` (their home
 // practice) — see DATA_MODEL.md §2, ARCHITECTURE.md §5.
-export const users = pgTable("users", {
-  // References auth.users(id) — added via ALTER TABLE in the migration
-  // SQL, since Drizzle's pg-core has no first-class handle on Supabase's
-  // `auth` schema tables.
-  id: uuid("id").primaryKey(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id),
-  clientOrgId: uuid("client_org_id").references(() => organisations.id),
-  email: text("email").notNull(),
-  displayName: text("display_name"),
-  status: userStatusEnum("status").notNull().default("active"),
+export const users = pgTable(
+  "users",
+  {
+    // References auth.users(id) — added via ALTER TABLE in the migration
+    // SQL, since Drizzle's pg-core has no first-class handle on Supabase's
+    // `auth` schema tables.
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    clientOrgId: uuid("client_org_id").references(() => organisations.id),
+    email: text("email").notNull(),
+    displayName: text("display_name"),
+    status: userStatusEnum("status").notNull().default("active"),
 
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    // Slice C3.1 (migration 0020): consumed by `risks.owner_id`'s own
+    // composite FK (`risks_owner_id_tenant_fk`, db/schema/risks.ts) —
+    // `id` is already globally unique (primary key); this adds no new
+    // restriction on `users` itself, it only makes `(id, tenant_id)`
+    // independently referenceable, exactly as Postgres requires for a
+    // composite foreign key. Mirrors `risk_scoring_models_id_tenant_id_
+    // key`'s identical shape (db/schema/risk-scoring-models.ts).
+    idTenantUnique: unique("users_id_tenant_id_key").on(table.id, table.tenantId),
+  }),
+);

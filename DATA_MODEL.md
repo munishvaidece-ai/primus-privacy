@@ -525,6 +525,17 @@ id`; `RemediationAction.description`, `RemediationAction.priority`
 `ValidationRecord.rationale`. No field already named above was renamed,
 removed, or given different semantics.
 
+**Implementation clarification (Slice C3.1, DECISIONS.md R-101):**
+`Risk.owner_id` is now enforced tenant-scoped at the database level — a
+composite foreign key `(owner_id, tenant_id) → users(id, tenant_id)`
+(backed by a new `UNIQUE (id, tenant_id)` constraint on `users`)
+replaces what had been a plain `owner_id → users(id)` reference. No
+field was renamed, removed, or given different application-level
+semantics — `owner_id` still identifies the same single user a Risk is
+assigned to; only its referential-integrity guarantee was strengthened
+to match the tenant boundary every other engagement-scoped relationship
+in this document already enforces.
+
 `ValidationRecord.triggers_control_reassessment_id` is implemented as
 two separate nullable FK columns (`triggers_control_test_id`/
 `triggers_assessment_response_id`), one per target table, mirroring

@@ -2717,3 +2717,51 @@ kind of casual, UI-convenience schema change instructions §32
 prohibits without an explicit stop-and-report. No such column was
 added; this entry records the discrepancy instructions §7 itself
 anticipated rather than silently inventing the field.
+
+### R-101 — `risks.owner_id` is now database-enforced tenant-scoped via a composite FK to `users(id, tenant_id)` — closes the gap R-99 found (Slice C3.1)
+
+**Decision:** Migration 0020 adds `UNIQUE (id, tenant_id)` on `users`
+(`users_id_tenant_id_key`) and replaces `risks`' plain `owner_id →
+users(id)` foreign key with a composite `risks_owner_id_tenant_fk
+(owner_id, tenant_id) → users(id, tenant_id)`. A raw INSERT or UPDATE
+naming a real user from a *different* tenant than the Risk's own is now
+independently rejected by Postgres itself — not only by
+`lib/domain/risks.ts`'s own self-assignment-only application logic
+(unchanged; still the only owner-assignment mechanism this application
+exposes).
+**Rationale:** Slice C3.1 instructions §2/§3 require the smallest
+schema change that makes the existing owner semantics database-safe,
+using `users.tenant_id` (or an equivalent already-existing tenant-scoped
+key) — explicitly forbidding a new user table, a new role system, a new
+membership model, or service-role privileges. `users.tenant_id` is the
+correct key: it is NOT NULL (every user has exactly one home tenant,
+DATA_MODEL.md §2) and is the exact fact `lib/domain/risks.ts`'s own
+existing self-assignment design already relies on implicitly
+(`requireEngagementAccess` only ever succeeds for a user whose own
+membership chain resolves to the Risk's tenant, so `owner_id =
+callingUserId` was always same-tenant in practice — this migration
+makes that a database-enforced *guarantee* rather than an
+application-only convention). The composite-FK-plus-supporting-unique-
+constraint shape is not a new mechanism: it is the exact pattern
+`risks_risk_scoring_model_tenant_fk`/`risk_scoring_models_id_tenant_id_
+key` (migrations 0012/0013) already established for Practice-owned
+content referenced from client-engagement data, applied here to `users`
+instead. The old single-column FK was dropped rather than kept
+alongside the new composite one, mirroring `risk_scoring_model_id`'s
+own precedent (never given a redundant plain FK either) — keeping both
+would suggest two independent constraints where only one, strictly
+stronger one exists. No membership-table key (`tenant_memberships`,
+etc.) was used instead: a membership row is revocable/optional/
+many-per-user, and this question — "which tenant does this user
+actually belong to" — is the single, always-present fact `users.
+tenant_id` already states directly, not a question about current active
+grants. No RLS policy, GRANT, or audit trigger was touched — the fix is
+an independent, additional database-level constraint on top of the
+existing two-layer authorization model (SECURITY.md §2), the same
+"RLS is not weakened, a narrower backstop is added on top" posture used
+everywhere else in this project. Directly verified that the existing
+`risks_audit_log` trigger already captures every successful `owner_id`
+value (insert or update) via its generic `to_jsonb(NEW)` field_changes
+— confirmed live against real audit_log rows this session, not merely
+inferred — so no new or second audit mechanism was needed (instructions
+§7).

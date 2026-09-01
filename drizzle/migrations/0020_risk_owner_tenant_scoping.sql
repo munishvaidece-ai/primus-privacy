@@ -1,0 +1,87 @@
+-- PRIMUS PRIVACY — Migration 0020: Risk owner tenant scoping.
+--
+-- Hand-written (DECISIONS.md R-02). Closes a real, concrete gap found
+-- and explicitly reported (not silently patched) in Slice C3's own
+-- final report and recorded as DECISIONS.md R-99: `risks.owner_id`
+-- referenced `users(id)` only, with no composite constraint tying the
+-- owner's own tenant to the Risk's own `tenant_id` — a raw SQL route
+-- bypassing this application (a direct malicious INSERT/UPDATE, or any
+-- future code path that forgot the self-assignment discipline
+-- `lib/domain/risks.ts` currently relies on) was not independently
+-- rejected by RLS or any FK. `tests/app/risks.test.ts`'s own
+-- "[DOCUMENTED GAP]" test proved this by showing the cross-tenant
+-- INSERT succeed, rather than merely asserting protection that did not
+-- exist.
+--
+-- The fix applies the EXACT SAME (id, tenant_id) unique-key + composite
+-- FK pattern this codebase already uses for every other tenant-scoped
+-- reference from client-engagement data to Practice/tenant content —
+-- `risk_scoring_models_id_tenant_id_key` backing
+-- `risks_risk_scoring_model_tenant_fk` (migration 0012/0013) is the
+-- closest direct precedent, applied here to `users` instead. This is
+-- not a new relationship, new user table, new role system, or new
+-- membership model — Slice C3.1 instructions §2 explicitly forbid all
+-- four, and none is introduced. `users.tenant_id` (NOT NULL — every
+-- user has exactly one home tenant, DATA_MODEL.md §2) is the correct
+-- scoping key, not any membership table: a membership row is
+-- revocable/optional/many-per-user, but "which tenant does this user
+-- actually belong to" is the single, always-present fact `users.
+-- tenant_id` already states directly — exactly what `lib/domain/
+-- risks.ts`'s existing self-assignment design already relies on
+-- (`requireEngagementAccess` guarantees the acting user's own
+-- membership chain resolves to the Risk's own tenant before `owner_id`
+-- is ever set to that same user's id).
+--
+-- Safe and additive for existing data: `owner_id` is nullable, and a
+-- multi-column FK with any NULL member is skipped entirely under
+-- Postgres's default MATCH SIMPLE semantics (the same behavior this
+-- codebase already relies on for every other conditionally-active
+-- composite FK, e.g. `evidence_links`' per-subject-type FKs) — so no
+-- existing NULL-owner Risk row is affected. Every existing NON-NULL-
+-- owner Risk row was created exclusively by `createRisk`'s own
+-- self-assignment logic, which has never set `owner_id` to anything
+-- but the acting user's own id within their own already-authorized
+-- tenant context — so no existing row can violate the new constraint,
+-- and no backfill or data correction is required. No row's `id` is
+-- changed, no RLS policy is touched, no audit trigger is touched, no
+-- unrelated table is restructured.
+
+-- =============================================================================
+-- 1. The referenced-side unique key on `users` (mirrors
+--    `risk_scoring_models_id_tenant_id_key`'s exact shape) — `id` is
+--    already globally unique (primary key), so this composite unique
+--    constraint adds no new restriction on `users` itself; it only
+--    makes `(id, tenant_id)` independently referenceable by a
+--    composite foreign key, exactly as Postgres requires.
+-- =============================================================================
+
+ALTER TABLE "users" ADD CONSTRAINT "users_id_tenant_id_key" UNIQUE ("id", "tenant_id");
+
+-- =============================================================================
+-- 2. Replace the plain single-column FK on `risks.owner_id` with the
+--    tenant-scoped composite FK. Dropping the old FK first mirrors this
+--    codebase's own established convention for every other tenant-
+--    scoped reference (`risks.risk_scoring_model_id` itself was never
+--    given a redundant plain FK alongside its composite one — see
+--    db/schema/risks.ts) — keeping both would be redundant (the
+--    composite FK already implies the plain one whenever `owner_id` is
+--    non-null, since `users.id` is unique) and would misleadingly
+--    suggest two independent constraints exist where only one,
+--    stronger one is needed.
+-- =============================================================================
+
+ALTER TABLE "risks" DROP CONSTRAINT "risks_owner_id_users_id_fk";
+ALTER TABLE "risks" ADD CONSTRAINT "risks_owner_id_tenant_fk" FOREIGN KEY ("owner_id", "tenant_id") REFERENCES "users"("id", "tenant_id");
+
+-- =============================================================================
+-- 3. No RLS/policy/GRANT/trigger changes. `risks_insert`/`risks_update`
+--    (migration 0013) already re-check `can_access_engagement` on every
+--    write — this migration adds an INDEPENDENT, additional database-
+--    level guarantee about `owner_id` specifically, the same "RLS is
+--    not weakened, a second, narrower backstop is added on top"
+--    posture this project's two-layer authorization model already
+--    uses everywhere else (SECURITY.md §2). `risks_audit_log` (AFTER
+--    INSERT OR UPDATE) already captures every `owner_id` change that
+--    reaches the database at all, including one now correctly REJECTED
+--    by this new FK before any row/audit event is ever written for it.
+-- =============================================================================

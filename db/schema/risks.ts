@@ -54,7 +54,14 @@ export const risks = pgTable(
     // (DATA_MODEL.md §6) — never an in-place reparent.
     riskScoringModelId: uuid("risk_scoring_model_id").notNull(),
     status: riskStatusEnum("status").notNull().default("open"),
-    ownerId: uuid("owner_id").references(() => users.id),
+    // Slice C3.1 (migration 0020, DECISIONS.md R-99/R-101): no plain
+    // `.references(() => users.id)` here — the composite
+    // `ownerTenantFk` below (referencing `users(id, tenant_id)`, not
+    // `users(id)` alone) is the real constraint, replacing what would
+    // otherwise be a redundant, weaker single-column FK — mirrors
+    // `riskScoringModelId` just above, which was never given one
+    // either.
+    ownerId: uuid("owner_id"),
     previousRiskId: uuid("previous_risk_id"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -84,6 +91,21 @@ export const risks = pgTable(
       columns: [table.riskScoringModelId, table.tenantId],
       foreignColumns: [riskScoringModels.id, riskScoringModels.tenantId],
       name: "risks_risk_scoring_model_tenant_fk",
+    }),
+    // Slice C3.1 (migration 0020, DECISIONS.md R-99/R-101): tenant
+    // consistency for the Risk owner — conditionally active (skipped
+    // when owner_id is null, matching every other conditional FK in
+    // this project), proves whoever `owner_id` names belongs to this
+    // exact Risk's own tenant. Closes the gap Slice C3's own report
+    // found and recorded: previously only a plain `owner_id →
+    // users(id)` FK existed, which did not independently prevent a
+    // cross-tenant owner assignment via a route that bypassed
+    // `lib/domain/risks.ts`'s own self-assignment-only application
+    // logic.
+    ownerTenantFk: foreignKey({
+      columns: [table.ownerId, table.tenantId],
+      foreignColumns: [users.id, users.tenantId],
+      name: "risks_owner_id_tenant_fk",
     }),
     // Conditionally active (skipped when assessment_response_id is
     // null): proves the triggering AssessmentResponse belongs to this

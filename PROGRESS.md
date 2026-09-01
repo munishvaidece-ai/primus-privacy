@@ -1,26 +1,278 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C3 (Risk Engine) COMPLETE (Session 19): the
-existing (Milestone 7, database-only) Risk/RiskScoringModel/RiskControl
-model now has a real, traceable consultant workflow — create a Risk
-from an Assessment control's context, an engagement-wide Risk list, a
-Risk detail page with full source (Assessment/Control/
-AssessmentResponse) and Evidence traceability resolved through the
-EXISTING assessment-workspace read functions, and a minimal status
-update. No new domain table, no schema change, no invented scoring
-algorithm: `inherentRating`/`residualRating` are recorded exactly as
-the consultant enters them against the tenant's own pinned, active
-`RiskScoringModel` — no calculator exists anywhere in this codebase
-(deliberate, matching the schema's own already-established posture).
-Risk creation/editing is explicitly NOT blocked by Assessment
-finalization (no database trigger enforces that; see DECISIONS.md
-R-98). One genuine, previously-undocumented database gap was found and
-recorded, not silently patched: `risks.owner_id` carries no
-tenant-scoping FK, so only the application's own self-assignment-only
-design (never a user-directory) prevents a cross-tenant owner
-assignment via a direct/raw route (DECISIONS.md R-99). Full details in
-the "Slice C3" section below. STOP after C3 per explicit instruction —
-no Findings/Remediation/Validation/Maturity/Client Portal/Reporting/AI.
+Status: 2026-09-01 — Slice C3.1 (Risk Security Hardening) COMPLETE
+(Session 20): closes the one genuine database gap Slice C3's own final
+report found and recorded (DECISIONS.md R-99) — `risks.owner_id` is now
+enforced tenant-scoped at the database level. Migration 0020 adds
+`UNIQUE (id, tenant_id)` on `users` and replaces `risks`' plain
+`owner_id → users(id)` foreign key with a composite
+`(owner_id, tenant_id) → users(id, tenant_id)` — a direct malicious
+INSERT/UPDATE naming a real, cross-tenant user as owner is now
+independently rejected by Postgres itself, not only by the
+application's own self-assignment-only design (unchanged — still the
+only owner-assignment mechanism this application exposes; no user
+directory, owner picker, or membership administration was added).
+Smallest possible additive change: no new table, no new role system, no
+new membership model, no RLS/GRANT/audit-trigger change, no historical
+Risk row affected (every existing non-null `owner_id` was already
+same-tenant by construction). Full details in the "Slice C3.1" section
+below. STOP after C3.1 per explicit instruction — no Findings/
+Remediation/Validation/Maturity/Client Portal/Reporting/AI.
+
+## Slice C3.1 — Risk Security Hardening (Session 20, 2026-09-01)
+
+**Scope:** exactly what Slice C3.1 instructed — close the `risks.
+owner_id` tenant-scoping gap Slice C3's own final report identified and
+recorded (DECISIONS.md R-99), and nothing else. No Findings,
+Remediation, Validation, Maturity, Reporting, Client Portal, or AI. No
+scoring calculator was added — `lib/domain/risks.ts`'s existing
+likelihood/impact/rating/residual-triad recording and RiskScoringModel
+association are untouched.
+
+Read `DATA_MODEL.md`'s Risk section, `SECURITY.md`, DECISIONS.md R-99
+and every other Risk-related decision, the actual `risks`/`users`/
+`tenant_memberships`/`organisation_memberships`/`engagement_
+memberships` schemas, the existing authorization service, `lib/domain/
+risks.ts`, `tests/app/risks.test.ts`, the relevant RLS policies, the
+existing membership FKs, and the existing audit triggers fresh from
+disk before writing anything, per instruction.
+
+### 1. The correct owner model, determined from the existing architecture
+
+`users.tenant_id` (NOT NULL — DATA_MODEL.md §2: every user has exactly
+one home tenant) is the correct scoping key, not any membership table:
+a `tenant_memberships`/`organisation_memberships`/`engagement_
+memberships` row is revocable, optional, and potentially many-per-user
+— the question a Risk owner FK needs answered is the single,
+always-present fact "which tenant does this user actually belong to,"
+which `users.tenant_id` already states directly. This is also exactly
+the fact `lib/domain/risks.ts`'s existing self-assignment design already
+relied on implicitly: `requireEngagementAccess` only ever succeeds for
+a caller whose own membership chain resolves to the Risk's tenant, so
+`owner_id = callingUserId` was always same-tenant in practice — this
+slice makes that a database-enforced guarantee instead of an
+application-only convention.
+
+### 2. Database enforcement — the composite FK
+
+Migration `0020_risk_owner_tenant_scoping.sql` (new):
+1. `ALTER TABLE users ADD CONSTRAINT users_id_tenant_id_key UNIQUE (id, tenant_id);`
+   — `id` is already globally unique (primary key); this adds no new
+   restriction on `users` itself, it only makes `(id, tenant_id))`
+   independently referenceable, exactly as Postgres requires for a
+   composite FK.
+2. `ALTER TABLE risks DROP CONSTRAINT risks_owner_id_users_id_fk;`
+   `ALTER TABLE risks ADD CONSTRAINT risks_owner_id_tenant_fk FOREIGN KEY (owner_id, tenant_id) REFERENCES users(id, tenant_id);`
+   — the old plain FK is dropped (not kept alongside the new one),
+   mirroring `risk_scoring_model_id`'s own existing precedent (never
+   given a redundant plain FK either — only the composite
+   `risks_risk_scoring_model_tenant_fk`). `owner_id` remains nullable;
+   a multi-column FK with any NULL member is skipped entirely under
+   Postgres's default MATCH SIMPLE semantics, so no existing NULL-owner
+   Risk row is affected.
+
+This is the exact same `(id, tenant_id)` unique-key + composite-FK
+pattern this codebase already uses for every other tenant-scoped
+reference from client-engagement data to Practice/tenant content
+(`risk_scoring_models_id_tenant_id_key` backing `risks_risk_scoring_
+model_tenant_fk` is the closest direct precedent, migrations 0012/
+0013) — not a new relationship, new user table, new role system, or
+new membership model (instructions §2 explicitly forbid all four).
+
+### 3. Preferred database enforcement — no genuine schema gap blocked this
+
+Instructions §3 asked to STOP and explain if no appropriate unique key
+existed for a composite FK. None was needed: `users.id` (primary key)
+plus the new `UNIQUE (id, tenant_id)` constraint is exactly the shape
+every other tenant-scoped composite FK in this codebase already uses —
+no blocking gap, no STOP condition reached.
+
+### 4. Product question — self-assignment preserved, nothing broader added
+
+`lib/domain/risks.ts`'s `createRisk` is completely unchanged by this
+slice — `assignOwnerToSelf: boolean` remains the only owner-assignment
+mechanism; there is still no `ownerId` parameter accepting an arbitrary
+target user anywhere in this application. No user directory, owner
+picker, membership-administration screen, or cross-user assignment UI
+was introduced (instructions §4's own explicit list of what NOT to
+build).
+
+### 5. RLS
+
+Verified directly, not assumed: Tenant A cannot assign a Tenant B user
+as Risk owner (rejected on INSERT); Tenant A cannot update a Risk's
+owner to a Tenant B user (rejected on UPDATE, not only INSERT); a
+direct malicious SQL attack combining a forged engagement/organisation
+scope with a cross-tenant owner is independently rejected by RLS *and*
+the new FK; existing RLS policies on `risks` (`risks_select`/`risks_
+insert`/`risks_update`, all still `can_access_engagement`-scoped) are
+byte-for-byte unchanged — re-confirmed via direct `psql \d+` inspection
+(item 11 below), not only inferred from the migration file. Nothing was
+weakened.
+
+### 6. Domain layer
+
+Unchanged, per instruction §6 — `createRisk` continues to derive the
+owner from the authenticated user (`assignOwnerToSelf` → `userId`),
+never from browser input. `requireEngagementAccess` already rejects any
+caller whose own tenant doesn't resolve to the Risk's engagement/
+organisation before an insert is even attempted, so "if the
+authenticated user's tenant does not match the Risk's tenant, reject
+the operation" was already true before this slice and remains true
+now — the new FK is an additional, independent database-level
+guarantee on top of that existing application-layer check, not a
+replacement for it.
+
+### 7. Audit
+
+Verified directly against real `audit_log` rows this session (not
+merely inferred from reading the trigger function): the existing
+`risks_audit_log` trigger (`log_methodology_change()`, AFTER INSERT OR
+UPDATE) already captures the actual `owner_id` value via its generic
+`to_jsonb(NEW)` `field_changes` payload — confirmed by querying
+`audit_log` for real Risk rows created with a non-null `owner_id` and
+seeing that value present in `field_changes->'owner_id'`. Owner
+assignment was therefore already audited by the existing, generic
+mechanism; no second audit system was created, per instruction §7's own
+explicit prohibition. A write REJECTED by the new FK never reaches the
+trigger at all (the whole statement aborts), so no audit_log row is
+ever created for a rejected cross-tenant attempt either — consistent
+with how every other constraint-rejected write in this project behaves.
+
+### 8. Tests
+
+`tests/app/risks.test.ts` — test "13." (originally the C3
+"[DOCUMENTED GAP]" test) was rewritten to prove the gap is now CLOSED
+(the same raw cross-tenant INSERT that used to succeed now rejects with
+`risks_owner_id_tenant_fk`), and a new `describe("Risk owner tenant
+scoping (Slice C3.1)")` block adds 6 further focused tests against real
+PostgreSQL:
+1. Same-tenant owner is accepted.
+2. Cross-tenant owner is rejected by the database on INSERT.
+2b. Cross-tenant owner is also rejected on UPDATE (not just INSERT).
+3. The application layer never accepts an arbitrary owner — `createRisk`'s
+   own input type only supports self-assignment (structural/compile-time
+   guarantee, demonstrated at runtime via a same-tenant self-assign).
+4. Anonymous owner assignment is rejected.
+5. Unauthorized user (no membership) cannot modify a Risk's owner via a
+   direct UPDATE — RLS blocks it independently of the new FK (0 rows
+   affected).
+6. A direct SQL attack forging engagement/organisation scope together
+   with a cross-tenant owner is rejected by both RLS and the new FK.
+
+Instructions §8 items 7-10 (existing Risk creation, existing status
+update, historical `risk_scoring_model_id` immutability, existing
+tenant/org/engagement isolation all still work) are the pre-existing
+Slice C3 tests earlier in the same file, run unmodified against the
+post-migration schema — this full suite passing (see item 12) IS that
+regression proof, not separately repeated.
+
+### 9. No scoring calculator
+
+Untouched, per explicit instruction. `lib/domain/risks.ts`'s
+`createRisk`/`updateRiskStatus`/read functions are byte-for-byte
+identical to Slice C3 except for doc-comment updates describing the new
+FK (item 2). No `matrix_definition` lookup, no computed rating, no new
+scoring logic anywhere.
+
+### 10. Schema change — explanation before applying
+
+A schema migration WAS genuinely required (no existing unique key
+covered `(id, tenant_id)` on `users`) — explained fully in item 2/
+DECISIONS.md R-101 before writing it: what changed (one new UNIQUE
+constraint on `users`, one FK swap on `risks`), why it is necessary
+(the only way to make `owner_id` database-enforced tenant-scoped
+without a new table/role/membership model), and how historical rows
+remain valid (nullable FK skipped entirely for NULL owners; every
+existing non-null owner was already same-tenant by construction, so no
+row can violate the new constraint — verified by applying the migration
+to a freshly-seeded test database and confirming zero constraint
+violations during application, then re-running the full existing test
+suite without any fixture changes needed for this reason).
+
+### 11. Database inspection
+
+Directly queried via `psql` after implementation (not only read from
+the migration file): `users` now shows `users_id_tenant_id_key UNIQUE
+CONSTRAINT, btree (id, tenant_id)`; `risks` now shows
+`risks_owner_id_tenant_fk FOREIGN KEY (owner_id, tenant_id) REFERENCES
+users(id, tenant_id)` and no longer shows the old
+`risks_owner_id_users_id_fk`; `risks`' RLS policies
+(`risks_select`/`risks_insert`/`risks_update`), triggers
+(`risks_audit_log`/`risks_prevent_reparenting`), and GRANTs
+(`authenticated`: `INSERT, SELECT, UPDATE`, unchanged) are all
+confirmed byte-for-byte identical to before this slice; `users`' own
+GRANTs (`authenticated`: `SELECT, UPDATE`; `service_role`: `INSERT,
+SELECT, UPDATE`) are likewise unchanged.
+
+### 12. Full regression
+
+```
+npm run typecheck   # clean
+npx eslint .         # clean
+npm run build        # succeeds; route set unchanged (no UI change this slice)
+npx tsx scripts/reset-test-db.ts   # fresh migration incl. 0020, applies cleanly
+npx vitest run tests/app/risks.test.ts   # 35/35 passing (28 existing + 1 rewritten + 6 new)
+npx vitest run tests/app                 # 158/158 passing (9 files)
+npm run test:db      # fresh reset + full suite: 528/528 passing
+npm run test:db      # run again for stability: 528/528 passing, identical results
+```
+(521 tests carried forward from Slice C3 + 7 net new in
+`tests/app/risks.test.ts` — item 8's rewritten test 13 plus 6 new
+tests = 528.)
+
+### 13. Files changed
+
+- `drizzle/migrations/0020_risk_owner_tenant_scoping.sql` (new)
+- `db/schema/users.ts` (`idTenantUnique` added)
+- `db/schema/risks.ts` (`ownerId`'s plain `.references()` removed;
+  composite `ownerTenantFk` added, mirroring `riskScoringModelTenantFk`)
+- `tests/app/risks.test.ts` (test "13." rewritten; new "Risk owner
+  tenant scoping (Slice C3.1)" describe block, 6 tests; shared-pool
+  `afterAll` consolidated to one top-level call)
+- `DATA_MODEL.md` (§8's Risk implementation-clarification prose
+  extended — the schema change, accurately described)
+- `DECISIONS.md` (R-101)
+- `PROGRESS.md` (this entry)
+
+### 14. Dependencies changed
+
+None.
+
+### 15. Known limitations
+
+Carries forward Slice C3's own remaining limitations unchanged (no
+RiskScoringModel-authoring UI, no scoring calculator, no full Risk edit
+form beyond status, no standalone non-assessment-context Risk creation,
+no `risk_processing_activities` UI, no real Supabase Auth/Storage
+backend reachable from this environment) — none of those are this
+slice's concern, and none were touched.
+
+### 16. Deferred decisions
+
+None new — this slice fully closed the one item Slice C3's own
+"Deferred decisions" list named for it (closing the `risks.owner_id`
+tenant-scoping gap). Every other Slice C3 deferral remains open and
+unchanged.
+
+### 17. Recommended C4
+
+Unchanged from Slice C3's own recommendation — not pressed, per
+explicit instruction (STOP after C3.1). Findings remains the most
+natural next candidate (same schema/UI pattern this project just
+followed twice), among the options Slice C3's own report already
+named.
+
+### 18. Git status
+
+All Slice C3.1 work is committed on `claude/primus-privacy-architecture-39p3gh`.
+
+### 19. Remote synchronization
+
+Pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies).
+
+---
 
 ## Slice C3 — Risk Engine (Session 19, 2026-09-01)
 
