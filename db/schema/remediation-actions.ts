@@ -36,7 +36,12 @@ export const remediationActions = pgTable(
 
     title: text("title").notNull(),
     description: text("description"),
-    ownerId: uuid("owner_id").references(() => users.id),
+    // Slice C5 (migration 0022, DECISIONS.md R-104): no plain
+    // `.references(() => users.id)` here — the composite `ownerTenantFk`
+    // below (referencing `users(id, tenant_id)`, not `users(id)` alone)
+    // is the real constraint, mirroring `risks.owner_id`'s (Slice C3.1)
+    // and `findings.owner_id`'s (Slice C4) identical fix.
+    ownerId: uuid("owner_id"),
     dueDate: date("due_date"),
     priority: remediationPriorityEnum("priority"),
     status: remediationActionStatusEnum("status").notNull().default("open"),
@@ -52,6 +57,16 @@ export const remediationActions = pgTable(
       columns: [table.engagementId, table.organisationId, table.tenantId],
       foreignColumns: [engagements.id, engagements.organisationId, engagements.tenantId],
       name: "remediation_actions_engagement_organisation_tenant_fk",
+    }),
+    // Slice C5 (migration 0022): tenant consistency for the
+    // RemediationAction owner — conditionally active (skipped when
+    // owner_id is null), proves whoever `owner_id` names belongs to
+    // this exact RemediationAction's own tenant. Mirrors `risks`'/
+    // `findings`' identical `ownerTenantFk` (Slices C3.1/C4).
+    ownerTenantFk: foreignKey({
+      columns: [table.ownerId, table.tenantId],
+      foreignColumns: [users.id, users.tenantId],
+      name: "remediation_actions_owner_id_tenant_fk",
     }),
     // Consumed by the remediation-links junctions, by ValidationRecord,
     // and by EvidenceLink's `remediation_action` subject type.

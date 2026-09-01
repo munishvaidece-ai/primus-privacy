@@ -123,3 +123,26 @@ export function findingStatusTone(status: string): keyof typeof toneClasses {
       return "neutral";
   }
 }
+
+/** Slice C5 — `remediation_action_status`
+ * (open/in_progress/evidence_submitted/validated/closed) tone. Its own
+ * distinct five-value set (DATA_MODEL.md §8's own verbatim
+ * `OPEN|IN_PROGRESS|EVIDENCE_SUBMITTED|VALIDATED|CLOSED`) doesn't match
+ * `risk_status`/`finding_status`, so this is its own function rather
+ * than an approximate reuse. `remediation_priority` reuses
+ * `riskRatingTone` directly (an identical low/medium/high/critical
+ * scale) — no separate function needed. */
+export function remediationStatusTone(status: string): keyof typeof toneClasses {
+  switch (status) {
+    case "open":
+      return "warning";
+    case "in_progress":
+    case "evidence_submitted":
+      return "neutral";
+    case "validated":
+    case "closed":
+      return "positive";
+    default:
+      return "neutral";
+  }
+}

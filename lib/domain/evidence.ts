@@ -13,6 +13,7 @@ import {
   assessmentControls,
   assessmentResponses,
   controlTests,
+  remediationActions,
   auditLog,
   users,
 } from "@/db/schema";
@@ -86,23 +87,35 @@ export interface EvidenceFile {
 
 type LinkTarget =
   | { type: "assessment_response"; assessmentResponseId: string }
-  | { type: "control_test"; controlTestId: string };
+  | { type: "control_test"; controlTestId: string }
+  | { type: "remediation_action"; remediationActionId: string };
 
 interface ResolvedLinkSubject {
-  subjectType: "assessment_response" | "control_test";
+  subjectType: "assessment_response" | "control_test" | "remediation_action";
   assessmentResponseId: string | null;
   controlTestId: string | null;
-  assessmentStatus: string;
+  remediationActionId: string | null;
+  // null for a `remediation_action` subject — RemediationAction has no
+  // Assessment relationship at all (DATA_MODEL.md §8), so Assessment
+  // finalization is structurally not applicable to it (Slice C5
+  // instructions §20/§22) — never blocked, never a false "finalized"
+  // read for a subject with no Assessment to be finalized.
+  assessmentStatus: string | null;
 }
 
 /**
  * Resolves and validates the Evidence link target (PHASE C2
- * instructions §13: AssessmentResponse or ControlTest only — no new
- * generic polymorphic system). Re-derives the subject's own tenant/
- * organisation/engagement and its Assessment's finalization status from
- * the database, never trusting the caller's own `organisationId`/
- * `engagementId` as proof that the subject actually belongs there
- * (instructions §18).
+ * instructions §13, extended in Slice C5 §22 to also support
+ * `remediation_action` — the fourth `EvidenceLink` subject type this
+ * project's own schema already defines, DATA_MODEL.md §8: "Evidence
+ * attaches to RemediationAction... via the same generic EvidenceLink
+ * used everywhere else." No new generic polymorphic system — this is
+ * the same, already-existing per-subject-type-nullable-column
+ * mechanism, one more branch). Re-derives the subject's own tenant/
+ * organisation/engagement (and, where applicable, its Assessment's
+ * finalization status) from the database, never trusting the caller's
+ * own `organisationId`/`engagementId` as proof that the subject
+ * actually belongs there (instructions §18).
  */
 async function resolveLinkSubject(
   db: RequestDb,
@@ -132,30 +145,55 @@ async function resolveLinkSubject(
       subjectType: "assessment_response",
       assessmentResponseId: row.id,
       controlTestId: null,
+      remediationActionId: null,
+      assessmentStatus: row.assessmentStatus,
+    };
+  }
+
+  if (linkTo.type === "control_test") {
+    const [row] = await db
+      .select({
+        id: controlTests.id,
+        tenantId: controlTests.tenantId,
+        organisationId: controlTests.organisationId,
+        engagementId: controlTests.engagementId,
+        assessmentStatus: assessments.status,
+      })
+      .from(controlTests)
+      .innerJoin(assessments, eq(assessments.id, controlTests.assessmentId))
+      .where(eq(controlTests.id, linkTo.controlTestId))
+      .limit(1);
+    if (!row || row.tenantId !== tenantId || row.organisationId !== organisationId || row.engagementId !== engagementId) {
+      throw new NotFoundOrForbiddenError();
+    }
+    return {
+      subjectType: "control_test",
+      assessmentResponseId: null,
+      controlTestId: row.id,
+      remediationActionId: null,
       assessmentStatus: row.assessmentStatus,
     };
   }
 
   const [row] = await db
     .select({
-      id: controlTests.id,
-      tenantId: controlTests.tenantId,
-      organisationId: controlTests.organisationId,
-      engagementId: controlTests.engagementId,
-      assessmentStatus: assessments.status,
+      id: remediationActions.id,
+      tenantId: remediationActions.tenantId,
+      organisationId: remediationActions.organisationId,
+      engagementId: remediationActions.engagementId,
     })
-    .from(controlTests)
-    .innerJoin(assessments, eq(assessments.id, controlTests.assessmentId))
-    .where(eq(controlTests.id, linkTo.controlTestId))
+    .from(remediationActions)
+    .where(eq(remediationActions.id, linkTo.remediationActionId))
     .limit(1);
   if (!row || row.tenantId !== tenantId || row.organisationId !== organisationId || row.engagementId !== engagementId) {
     throw new NotFoundOrForbiddenError();
   }
   return {
-    subjectType: "control_test",
+    subjectType: "remediation_action",
     assessmentResponseId: null,
-    controlTestId: row.id,
-    assessmentStatus: row.assessmentStatus,
+    controlTestId: null,
+    remediationActionId: row.id,
+    assessmentStatus: null,
   };
 }
 
@@ -290,6 +328,7 @@ export async function uploadEvidence(
       subjectType: subject.subjectType,
       assessmentResponseId: subject.assessmentResponseId,
       controlTestId: subject.controlTestId,
+      remediationActionId: subject.remediationActionId,
       createdBy: userId,
     });
 
@@ -437,6 +476,7 @@ export async function createEvidenceForVersion(
       subjectType: subject.subjectType,
       assessmentResponseId: subject.assessmentResponseId,
       controlTestId: subject.controlTestId,
+      remediationActionId: subject.remediationActionId,
       createdBy: userId,
     });
   } catch (err) {
@@ -620,7 +660,7 @@ export interface EvidenceSummaryRow {
   documentId: string;
   documentVersionId: string;
   originalFilename: string;
-  linkedVia: "assessment_response" | "control_test";
+  linkedVia: "assessment_response" | "control_test" | "remediation_action";
 }
 
 /**
@@ -669,10 +709,53 @@ export async function getEvidenceSummaryForControl(
     .orderBy(desc(evidence.collectedAt));
 
   // The WHERE clause above only ever matches assessment_response/
-  // control_test links — the other two EvidenceLink subject types
-  // (remediation_action/validation_record) are structurally unreachable
-  // here, but the column's own DB type covers all four; narrowed
-  // explicitly rather than widening this function's own return type.
+  // control_test links — `remediation_action` is resolved by the
+  // dedicated getEvidenceSummaryForRemediationAction below instead
+  // (Slice C5), and `validation_record` is structurally unreachable
+  // here (Validation is out of scope through Slice C5) — but the
+  // column's own DB type covers all four; narrowed explicitly rather
+  // than widening this function's own return type.
+  return rows as EvidenceSummaryRow[];
+}
+
+/**
+ * The Evidence summary for one RemediationAction (Slice C5, PHASE C5
+ * instructions §22): the fourth `EvidenceLink` subject type — reuses
+ * the identical read shape `getEvidenceSummaryForControl` above already
+ * established, scoped to `evidence_links.remediation_action_id`
+ * instead. Still read-only metadata only — no file bytes, no
+ * `storage_path`, no signed URL (instructions §22: "do not expose
+ * storage paths").
+ */
+export async function getEvidenceSummaryForRemediationAction(
+  db: RequestDb,
+  remediationActionId: string,
+): Promise<EvidenceSummaryRow[]> {
+  const rows = await db
+    .select({
+      id: evidence.id,
+      evidenceLinkId: evidenceLinks.id,
+      title: evidence.title,
+      evidenceType: evidence.evidenceType,
+      reviewStatus: evidence.reviewStatus,
+      qualityRating: evidence.qualityRating,
+      reviewedByEmail: users.email,
+      reviewedAt: evidence.reviewedAt,
+      reviewRationale: evidence.reviewRationale,
+      validUntil: evidence.validUntil,
+      collectedAt: evidence.collectedAt,
+      documentId: documentVersions.documentId,
+      documentVersionId: evidence.documentVersionId,
+      originalFilename: documentVersions.originalFilename,
+      linkedVia: evidenceLinks.subjectType,
+    })
+    .from(evidenceLinks)
+    .innerJoin(evidence, eq(evidence.id, evidenceLinks.evidenceId))
+    .innerJoin(documentVersions, eq(documentVersions.id, evidence.documentVersionId))
+    .leftJoin(users, eq(users.id, evidence.reviewedBy))
+    .where(eq(evidenceLinks.remediationActionId, remediationActionId))
+    .orderBy(desc(evidence.collectedAt));
+
   return rows as EvidenceSummaryRow[];
 }
 

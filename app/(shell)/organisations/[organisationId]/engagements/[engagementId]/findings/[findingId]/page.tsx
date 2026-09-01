@@ -6,13 +6,15 @@ import { getFindingDetail } from "@/lib/domain/findings";
 import { getRiskDetail } from "@/lib/domain/risks";
 import { getControlTestsForControl } from "@/lib/domain/assessments";
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
+import { listRemediationActionsForFinding } from "@/lib/domain/remediation";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
-import { Badge, riskRatingTone, findingStatusTone, statusTone } from "@/components/ui/badge";
+import { Badge, riskRatingTone, findingStatusTone, remediationStatusTone, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { updateFindingAction } from "../actions";
+import { updateFindingAction, createRemediationActionAction } from "../actions";
 
 const SEVERITY_OPTIONS = ["low", "medium", "high", "critical"] as const;
 const STATUS_OPTIONS = ["open", "in_progress", "resolved", "accepted"] as const;
+const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"] as const;
 const INPUT_CLASS =
   "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
@@ -73,6 +75,8 @@ export default async function FindingDetailPage({
           return [tests, ev] as const;
         })
       : ([[], []] as const);
+
+  const remediationRows = await withRequestDb(user.id, (db) => listRemediationActionsForFinding(db, finding.id));
 
   return (
     <div>
@@ -264,10 +268,95 @@ export default async function FindingDetailPage({
             </ul>
           )}
         </section>
+        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900">Remediation actions</h2>
+            <Link
+              href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/remediation`}
+              className="text-xs font-medium text-slate-900 underline"
+            >
+              View all engagement remediation
+            </Link>
+          </div>
+          {remediationRows.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">No remediation actions recorded for this finding yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {remediationRows.map((r) => (
+                <li key={r.id} className="rounded border border-slate-100 p-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <Link
+                      href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/remediation/${r.id}`}
+                      className="font-medium text-slate-900 underline"
+                    >
+                      {r.title}
+                    </Link>
+                    <div className="flex items-center gap-2">
+                      {r.priority ? <Badge tone={riskRatingTone(r.priority)}>{r.priority}</Badge> : null}
+                      <Badge tone={remediationStatusTone(r.status)}>{r.status}</Badge>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Owner: {r.ownerEmail ?? "unassigned"}
+                    {r.dueDate ? <> · Due: {r.dueDate}</> : null}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form action={createRemediationActionAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+            <input type="hidden" name="organisationId" value={params.organisationId} />
+            <input type="hidden" name="engagementId" value={params.engagementId} />
+            <input type="hidden" name="findingId" value={finding.id} />
+
+            <div>
+              <label htmlFor="remediationTitle" className="block text-xs font-medium text-slate-700">
+                Remediation title
+              </label>
+              <input id="remediationTitle" name="title" type="text" required maxLength={200} className={INPUT_CLASS} />
+            </div>
+            <div>
+              <label htmlFor="remediationDescription" className="block text-xs font-medium text-slate-700">
+                Description
+              </label>
+              <textarea id="remediationDescription" name="description" rows={2} className={INPUT_CLASS} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="priority" className="block text-xs font-medium text-slate-700">
+                  Priority
+                </label>
+                <select id="priority" name="priority" defaultValue="" className={INPUT_CLASS}>
+                  <option value="">Not set</option>
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="dueDate" className="block text-xs font-medium text-slate-700">
+                  Due date
+                </label>
+                <input id="dueDate" name="dueDate" type="date" className={INPUT_CLASS} />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-700">
+              <input type="checkbox" name="assignOwnerToSelf" />
+              Assign this remediation action to me
+            </label>
+            <Button type="submit" variant="secondary" size="sm">
+              Create remediation action
+            </Button>
+          </form>
+        </section>
       </div>
 
       <p className="mt-6 text-xs text-slate-400">
-        Remediation and validation for this finding are not yet part of this application (Slice C4 is Findings only).
+        Validation for this finding&rsquo;s remediation is not yet part of this application (Slice C5 is Remediation
+        Actions only).
       </p>
     </div>
   );

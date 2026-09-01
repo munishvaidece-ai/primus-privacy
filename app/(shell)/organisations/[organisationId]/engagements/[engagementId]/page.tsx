@@ -102,6 +102,19 @@ export default async function EngagementDetailPage({
         </div>
         <p className="mt-3 text-sm text-slate-600">Created from a Risk&rsquo;s own detail page.</p>
       </section>
+
+      <section className="mt-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Remediation</h2>
+          <Link
+            href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/remediation`}
+            className="text-sm font-medium text-slate-900 underline"
+          >
+            View remediation
+          </Link>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">Created from a Finding&rsquo;s own detail page.</p>
+      </section>
     </div>
   );
 }

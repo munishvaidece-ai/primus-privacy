@@ -2833,3 +2833,116 @@ exactly as it did for Risk in Slice C3 (R-100). None of these three
 questions was ambiguous once the actual schema was inspected directly
 — each resolves the same way its Slice C3 analogue did, for the same,
 directly-verifiable reasons, so no STOP was warranted for any of them.
+
+### R-104 — `remediation_actions.owner_id` is also now database-enforced tenant-scoped — the third and, for this project's current schema, final instance of the R-101/R-102 pattern (Slice C5)
+
+**Decision:** Migration 0022 replaces `remediation_actions`' plain
+`owner_id → users(id)` foreign key with a composite
+`remediation_actions_owner_id_tenant_fk (owner_id, tenant_id) →
+users(id, tenant_id)`, reusing the `users_id_tenant_id_key` unique
+constraint migration 0020 already added — no third unique constraint
+needed.
+**Rationale:** Slice C4's own final report explicitly flagged this
+exact column as carrying the identical unprotected shape
+`risks.owner_id` had before Slice C3.1, deferred at the time as out of
+Slice C4's own scope; Slice C5 instructions §3/§9/§18 explicitly
+commission closing it now, using the same, by-now twice-established
+mechanism, rather than leaving the direct inspection to discover it
+fresh. Verified directly per instructions §18's own checklist before
+and after applying: existing NULL-owner rows are unaffected (a
+multi-column FK with a NULL member is skipped entirely under Postgres's
+MATCH SIMPLE default); existing same-tenant-owner rows remain valid (no
+row this application ever creates could violate the new constraint,
+since `createRemediationAction`/`updateRemediationAction` only ever set
+`owner_id` to the acting user's own id, already proven same-tenant by
+`requireEngagementAccess`); INSERT and UPDATE are each independently
+confirmed to reject a cross-tenant owner (`tests/app/remediation.test.ts`
+tests 10/10b), plus one standalone raw-`psql` demonstration outside the
+test suite, exactly as instructions §35 require. No RLS policy, GRANT,
+or audit trigger was touched. This closes the pattern's only two
+existing owner-shaped `users(id)` references (`risks.owner_id`,
+`findings.owner_id`, `remediation_actions.owner_id`) — no fourth
+instance remains anywhere in the current schema.
+
+### R-105 — Remediation creation/editing is NOT blocked by Assessment finalization; priority is never automatically copied from Finding/Risk; status has no enforced transition order; "rationale" is again correctly omitted (Slice C5)
+
+**Decision:** Four Risk/Finding-slice precedents were re-applied to
+RemediationAction, each re-verified against its own actual schema
+rather than assumed to carry over automatically:
+1. **Finalization:** `createRemediationAction`/`updateRemediationAction`
+   carry no Assessment-finalization check. Direct inspection of
+   migrations 0012/0013 confirms no trigger on `remediation_actions`/
+   `remediation_findings` references Assessment or its `status` at all
+   — the identical absence R-98/R-103 already found for `risks`/
+   `findings`. `tests/app/remediation.test.ts` directly queries
+   `information_schema.triggers` to confirm this.
+2. **Priority:** `remediation_actions.priority` is an independently-
+   stored, nullable column with no FK, trigger, or generated-column
+   relationship to `findings.severity`/`risks.inherent_rating` — direct
+   inspection of `db/schema/remediation-actions.ts` and migrations
+   0012/0013 confirms nothing copies it. `createRemediationAction`
+   never reads the source Finding's/Risk's own severity/rating at all.
+3. **Status transitions:** `updateRemediationAction` accepts any of the
+   five existing `remediation_action_status` values with no enforced
+   order — DECISIONS.md R-71 (Milestone 7) already established that
+   `status = 'evidence_submitted'` is not database-enforced to require
+   linked Evidence, i.e. the whole field is deliberately
+   application-layer-optional, not a database state machine; inventing
+   transition rules the repository itself doesn't define would
+   contradict that already-approved posture (instructions §24's own
+   "do not invent workflow rules... if the existing status is simply
+   mutable, preserve that").
+4. **"Rationale":** `db/schema/remediation-actions.ts`/DATA_MODEL.md §8
+   name no `rationale`-shaped column on `remediation_actions`,
+   mirroring R-100/R-103's identical finding for `risks`/`findings` —
+   omitted from the creation/edit forms for the same reason.
+**Rationale:** PHASE C5 instructions §20 require using the existing
+model rather than inventing a finalization rule, stopping only if
+genuinely ambiguous; §8 require using authoritative domain logic if
+priority is derived, or respecting independent storage if not; §24
+require using only transitions the repository already defines; §11/§20
+(via §7 in Slice C3/C4's own precedent) govern which fields the
+creation/edit forms may add. None of these four questions was
+ambiguous once the actual schema was inspected directly — each
+resolves the same way its Slice C3/C4 analogue did, for the same,
+directly-verifiable reasons, so no STOP was warranted for any of them.
+
+### R-106 — Evidence/EvidenceLink extended to support `remediation_action` as a link target — an already-approved database subject type, application-layer support simply hadn't been built yet (Slice C5)
+
+**Decision:** `lib/domain/evidence.ts`'s `LinkTarget` union,
+`resolveLinkSubject`, and the two `evidenceLinks` insert call sites
+(`uploadEvidence`/`createEvidenceForVersion`) were extended with a
+third case, `remediation_action`, alongside the existing
+`assessment_response`/`control_test` cases from Slice C2. A new,
+narrow read function, `getEvidenceSummaryForRemediationAction`, mirrors
+`getEvidenceSummaryForControl`'s exact shape, scoped to
+`evidence_links.remediation_action_id` instead.
+**Rationale:** Unlike Risk/Finding (which have no direct Evidence
+relationship in the approved schema at all — R-96/R-103's identical
+finding), `evidence_links` has carried a genuine, fully-built
+`remediation_action` subject type (column, CHECK-constraint branch,
+composite scope FK) since Milestone 7 (migration 0012/0013) — DATA_
+MODEL.md §8's own explicit sentence: "Evidence attaches to
+RemediationAction and ValidationRecord via the same generic
+EvidenceLink used everywhere else." Slice C2's own application-layer
+`uploadEvidence`/`resolveLinkSubject` only ever implemented the
+`assessment_response`/`control_test` cases its own brief scoped to,
+leaving `remediation_action`/`validation_record` "structurally
+unreachable" at the application layer (Slice C2's own code comment) —
+not because the database lacked support, but because no prior slice's
+brief asked for the application code to reach it. PHASE C5 instructions
+§22 explicitly direct: "If Remediation has Evidence relationships in
+the existing model: use the existing Evidence/EvidenceLink
+architecture. Do not create another attachment system." Extending the
+existing `LinkTarget` union and its one resolver function is that
+literal instruction, not a new mechanism — the same per-subject-type-
+nullable-column pattern this whole file already uses for the other two
+cases, one more branch. `validation_record` remains unextended
+(Validation is explicitly out of scope through Slice C5, instructions
+§23) — only the `remediation_action` branch was added. Assessment
+finalization is structurally not applicable to a `remediation_action`
+subject (RemediationAction has no Assessment relationship at all), so
+`ResolvedLinkSubject.assessmentStatus` was widened to `string | null`,
+with `null` meaning "not applicable, never blocked" for this one
+subject type — not a weakening of the existing finalization check for
+`assessment_response`/`control_test`, which are unchanged.

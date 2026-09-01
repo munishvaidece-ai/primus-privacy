@@ -543,6 +543,13 @@ C3.1, and closed the same way, reusing the same `UNIQUE (id, tenant_id)`
 constraint on `users`. No field was renamed, removed, or given
 different application-level semantics.
 
+**Implementation clarification (Slice C5, DECISIONS.md R-104):**
+`RemediationAction.owner_id` received the identical tenant-scoping
+hardening — the third and, for this project's current schema, final
+instance of this pattern (after `Risk.owner_id`/`Finding.owner_id` in
+Slices C3.1/C4). No field was renamed, removed, or given different
+application-level semantics.
+
 `ValidationRecord.triggers_control_reassessment_id` is implemented as
 two separate nullable FK columns (`triggers_control_test_id`/
 `triggers_assessment_response_id`), one per target table, mirroring

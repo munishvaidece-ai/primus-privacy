@@ -1,26 +1,521 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C4 (Findings Management) COMPLETE (Session
-21): the existing (Milestone 7, database-only) Finding/FindingRisk
-model now has a real, traceable consultant workflow — create a Finding
-from a Risk's own detail page, an engagement-wide Finding list, a
-Finding detail/edit page (title/description/severity/status/owner all
-genuinely editable, unlike Risk's status-only edit), and full Finding →
-Risk → Assessment → Control → AssessmentResponse → Evidence
-traceability composed entirely from EXISTING read functions (`getRiskDetail`,
-`getControlTestsForControl`, `getEvidenceSummaryForControl`) — no
-duplicated data, no new Evidence relationship. One schema change,
-directly instructed and proactively applied: `findings.owner_id` was
-found in the same unprotected shape `risks.owner_id` had before Slice
-C3.1, and migration 0021 closes it the same way (composite FK to
-`users(id, tenant_id)`, reusing C3.1's own supporting unique
-constraint) — see DECISIONS.md R-102. Finding creation/editing is
-explicitly NOT blocked by Assessment finalization, and severity is
-never automatically copied from the source Risk (DECISIONS.md R-103) —
-both directly re-verified against Finding's own actual schema, not
-assumed to carry over from Risk. Full details in the "Slice C4" section
-below. STOP after C4 per explicit instruction — no Remediation/
-Validation/Maturity/Client Portal/Reporting/AI.
+Status: 2026-09-01 — Slice C5 (Remediation Actions) COMPLETE (Session
+22): the existing (Milestone 7, database-only) RemediationAction/
+RemediationFinding model now has a real, traceable consultant workflow
+— create a RemediationAction from a Finding's own detail page, an
+engagement-wide Remediation list, a RemediationAction detail/edit page
+(title/description/priority/status/due_date/owner all genuinely
+editable), full Remediation → Finding → Risk → Assessment → Control →
+AssessmentResponse traceability composed entirely from EXISTING read
+functions one layer deeper than Finding detail's own composition, and
+— for the first time in this Risk/Finding/Remediation chain — a
+genuine DIRECT Evidence relationship: `lib/domain/evidence.ts` was
+extended to support `remediation_action` as an EvidenceLink target, an
+already-approved database subject type since Milestone 7 whose
+application-layer support simply hadn't been built yet (DECISIONS.md
+R-106). The one schema change Slice C4's own report flagged in advance
+was made: `remediation_actions.owner_id` — found in the identical
+unprotected shape `risks.owner_id`/`findings.owner_id` had before their
+own fixes — is now database-enforced tenant-scoped via migration 0022,
+closing the last remaining instance of this pattern in the current
+schema (DECISIONS.md R-104), verified by both the automated suite and a
+standalone raw-`psql` attack demonstration. Remediation creation/
+editing is explicitly NOT blocked by Assessment finalization, priority
+is never automatically copied from the source Finding/Risk, and status
+transitions carry no invented order (DECISIONS.md R-105). Validation is
+explicitly NOT built — any existing `ValidationRecord` is shown
+read-only. Full details in the "Slice C5" section below. STOP after C5
+per explicit instruction — no Validation/Maturity/Client Portal/
+Reporting/AI.
+
+## Slice C5 — Remediation Actions (Session 22, 2026-09-01)
+
+**Scope:** exactly what PHASE C — REMEDIATION / Slice C5 instructed —
+turn an existing Finding into a structured, traceable
+RemediationAction, using the EXACT existing RemediationAction/
+RemediationFinding/RemediationRisk/RemediationControl/ValidationRecord
+model built (database-only) in Milestone 7 (migrations 0012/0013). No
+Validation, Maturity, Client Portal, Reporting, or AI UI — none of
+those exist anywhere in this slice's changes; any existing
+`ValidationRecord` is displayed read-only, never created or approved.
+No junction redesign — the one migration this slice made (0022)
+hardens an existing column's referential integrity, the third and
+(for this schema) final instance of an already twice-approved pattern.
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, the
+RemediationAction/Finding/Risk/Assessment/Evidence/ValidationRecord
+schemas, the existing authorization service, the Finding domain
+(`lib/domain/findings.ts`), the Risk domain (`lib/domain/risks.ts`),
+the Assessment workspace, the Evidence implementation, existing UI
+components, existing tests, and every relevant migration fresh from
+disk before writing anything, per instruction.
+
+### 1. Existing Remediation architecture discovered
+
+`remediation_actions` (DATA_MODEL.md §8): `engagement_id`/
+`organisation_id`/`tenant_id` (engagement-scoped, like `Risk`/
+`Finding`), `title`, `description` (additive), `owner_id`, `due_date`
+(a `date` column, not timestamp), `priority` (additive,
+`remediation_priority` enum: low/medium/high/critical — the same
+four-point scale `risk_rating`/`finding_severity` use, nullable),
+`status` (`remediation_action_status`: DATA_MODEL.md §8's own verbatim
+five-value set open/in_progress/evidence_submitted/validated/closed),
+`completed_at` (additive, nullable timestamp, no trigger sets it — a
+plain application-set column). `remediation_findings`/
+`remediation_risks`/`remediation_controls` are plain insert/delete-only
+junctions (RemediationAction N ←→ N Finding/Risk/Control —
+DATA_MODEL.md §11). `validation_records` (read fully, though Validation
+itself is out of scope) confirms `ValidationRecord.remediation_action_id`
+is the one FK pointing back at `remediation_actions`, and that its
+decision fields are permanently frozen after creation (a Milestone 7
+trigger, unaffected by this slice). No genuine discrepancy was found
+between DATA_MODEL.md and the actual schema. One consequential fact,
+not a discrepancy, shaped this slice's most significant addition:
+unlike Risk/Finding, `evidence_links` already has a fully-built
+`remediation_action` subject type at the database layer (item 12/
+DECISIONS.md R-106) — a genuine, direct Evidence relationship, not an
+indirect one.
+
+### 2. Remediation schema used
+
+Used exactly as built — no field renamed, added, or repurposed beyond
+the migration 0022 hardening (item 15). `remediation_findings`/
+`remediation_risks`/`remediation_controls` are all real, but this
+slice's own UI only ever creates a `remediation_findings` link at
+creation time (instructions §4's own literal "Finding → Create
+Remediation Action" framing) — `remediation_risks`/
+`remediation_controls` are not populated by this slice (known
+limitation, item 31).
+
+### 3. Finding → Remediation relationship
+
+Many-to-many via the EXISTING `remediation_findings` junction
+(DATA_MODEL.md §8/§11: "RemediationAction N ←→ N Finding"). No
+artificial "one RemediationAction per Finding" rule was imposed
+(instructions §6) — nothing in the schema requires one.
+`remediation_findings_finding_scope_fk`/`remediation_findings_
+remediation_action_scope_fk` (migration 0012) already structurally
+prove, by construction, that a RemediationFinding row's `finding_id`
+and `remediation_action_id` share the exact same tenant/organisation/
+engagement — a RemediationAction cannot be associated with a
+cross-tenant/cross-organisation/cross-engagement Finding (instructions
+§5) with no schema change needed for this part; directly re-verified
+via `psql` (item 22) and a dedicated raw-SQL test (item 18, test 14).
+
+### 4. Risk → Finding → Remediation traceability
+
+Resolved by composing EXISTING functions at the page level, one layer
+deeper than Finding detail's own composition (never duplicated data):
+`getRemediationActionDetail` returns the RemediationAction's own fields
+plus its linked source Finding(s); the RemediationAction detail PAGE
+then calls the EXISTING `getFindingDetail` (Slice C4) with the primary
+source Finding's id, which itself calls `getRiskDetail` (Slice C3),
+which calls `getControlTestsForControl`/`getEvidenceSummaryForControl`
+(Slices C1/C2) — the identical chain Finding detail already performs,
+extended one more hop. No new read path, no copied Finding/Risk/
+Assessment/Evidence metadata anywhere on `remediation_actions` itself.
+
+### 5. Remediation creation workflow
+
+`lib/domain/remediation.ts`'s `createRemediationAction`: Browser →
+Server Action (`createRemediationActionAction`, added to the Finding
+detail page's own `actions.ts`) → authenticate → `requireEngagementAccess`
+→ validate → `createRemediationAction` → PostgreSQL (one transaction,
+two inserts: `remediation_actions` then `remediation_findings`) → RLS →
+audit (existing `remediation_actions_audit_log`/`remediation_findings_
+audit_log` triggers — no new audit mechanism). Mirrors `createFinding`'s
+(Slice C4) exact shape: only `findingId` identifies the source context;
+tenant/organisation/engagement scope is always re-derived server-side
+from the Finding's own authoritative row, never trusted from the caller
+(instructions §4/§16).
+
+### 6. Remediation list
+
+New route, `/organisations/[organisationId]/engagements/[engagementId]/remediation`
+— a real-data table (title, source finding, priority, status, owner,
+due date), one batched query (`listRemediationActionsForEngagement`),
+no dashboard, no chart, no analytics (instructions §12/§14). Linked
+from the Engagement detail page ("Remediation" section, mirroring the
+existing "Findings"/"Risks"/"Assessments" sections) and from the
+Finding detail page's own Remediation section ("View all engagement
+remediation").
+
+### 7. Remediation detail
+
+New route, `/organisations/[organisationId]/engagements/[engagementId]/remediation/[remediationActionId]`
+— identity, a genuine edit form (title/description/priority/status/
+due_date/owner, instructions §11), source Finding(s) with clickable
+navigation, source Risk/Assessment/Control (via item 4's composition),
+relevant ControlTests, indirect Evidence (from the source assessment
+response), DIRECT Evidence submitted against the remediation action
+itself with an upload form (item 12), and any existing ValidationRecord
+shown read-only with a plain, non-interactive note when none exists yet
+(instructions §11/§23's own explicit "show its current relationship/
+state accurately... do NOT build Validation actions").
+
+### 8. Status
+
+Uses the existing `remediation_action_status` enum exactly (open/
+in_progress/evidence_submitted/validated/closed) — no new state, and a
+dedicated `remediationStatusTone` badge-tone function (its own distinct
+five-value set, not confused with `risk_status`/`finding_status`).
+`updateRemediationAction` accepts any of the five values with no
+enforced transition order — DECISIONS.md R-71 (Milestone 7) already
+established the whole field is deliberately application-layer-
+optional, not a database state machine (instructions §24: "do not
+invent workflow rules... if the existing status is simply mutable,
+preserve that").
+
+### 9. Priority
+
+Uses the existing `remediation_priority` enum exactly (identical
+four-point scale to `risk_rating`/`finding_severity` — `riskRatingTone`
+is reused directly, no separate tone function needed). Never
+automatically copied from the source Finding's severity or the
+ultimate source Risk's rating at the domain layer (DECISIONS.md R-105)
+— an independent, optional (nullable) field the consultant sets
+explicitly; the creation form's own `<select>` offers "Not set" as the
+default, with no UI-convenience default value copied in either (unlike
+Finding's own severity default from Risk in Slice C4 — the schema's own
+nullability here made an unset default the more honest choice).
+
+### 10. Owner
+
+Mirrors Risk's/Finding's self-only design (instructions §9): the only
+assignment mechanism is `assignOwnerToSelf` at creation and
+`ownerAction` (`keep`/`assign_self`/`unassign`) on edit — never an
+arbitrary target user, no user-directory, no invitations, no
+membership-administration UI, no owner picker (instructions §9's own
+explicit list of what NOT to build). The database now independently
+rejects a cross-tenant owner too (item 15/DECISIONS.md R-104) — not
+only application-layer discipline.
+
+### 11. Due date
+
+`due_date` (a `date` column) is validated server-side (`YYYY-MM-DD`
+format, `InvalidRemediationInputError` on a malformed value) and
+displayed plainly on list/detail. No automated reminders, no
+notifications, no Task/Notification functionality, no invented
+business-deadline enforcement beyond the schema's own plain nullable
+column (instructions §10's own explicit prohibitions).
+
+### 12. Evidence relationship
+
+The one place this slice's traceability chain is DIRECT rather than
+indirect (unlike Risk/Finding, which have no Evidence relationship in
+the approved schema at all): `evidence_links` has carried a genuine
+`remediation_action` subject type since Milestone 7
+(`evidence_links_remediation_action_scope_fk`, the CHECK-constraint
+branch, the `remediation_action_id` column) — the application layer
+simply hadn't reached it yet (Slice C2's own explicit scope limitation).
+`lib/domain/evidence.ts` was extended (DECISIONS.md R-106): `LinkTarget`
+gained a `remediation_action` case, `resolveLinkSubject` gained a
+matching branch (re-deriving the RemediationAction's own tenant/
+organisation/engagement from its authoritative row, never trusting the
+caller), and a new `getEvidenceSummaryForRemediationAction` read
+function mirrors `getEvidenceSummaryForControl`'s exact shape. This is
+the SAME Evidence/EvidenceLink architecture throughout — no second
+attachment system, no duplicated `storage_path`/document metadata/
+checksum, no exposed storage path (instructions §22's own explicit
+prohibitions); the RemediationAction detail page's own upload form
+reuses the EXISTING `uploadEvidence` domain function unchanged beyond
+this new link-target case.
+
+### 13. Authorization
+
+Reuses the existing centralized authorization service exactly —
+`requireEngagementAccess` is the sole primitive this slice needed; no
+new function was added to `lib/authorization/service.ts`. Every
+function in `lib/domain/remediation.ts` re-derives tenant/organisation/
+engagement scope from the database itself before any read or write.
+
+### 14. RLS
+
+Unchanged and unweakened on `remediation_actions`/`remediation_findings`
+— migration 0013's existing forced-RLS policies remain exactly as they
+were; directly re-confirmed via `psql \d+` this session (item 22), not
+only read from the migration file.
+
+### 15. Owner tenant-scoping mechanism
+
+Migration `0022_remediation_action_owner_tenant_scoping.sql`: drops
+`remediation_actions_owner_id_users_id_fk`, adds
+`remediation_actions_owner_id_tenant_fk (owner_id, tenant_id) →
+users(id, tenant_id)`, reusing migration 0020's own
+`users_id_tenant_id_key` unique constraint — no new unique constraint
+(instructions §18's own explicit "do not create redundant unique
+constraints"). Verified per instructions §18's own checklist: existing
+NULL owners remain valid (test 11b); existing same-tenant owners remain
+valid (test 11b); no historical row required unsafe backfill (this
+application never created a cross-tenant-owner row in the first place);
+INSERT rejects a cross-tenant owner (test 10); UPDATE independently
+rejects one too (test 10b) — plus a standalone raw-`psql` attack
+demonstration outside the automated suite entirely, run against real
+fixture data as a genuine engagement member, confirmed rejected with
+`remediation_actions_owner_id_tenant_fk` (instructions §35).
+
+### 16. Audit
+
+Relies on the existing audit architecture exactly — migration 0013's
+`remediation_actions_audit_log` (AFTER INSERT OR UPDATE) and
+`remediation_findings_audit_log` (AFTER INSERT OR DELETE) triggers
+already cover every write this slice performs; no new trigger, no
+second audit log. Directly verified live against real `audit_log` rows
+(item 18, test 17) that both creation and update produce
+correctly-attributed entries (`actor_user_id` = the acting user), with
+`field_changes` capturing real before/after values (e.g. `priority`) —
+owner/status/priority/due-date changes are all captured by the same
+generic `to_jsonb(NEW)` payload, since they are all just fields on the
+same row this trigger already logs in full.
+
+### 17. Finalized-assessment behavior
+
+Deliberately NOT blocked, for the same reason and by the same direct
+verification method as Risk/Finding (DECISIONS.md R-98/R-103/R-105): no
+trigger on `remediation_actions`/`remediation_findings` references
+Assessment finalization at all — confirmed both by successfully
+creating a RemediationAction from a Finding sourced from an
+already-finalized Assessment's Risk, and by a dedicated test querying
+`information_schema.triggers` directly.
+
+### 18. Security tests
+
+`tests/app/remediation.test.ts`, 17 numbered database/application
+security scenarios (PHASE C5 instructions §25), all passing, real
+PostgreSQL, no mocked authorization: tenant/organisation/engagement
+read isolation (1-3); tenant/organisation/engagement create-boundary
+enforcement against another scope's Finding (4-6); anonymous access
+rejected (7); unauthorized create/update rejected (8-9); cross-tenant
+owner rejected by the database (10, and 10b for UPDATE specifically);
+cross-tenant owner rejected through the application, i.e. no code path
+accepts one at all (11, plus 11b's migration-safety verification);
+direct malicious RLS attack (12); forged browser-supplied scope ids
+rejected even with a real id (13); the Finding source relationship
+cannot cross a tenant boundary (14); the full Risk → Finding →
+Remediation chain stays tenant-safe (15); finalized-assessment behavior
+matches the database (16); audit attribution identifies the acting
+user (17).
+
+### 19. Owner security tests
+
+Covered within the same numbered list (items 10/10b/11/11b) plus a
+standalone, non-vitest `psql` demonstration (item 15) — matching PHASE
+C5 instructions §26's own exact scenario: same-tenant owner succeeds;
+cross-tenant owner via direct SQL fails (INSERT and UPDATE both); a
+cross-tenant owner is unreachable through the application at all (no
+`ownerId` parameter exists to even attempt one).
+
+### 20. Traceability tests
+
+A dedicated end-to-end test constructs the exact scenario instructions
+§27 describe — Assessment A → Control C1 → Response → Risk R1 →
+Finding F1 → Remediation Rm1 — plus Evidence at two points (indirect,
+from the assessment response; direct, submitted against the
+remediation action itself) — and resolves the ENTIRE chain using only
+the real functions the RemediationAction detail page itself calls
+(`getRemediationActionDetail` → `getFindingDetail` → `getRiskDetail` →
+`getControlTestsForControl`/`getEvidenceSummaryForControl`/
+`getEvidenceSummaryForRemediationAction`), confirming both Evidence
+paths are reachable; then confirms Tenant B cannot traverse any part of
+that exact chain, including the direct Evidence path.
+
+### 21. Update tests
+
+`updateRemediationAction`'s title/description/priority/status/due_date/
+owner (assign_self, then unassign) are all exercised together, with
+explicit verification that `completed_at` is set exactly once on first
+entering a terminal status (`validated`/`closed`) and never cleared or
+re-stamped when status later moves away and back; an empty-title update
+is rejected; an unauthorized user's update attempt is rejected
+(security test 9); every update produces a correctly-attributed audit
+entry with real before/after `field_changes` (security test 17). Only
+fields the schema actually supports were tested — no `rationale` field
+exists to test (DECISIONS.md R-105).
+
+### 22. Database inspection
+
+Directly queried via `psql` (not only read from the migration file) for
+`remediation_actions`/`remediation_findings`/`remediation_risks`/
+`remediation_controls`/`evidence_links`: forced RLS enabled on all
+four RemediationAction-side tables; `_select`/`_insert`(/`_update` on
+`remediation_actions`,/`_delete` on the three junctions) policies
+present, all scoped through `can_access_engagement`;
+`remediation_actions_prevent_reparenting`/the `_audit_log` triggers
+confirmed present exactly as migration 0013 defines them; `GRANT`s to
+`authenticated` confirmed as `INSERT, SELECT, UPDATE` on
+`remediation_actions` (no `DELETE` — never hard-deleted) and `DELETE,
+INSERT, SELECT` on all three junctions; `remediation_actions_owner_id_
+tenant_fk` confirmed present and the old plain
+`remediation_actions_owner_id_users_id_fk` confirmed gone;
+`evidence_links`' own `remediation_action_id` column, CHECK-constraint
+branch, and `evidence_links_remediation_action_scope_fk` all directly
+confirmed already present and unchanged (this slice's Evidence
+extension is application-layer only).
+
+### 23. Performance/query approach
+
+`listRemediationActionsForEngagement`/`listRemediationActionsForFinding`/
+`getRemediationActionDetail` are each one to a small, fixed number of
+batched queries (`LEFT JOIN`s, not one query per remediation action) —
+no N+1. Traceability resolution reuses the Finding/Risk/Assessment/
+Evidence layer's own already-efficient functions rather than adding a
+new, parallel read path. No search engine, cache layer, microservice,
+or separate API backend was introduced — PostgreSQL remains the sole
+read/write store (instructions §31).
+
+### 24. Exact C5 tests
+
+`tests/app/remediation.test.ts` (30 tests): RemediationAction creation
+success (with/without owner assignment and priority/due date, with an
+invalid due-date format, against a nonexistent Finding, with an empty
+title, against a finalized Assessment's Finding); `updateRemediationAction`
+(all six supported fields including both owner actions, and the
+`completed_at` one-time-set behavior; empty-title rejection); the 17
+security scenarios plus the 10b/11b owner-hardening additions (item
+18/19); the full traceability scenario with both direct and indirect
+Evidence (item 20); and `listRemediationActionsForEngagement`/
+`listRemediationActionsForFinding` read-function scoping.
+
+### 25. Exact full-suite count/results
+
+```
+npm run test:db   # fresh reset + full 8-directory suite incl. tests/app: 582/582 passing
+npm run test:db   # run again for stability: 582/582 passing, identical results
+```
+(552 tests carried forward from Slice C4 + 30 new in
+`tests/app/remediation.test.ts` = 582.)
+
+### 26. Typecheck/lint/build
+
+```
+npm run typecheck   # clean
+npx eslint .         # clean
+npm run build        # succeeds; both new Remediation routes correctly reported
+                      # dynamic (server-rendered on demand), none prerendered
+```
+
+### 27. Files changed
+
+- `drizzle/migrations/0022_remediation_action_owner_tenant_scoping.sql` (new)
+- `db/schema/remediation-actions.ts` (`ownerId`'s plain `.references()`
+  removed; composite `ownerTenantFk` added, mirroring `risks.ts`'s/
+  `findings.ts`'s Slices C3.1/C4 fixes)
+- `lib/domain/remediation.ts` (new) — `createRemediationAction`,
+  `updateRemediationAction`, `listRemediationActionsForEngagement`,
+  `listRemediationActionsForFinding`, `getRemediationActionDetail`,
+  `InvalidRemediationInputError`
+- `lib/domain/evidence.ts` (extended — `LinkTarget`/`resolveLinkSubject`
+  gained a `remediation_action` case; new
+  `getEvidenceSummaryForRemediationAction`)
+- `components/ui/badge.tsx` (`remediationStatusTone` added;
+  `remediation_priority` reuses the existing `riskRatingTone` directly)
+- `app/(shell)/.../engagements/[engagementId]/findings/actions.ts`
+  (extended — `createRemediationActionAction`)
+- `app/(shell)/.../engagements/[engagementId]/findings/[findingId]/page.tsx`
+  (Remediation Actions section added)
+- `app/(shell)/.../engagements/[engagementId]/page.tsx` ("Remediation"
+  section added, mirroring existing sections)
+- `app/(shell)/.../engagements/[engagementId]/remediation/page.tsx`
+  (new — Remediation list)
+- `app/(shell)/.../engagements/[engagementId]/remediation/actions.ts`
+  (new — `updateRemediationActionAction`, `uploadRemediationEvidenceAction`)
+- `app/(shell)/.../engagements/[engagementId]/remediation/[remediationActionId]/page.tsx`
+  (new — Remediation detail/edit)
+- `tests/app/remediation.test.ts` (new, 30 tests)
+- `DATA_MODEL.md` (Slice C5 addendum, `RemediationAction.owner_id`)
+- `DECISIONS.md` (R-104, R-105, R-106)
+- `PROGRESS.md` (this entry)
+
+### 28. Dependencies changed
+
+None.
+
+### 29. Schema changes
+
+One: migration `0022_remediation_action_owner_tenant_scoping.sql` —
+directly instructed by the brief itself (§3/§9/§18), explained fully
+before applying, reuses the existing `users_id_tenant_id_key`
+constraint, no RLS/GRANT/trigger touched.
+
+### 30. Historical-row impact
+
+None — no production data exists (no production Supabase project is
+provisioned, per D-03's own still-current status); against the fresh
+test database, zero constraint violations occurred applying the
+migration, and the full pre-existing suite passed unmodified
+afterward. Every NULL-owner row is structurally unaffected (skipped FK
+check); every non-null-owner row this application has ever created was
+already same-tenant by construction, so none could violate the new
+constraint.
+
+### 31. Known limitations
+
+1. `remediation_risks`/`remediation_controls` junctions are not used by
+   this slice's UI — only `remediation_findings` (instructions' own §4
+   framing: RemediationActions are created FROM a Finding in this
+   slice, never directly from a Risk or Control).
+2. No standalone, non-Finding-context RemediationAction creation UI —
+   every RemediationAction this slice's UI can create is driven from a
+   Finding's own detail page, mirroring Slice C4's identical
+   Finding-from-Risk-context-only limitation.
+3. Evidence submitted directly against a RemediationAction can be
+   uploaded but not reviewed (accept/reject) from the RemediationAction
+   detail page — review remains available from wherever the Evidence
+   was originally surfaced in the Assessment workspace; building a
+   parallel review action here was judged out of this slice's own
+   explicit scope (upload/submission, not a QA workflow).
+4. Carries forward every prior slice's own recorded limitation
+   (DECISIONS.md R-85/D-03, R-95): no real Supabase Auth/Storage
+   backend is reachable from this environment.
+
+### 32. Deferred Validation functionality
+
+Nothing was implemented — per explicit instruction (§23), Validation
+remains entirely unbuilt: no `ValidationRecord` creation, no validation
+approval/rejection UI, no evidence-submission-triggers-validation
+workflow, no remediation closure workflow, no automatic remediation
+completion, no validator assignment. The RemediationAction detail page
+shows any EXISTING `ValidationRecord` read-only (outcome, validator,
+timestamp, rationale) and, when none exists, a plain, non-interactive
+note that Validation is a future stage — never a button or link
+implying functionality that doesn't exist.
+
+### 33. Deferred decisions
+
+- Building `RemediationRisk`/`RemediationControl` UI (linking a
+  RemediationAction directly to a Risk or Control, not only via its
+  source Finding).
+- A standalone, non-Finding-context RemediationAction creation
+  workflow.
+- Evidence review (accept/reject) directly from the RemediationAction
+  detail page.
+- Validation itself — the next slice, per the brief's own chain.
+
+### 34. Recommended C6
+
+Per explicit instruction, no recommendation is pressed — the user's own
+brief states "we will review C5 before continuing" and forbids
+proceeding to Validation/Maturity/Client Portal/Reporting/AI in this
+session. The natural next candidate, per the brief's own chain
+("Assessment → ... → Finding → Remediation Action → later Validation"),
+is Validation — `validation_records` already exists, database-only,
+from Milestone 7, and this slice's own detail page already resolves and
+displays it read-only, ready for a future slice to add the one
+consultant-driven write action DATA_MODEL.md §8 describes. This report
+does not preempt that choice.
+
+### 35. Git status
+
+All Slice C5 work is committed on `claude/primus-privacy-architecture-39p3gh`.
+
+### 36. Remote synchronization
+
+Pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies).
+
+---
 
 ## Slice C4 — Findings Management (Session 21, 2026-09-01)
 

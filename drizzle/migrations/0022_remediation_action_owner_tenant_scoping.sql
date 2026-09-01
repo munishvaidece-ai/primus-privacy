@@ -1,0 +1,34 @@
+-- PRIMUS PRIVACY — Migration 0022: RemediationAction owner tenant scoping.
+--
+-- Hand-written (DECISIONS.md R-02). Slice C5 instructions §3/§9/§18
+-- explicitly direct: apply the same composite-FK owner-scoping pattern
+-- already established for `risks.owner_id` (migration 0020, Slice
+-- C3.1) and `findings.owner_id` (migration 0021, Slice C4) to
+-- `remediation_actions.owner_id` too — both prior slices' own reports
+-- flagged this exact table/column as carrying the identical
+-- unprotected shape, deferred at the time as out of each slice's own
+-- scope (Risk/Findings, not Remediation). Direct inspection of
+-- `remediation_actions.owner_id` (migration 0012) confirms it: a plain
+-- `remediation_actions_owner_id_users_id_fk → users(id)` FK, no tenant
+-- consistency check.
+--
+-- This migration applies the third, now well-established instance of
+-- the identical fix, reusing the SAME supporting unique constraint
+-- migration 0020 already added (`users_id_tenant_id_key`) — no new
+-- unique constraint needed (instructions §18's own explicit "reuse...
+-- do not create redundant unique constraints").
+--
+-- Same safety argument as migrations 0020/0021, applied to
+-- `remediation_actions`: `owner_id` remains nullable, so a multi-column
+-- FK with a NULL member is skipped entirely (Postgres MATCH SIMPLE
+-- default) — every existing NULL-owner row is unaffected. Every
+-- RemediationAction row this slice's own `lib/domain/remediation.ts`
+-- creates only ever sets `owner_id` to the acting user's own id (or
+-- clears it), and that user's own tenant was already proven to match
+-- the RemediationAction's tenant by `requireEngagementAccess` before
+-- the write — so no row created by this application can violate the
+-- new constraint, and no backfill is required. No RLS policy, GRANT,
+-- or audit trigger is touched. No unrelated table is restructured.
+
+ALTER TABLE "remediation_actions" DROP CONSTRAINT "remediation_actions_owner_id_users_id_fk";
+ALTER TABLE "remediation_actions" ADD CONSTRAINT "remediation_actions_owner_id_tenant_fk" FOREIGN KEY ("owner_id", "tenant_id") REFERENCES "users"("id", "tenant_id");
