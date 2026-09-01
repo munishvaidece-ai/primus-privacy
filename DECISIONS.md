@@ -1,11 +1,11 @@
 # PRIMUS PRIVACY — Architectural Decisions
 
-Status: Draft v0.6 (Session 6 / Milestone 3, 2026-09-01: added R-32
-through R-39, recording implementation decisions made while building
-Processing Activity & the Version-Pinned Junction Layer — see
-PROGRESS.md for the milestone report. D-01/D-02 remain RESOLVED from
-Session 2; R-16 through R-31 from Sessions 3-5 stand unchanged). This log
-records material architectural decisions and
+Status: Draft v0.7 (Session 7 / Milestone 4, 2026-09-01: added R-40
+through R-47, recording implementation decisions made while building
+Regulatory Content & the Control Library — see PROGRESS.md for the
+milestone report. D-01/D-02 remain RESOLVED from Session 2; R-16 through
+R-39 from Sessions 3-6 stand unchanged). This log records material
+architectural decisions and
 their rationale, in the order they were made. Items requiring a human
 product/business decision that cannot be safely inferred from the brief are
 marked **DECISION REQUIRED** and are not assumed — implementation should
@@ -901,3 +901,190 @@ order cross-table `ALTER TABLE` statements within one generated file) —
 worth watching for in any future milestone that adds a `UNIQUE`
 constraint to an existing table in the same generation pass as a new
 table's FK against it.
+
+---
+
+## Milestone 4 — Regulatory Content & Control Library (Session 7, 2026-09-01)
+
+### R-40 — `RegulatoryReference`, `Requirement`, `ControlLibraryVersion`, and `Control` are Tenant-scoped, not Organisation-scoped
+
+**Decision:** All four methodology identity tables carry `tenant_id`
+directly (no `organisation_id` column anywhere on them), and RLS/triggers
+are keyed on `tenant_id` throughout — a structurally different scope
+column from every Milestone 2/3 client-data table.
+**Rationale:** DATA_MODEL.md §12 states this explicitly: "`Control`,
+`Requirement`, `RegulatoryReference` belong to the **Practice** (via
+`Tenant` and `ControlLibraryVersion`), never to a client." This is the
+concrete database-enforced separation between "methodology" and "client
+data" the milestone brief asks for — not a new design choice so much as
+DATA_MODEL.md's existing statement, finally given columns and RLS
+policies.
+
+### R-41 — A new, separate reparenting-guard function keyed on `tenant_id` (`prevent_methodology_reparenting()`), not a reuse of Milestone 2's `prevent_master_data_reparenting()`
+
+**Decision:** A new generic trigger function, structurally identical to
+migration 0003's but checking `tenant_id` instead of `organisation_id`,
+applied to all four methodology identity tables.
+**Rationale:** The existing function is hard-coded to the column name
+`organisation_id`; these tables don't have that column at all (R-40).
+Rather than parameterizing one function over an arbitrary column name
+(which Postgres trigger functions can't easily do without dynamic SQL —
+itself a bigger complexity increase than a second small function),
+duplicating the same three-line pattern under a new name was judged
+clearer and consistent with how migration 0005 already introduced its
+own new functions where the existing ones' shape didn't fit (R-38).
+
+### R-42 — Control library versioning is NOT the client SCD2 pattern: a new library version means new `Control` rows, not new rows in a version table pointing back to a shared identity row
+
+**Decision:** `ControlLibraryVersion` and `Control` together implement
+the practice-owned version chain — there is no separate "Control
+identity" table with a "Control version" table hanging off it the way
+System/Processor/etc. work. A `Control` belongs to exactly one
+`ControlLibraryVersion` via a plain `NOT NULL` FK; carrying a control's
+intent forward into a new library version means creating a brand new
+`Control` row (new `id`, new `control_library_version_id`, the same
+human-readable `code`) with no formal link back to the row it succeeds.
+**Rationale:** Milestone 4 instructions state directly: "do not reuse the
+client SCD2 versioning pattern blindly for the control library." The
+client pattern exists to answer "what did this client's System look like
+on this date" for a single, ongoing entity; the control-library need is
+different — "what was in Library v1.0 vs v2.0," where v1.0 and v2.0 are
+two complete, independently-immutable snapshots, not a chain of
+diffs against one canonical row. Treating each library version's
+Controls as their own independent rows is what makes the
+historical-reproducibility guarantee (R-45) trivial: v1.0's rows are
+simply never touched by anything that happens to v2.0.
+**Trade-off accepted:** there is no queryable "this is the same control,
+evolved" relationship between a v1.0 Control and its v2.0 successor
+beyond the shared `code` value (a human convention, not an FK). This was
+judged acceptable: Milestone 4 instructions explicitly ask for *simple*
+draft/published/retired semantics, not a full carry-forward workflow,
+and nothing in DATA_MODEL.md §6 gives `Control` a `carried_forward_from_id`
+column the way `ProcessingActivity`/`AIUseCase` have (DATA_MODEL.md §5.4,
+§7). A future milestone could add such a column additively if the need
+becomes concrete.
+
+### R-43 — `Requirement` is not scoped to a `ControlLibraryVersion`, deliberately, so a Requirement (e.g. "R1") can be mapped from multiple library versions
+
+**Decision:** `requirements` carries `tenant_id` but no
+`control_library_version_id` — a `Requirement` is Practice-owned
+reference content that exists independently of any one library version,
+and is connected to specific library versions only indirectly, through
+whichever `Control` rows happen to be mapped to it via
+`ControlRequirement` at any point in time.
+**Rationale:** DATA_MODEL.md §6's field list for `Requirement` names no
+such column, and the milestone's own historical-reproducibility scenario
+requires it: "Library v1.0 (R1, C1, C2)... later Library v2.0 (R1, C1,
+C2, C3...)" describes the *same* R1 participating in both versions' story
+— it is the mapping (R-42's new `Control` rows + fresh `ControlRequirement`
+rows) that changes per version, not the Requirement's own identity.
+**Consequence, recorded openly:** because `Requirement`'s own descriptive
+fields (`title`, `description`) are not gated by any `ControlLibraryVersion`
+status, editing a `Requirement` after a library version that references it
+has been published is possible (blocked only by the `active`/`retired`
+status enum, not a publish-immutability trigger — R-44). This is a
+deliberate scope boundary, not an oversight: the milestone's published-
+immutability guarantee is about the library's *Control set and mappings*
+(R-45's six questions are all answerable without it), not about freezing
+every word of the underlying regulatory prose language it cites. A future
+milestone could add stricter Requirement versioning if a real need
+surfaces.
+
+### R-44 — Published-immutability enforcement applies to `ControlLibraryVersion`, `Control`, and `ControlRequirement` only — not to `RegulatoryReference`/`Requirement`/`RequirementRegulatoryReference`
+
+**Decision:** `RegulatoryReference` and `Requirement` use a simple
+`active`/`retired` status (mirroring, but not reusing, `master_data_status`
+— see enums.ts) with ordinary UPDATE allowed while `active`, no
+publish-style locking. `RequirementRegulatoryReference` (their junction)
+is insert/delete-only with no version-status gate at all. Only
+`ControlLibraryVersion.status` transitions, `Control` mutations, and
+`ControlRequirement` mutations are gated by the draft/published/retired
+lifecycle (migration 0007 §4-6).
+**Rationale:** direct consequence of R-43 — `RequirementRegulatoryReference`
+connects two entities that are neither one library-version-scoped, so
+there is no `ControlLibraryVersion` for a trigger to consult. Milestone 4
+instructions ask for immutability of "published methodology" specifically
+in the context of what an Engagement pins to (`ControlLibraryVersion`) —
+that is the object whose content must not silently change underneath a
+historical Engagement, and it is fully covered by gating `Control`/
+`ControlRequirement` (everything reachable by joining from a
+`ControlLibraryVersion`).
+
+### R-45 — Deliberately simple, hand-written status-transition trigger for `ControlLibraryVersion`, not a workflow/state-machine table
+
+**Decision:** One `BEFORE UPDATE` PL/pgSQL function
+(`prevent_control_library_version_tampering()`) encodes all transition
+rules directly as `IF`/`RAISE EXCEPTION` branches: `draft -> published`
+allowed (auto-stamps `published_at`); `published -> retired` allowed;
+every other transition blocked; any edit to descriptive fields blocked
+once `published` or `retired`.
+**Rationale:** Milestone 4 instructions explicitly ask to "keep transition
+rules simple, document decisions rather than building sophisticated
+workflow logic." A generic state-machine table (allowed-transitions
+matrix, roles-per-transition, etc.) was considered and rejected as
+exactly the kind of unrequested structure the brief warns against —
+three explicit states with one legal forward path each are simple enough
+to hand-code directly and remain fully auditable via the existing
+`audit_log` mechanism (R-46) without any new tooling.
+
+### R-46 — A new tenant-scoped audit-trigger function pair (`log_methodology_change()` / `log_methodology_relationship_change()`), not a reuse of Milestone 2/3's organisation-scoped ones
+
+**Decision:** Two new `SECURITY DEFINER` trigger functions, structurally
+parallel to migration 0003/0005's `log_master_data_change()` /
+`log_processing_activity_relationship_change()`, but reading `NEW.tenant_id`
+/`OLD.tenant_id` directly instead of resolving a tenant via a join through
+`organisations`.
+**Rationale:** the existing functions' one non-generic line
+(`SELECT tenant_id INTO v_tenant_id FROM organisations WHERE id = NEW.organisation_id`)
+only exists because organisation-scoped tables don't carry `tenant_id`
+themselves. Every Milestone 4 table already carries `tenant_id` directly
+(R-40), making that join both unnecessary and wrong (there is no
+`organisation_id` column to join on). Reusing the existing audit-log
+*architecture* (the `audit_log` table, its schema, its RLS, its
+`SECURITY DEFINER`/`auth.uid()` attribution pattern) satisfies the
+milestone's "reuse the existing audit-log architecture" instruction; a
+new function for a genuinely different row shape is the same pattern
+migration 0005 already established (R-38), not a second mechanism.
+
+### R-47 — Read/write RLS asymmetry for methodology tables: `can_access_tenant()` for SELECT, the narrower `is_active_tenant_member()` for INSERT/UPDATE/DELETE
+
+**Decision:** Any user with a legitimate foothold anywhere in the tenant
+(tenant, organisation, or engagement membership) can read the
+methodology tables; only users with an actual `TenantMembership` can
+write to them.
+**Rationale:** methodology content is practice governance — it defines
+what every client engagement under the tenant is assessed against, so
+authoring or changing it is deliberately held to a narrower bar than
+ordinary engagement work, while still letting engagement consultants
+read the methodology their own engagement runs against (`can_access_tenant`
+already grants that, per its own migration-0001 doc comment: "anyone with
+ANY legitimate foothold" may read the Tenant-level object). This is a new
+application of existing helper functions, not a new authorization
+mechanism (Milestone 4 instructions: "reuse the existing authorization
+framework"). No prior milestone needed this particular read/write split
+because no prior milestone had Tenant-scoped *content* tables — Milestone
+1's own use of `can_access_tenant` was for the `Tenant` row and `audit_log`
+only (read visibility), and Milestone 1's `roles`/`permissions` tables are
+seeded data with no RLS write policy for `authenticated` at all. Recorded
+as a genuinely new decision, not an extension of a settled precedent.
+
+### R-48 — `Engagement.control_library_version_id` is wired up now, additively, superseding R-23's deferral
+
+**Decision:** `engagements.control_library_version_id` (nullable) is
+added in this milestone's migration, with a composite FK to
+`control_library_versions(id, tenant_id)`, plus a dedicated trigger
+(`prevent_engagement_control_library_pin_change()`) enforcing (a) the
+pinned version must be `published` or `retired`, never `draft`, and
+(b) the pin is immutable once set.
+**Rationale:** R-23 (Milestone 1) deferred this column specifically
+because `ControlLibraryVersion` didn't exist yet; DATA_MODEL.md §12 states
+directly "an Engagement pins to one `control_library_version_id` at
+creation." Now that the table exists, adding the column is the natural
+completion of R-23's deferral, not a new speculative feature — and it is
+exactly what the milestone's historical-reproducibility scenario needs to
+answer "which library version does a given engagement use" (one of the
+required six questions). Immutability-once-set mirrors the same
+historical-reproducibility principle applied to the Engagement side of
+the relationship: an engagement's own record of what it was assessed
+against must not be silently rewritable any more than the library content
+itself is.

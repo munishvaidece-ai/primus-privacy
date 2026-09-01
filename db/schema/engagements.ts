@@ -1,17 +1,24 @@
 import { pgTable, uuid, text, date, timestamp, foreignKey, unique } from "drizzle-orm/pg-core";
 import { engagementTypeEnum, engagementStatusEnum } from "./enums";
 import { organisations } from "./organisations";
+import { controlLibraryVersions } from "./control-library";
 
 // Engagement — a discrete, time-bounded piece of work for a client
 // (e.g. "DPDP Readiness & Implementation — FY2026"). Belongs to exactly
 // one Organisation and therefore one Tenant. Historical engagements are
-// never overwritten (DATA_MODEL.md §3) — later milestones add the
-// assessment-engine tables that hang off this one; this milestone only
-// establishes the engagement itself and its tenancy invariant.
+// never overwritten (DATA_MODEL.md §3) — later milestones (the
+// Assessment Engine) add the tables that hang off this one; this
+// milestone only establishes the engagement itself and its tenancy
+// invariant.
 //
-// `control_library_version_id` from DATA_MODEL.md §3 is deliberately
-// omitted — ControlLibraryVersion doesn't exist until the Assessment
-// Engine milestone (out of scope here; DECISIONS.md records the cut).
+// `control_library_version_id` (DATA_MODEL.md §3, §12: "an Engagement
+// pins to one control_library_version_id at creation") is added here in
+// Milestone 4, now that ControlLibraryVersion exists (deferred from
+// Milestone 1 — DECISIONS.md R-23). Nullable, since every Engagement
+// created in Milestones 1-3 predates this column and an Engagement may
+// legitimately exist before a methodology is pinned to it. Immutable
+// once set, and only settable to a published or retired library version
+// — enforced by migration 0007's trigger, not by this schema file.
 export const engagements = pgTable(
   "engagements",
   {
@@ -33,6 +40,8 @@ export const engagements = pgTable(
     // §3, §12). Historical engagements are never mutated to point
     // forward; only a new engagement points back.
     previousEngagementId: uuid("previous_engagement_id"),
+    // Milestone 4 addition — see the file comment above.
+    controlLibraryVersionId: uuid("control_library_version_id"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -58,6 +67,17 @@ export const engagements = pgTable(
       columns: [table.previousEngagementId],
       foreignColumns: [table.id],
       name: "engagements_previous_engagement_fk",
+    }),
+    // Milestone 4 addition: proves "an Engagement can only pin to its own
+    // Tenant's methodology" by construction — the same triple-FK
+    // discipline used throughout. Draft-vs-published/retired gating and
+    // immutability-once-set are enforced by migration 0007's trigger, not
+    // by this FK (a composite FK can prove tenant consistency; it cannot
+    // express "only if status != draft").
+    controlLibraryVersionTenantFk: foreignKey({
+      columns: [table.controlLibraryVersionId, table.tenantId],
+      foreignColumns: [controlLibraryVersions.id, controlLibraryVersions.tenantId],
+      name: "engagements_control_library_version_tenant_fk",
     }),
     // Milestone 3 addition: lets `processing_activities` composite-FK
     // against (id, organisation_id, tenant_id), guaranteeing

@@ -1,12 +1,260 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 3 COMPLETE (Session 6): Processing
-Activity — the central privacy object — and the version-pinned junction
-layer connecting it to Milestone 2's master data, implemented, migrated,
-and tested against real PostgreSQL 16. No Controls, Assessments,
-Evidence, Risk, Findings, Remediation, DPIA, AI, or reports; no product
-UI. Milestones 1-2 (Sessions 4-5) and the architecture gate (Sessions
-1-3) passed before this milestone began.
+Status: 2026-09-01 — Milestone 4 COMPLETE (Session 7): Regulatory
+Content & the Control Library — the practice-owned methodology layer
+(RegulatoryReference, Requirement, ControlLibraryVersion, Control, and
+their junctions), Tenant-scoped and structurally separate from client
+engagement data, with database-enforced published-version immutability
+and historical reproducibility, implemented, migrated, and tested against
+real PostgreSQL 16. `Engagement.control_library_version_id` (deferred in
+Milestone 1 — DECISIONS.md R-23) is wired up. No Assessments, Evidence,
+Risk, Findings, Remediation, DPIA, AI, or reports; no product UI.
+Milestones 1-3 (Sessions 4-6) and the architecture gate (Sessions 1-3)
+passed before this milestone began.
+
+## Milestone 4 — Regulatory Content & Control Library (Session 7, 2026-09-01)
+
+**Scope:** exactly what MILESTONE 4 instructed — the practice-owned
+methodology layer (`RegulatoryReference`, `Requirement`, `ControlLibraryVersion`,
+`Control`) and their two junctions (`RequirementRegulatoryReference`,
+`ControlRequirement`), per DATA_MODEL.md §6, plus wiring up
+`Engagement.control_library_version_id` now that `ControlLibraryVersion`
+exists. Strictly Tenant/Practice-scoped, never duplicated per client
+Organisation. No `Assessment`, `AssessmentControl`, `AssessmentResponse`,
+`ControlTest`, or anything downstream of them — none of those tables
+exist anywhere in this schema. No legal-content scraping, no real
+regulatory corpus, no AI-generated legal text, no legal-completeness or
+legal-advice claims — every fixture in the test suite is synthetic and
+clearly labeled as such. No product UI.
+
+Read `DATA_MODEL.md` §6/§11/§12 and the actual Milestone 1-3 code
+(`db/schema/tenants.ts`, `db/schema/engagements.ts`,
+`db/schema/processing-activities.ts`, migrations 0000-0005) fresh from
+disk before writing anything, per instruction. §12 was the decisive read:
+it states directly that `Control`/`Requirement`/`RegulatoryReference`
+belong to the Practice (Tenant), never a client, and that methodology
+versioning is a *distinct* mechanism from the client SCD2 pattern
+(§5.1) — both are load-bearing design constraints followed throughout,
+not new decisions invented this session.
+
+### What was implemented
+
+- **Drizzle TS schema** (4 new files: `db/schema/regulatory-references.ts`,
+  `db/schema/requirements.ts`, `db/schema/control-library.ts`,
+  `db/schema/control-library-links.ts`): `regulatoryReferences`
+  (`tenant_id`, `framework_name`, `citation`, `title`, `version`, `status`),
+  `requirements` (`tenant_id`, `primary_regulatory_reference_id`, `title`,
+  `description`, `status`), `controlLibraryVersions` (`tenant_id`,
+  `version_label`, `status`, `published_at`), `controls` (`tenant_id`,
+  `control_library_version_id`, `code`, `title`, `description`,
+  `control_type`), and junctions `requirementRegulatoryReferences` /
+  `controlRequirements` — 6 tables total, exactly matching DATA_MODEL.md
+  §6's field list. All six carry `tenant_id` directly (not part of §6's
+  original field list, which predates the Tenant/Practice split — see
+  DATA_MODEL.md addendum, DECISIONS.md R-40).
+- **Extended `db/schema/engagements.ts`** with the previously-deferred
+  `control_library_version_id` column (nullable) and a composite FK to
+  `control_library_versions(id, tenant_id)` (DECISIONS.md R-48,
+  superseding R-23's deferral).
+- **Migration 0006** (`drizzle-kit` generated from the TS schema; no
+  statement-reordering was needed this time — every new `UNIQUE`
+  constraint landed on a brand-new table, so drizzle-kit emitted them
+  inline in `CREATE TABLE`, not as a later `ALTER TABLE` the way
+  Milestone 3's collided with existing tables — reviewed and confirmed
+  before use, not assumed safe by default): 6 new tables, 3 new enums
+  (`regulatory_content_status`, `control_library_version_status`,
+  `control_type`), the `engagements.control_library_version_id` column,
+  and every composite FK described below.
+- **Migration 0007** (hand-written, per DECISIONS.md R-02): audit-column
+  FKs; a new `tenant_id`-keyed reparenting guard
+  (`prevent_methodology_reparenting()`, DECISIONS.md R-41) on all four
+  identity tables; a dedicated `engagements` trigger
+  (`prevent_engagement_control_library_pin_change()`) blocking a pin to a
+  `draft` version and blocking any change to an already-set pin; the
+  `ControlLibraryVersion` status-transition/content-immutability trigger
+  (`prevent_control_library_version_tampering()`, DECISIONS.md R-45); the
+  `Control` and `ControlRequirement` draft-mutable guards
+  (`enforce_control_draft_mutable()`, `enforce_control_requirement_draft_mutable()`)
+  that are the actual mechanism making a *published* library's content
+  immutable; RLS enabled with `FORCE` on all 6 tables and 21 policies,
+  every one reusing Milestone 1's `can_access_tenant(uuid)` /
+  `is_active_tenant_member(uuid)` unchanged (no second authorization
+  framework) — with a deliberate read/write asymmetry: `SELECT` via the
+  wider `can_access_tenant`, `INSERT`/`UPDATE`/`DELETE` via the narrower
+  `is_active_tenant_member` (DECISIONS.md R-47); `GRANT`/`REVOKE`
+  statements matching the policies (`anon` gets nothing); two new
+  `SECURITY DEFINER` audit-trigger functions (`log_methodology_change()`,
+  `log_methodology_relationship_change()`, DECISIONS.md R-46) reusing the
+  existing `audit_log` table/attribution pattern, adapted to read
+  `tenant_id` directly instead of joining through `organisations`.
+- **Composite/triple-FK consistency**, the same discipline used since
+  Milestone 2: `requirements(primary_regulatory_reference_id, tenant_id) →
+  regulatory_references(id, tenant_id)`; `controls(control_library_version_id,
+  tenant_id) → control_library_versions(id, tenant_id)`;
+  `control_requirements`/`requirement_regulatory_references` each
+  composite-FK against both sides of their mapping plus `tenant_id`;
+  `engagements(control_library_version_id, tenant_id) →
+  control_library_versions(id, tenant_id)`. Every FK proves tenant
+  consistency by construction, no application-level check required.
+- **Practice-owned versioning, not client SCD2** (DECISIONS.md R-42/R-43):
+  a new `ControlLibraryVersion` gets its own new `Control` rows (same
+  `code`, new `id`, new `control_library_version_id`) — no identity/version
+  split, no carry-forward FK chain. `Requirement` is deliberately *not*
+  scoped to a `ControlLibraryVersion`, so the same Requirement row is
+  reachable from multiple library versions' mappings — this is what makes
+  the historical-reproducibility scenario below meaningful rather than
+  trivially true.
+- **tests/control-library** (5 new files, 48 new tests, run against real
+  PostgreSQL 16.13):
+  - `crud.test.ts` (7 tests): RegulatoryReference/Requirement/Control
+    CRUD, N:N Control↔Requirement mapping, duplicate-mapping prevention
+    on both junctions, delete-not-update semantics for mappings.
+  - `publishing-immutability.test.ts` (14 tests): every legal and illegal
+    status transition (draft→published allowed + auto-stamps
+    `published_at`; draft→retired blocked; published→draft blocked;
+    published→retired allowed; retired→anything blocked); published
+    content immutability on `ControlLibraryVersion` itself; `Control`
+    INSERT/UPDATE/DELETE all blocked once its version is published;
+    `control_library_version_id` immutability on `Control`; `ControlRequirement`
+    INSERT/DELETE both blocked once published; confirmation that drafts
+    remain freely editable/deletable throughout.
+  - `historical-reproducibility.test.ts` (10 tests): the exact ABC
+    Financial Services scenario — Library v1.0 (R1, C1, C2) published and
+    pinned to an ABC Financial engagement; Library v2.0 (R1, C1, C2, C3,
+    with C2's v2.0 mapping to R1 deliberately dropped and C3 added)
+    published afterward. Six questions answered directly against the
+    database: what's in v1.0; what's in v2.0 (and that its "C1"/"C2" are
+    genuinely different rows from v1.0's); what v1.0's C1 maps to; how
+    v2.0's mapping differs; which version the ABC Financial engagement is
+    pinned to; and that v1.0's C1/C2/mappings/version row are byte-for-byte
+    unchanged after v2.0 exists — plus one end-to-end join resolving an
+    engagement's full pinned methodology in one query. A second `describe`
+    block covers `Engagement.control_library_version_id` pinning rules
+    directly: draft pin rejected, published/retired pin accepted, pin
+    immutable once set (even to another published version).
+  - `tenant-isolation.test.ts` (12 tests): Tenant A/Tenant B read
+    isolation across all 6 tables; unaffiliated-user and anonymous-request
+    blocking; write protection (INSERT/UPDATE blocked cross-tenant, with
+    0-rows-affected + unchanged-data confirmation, not just a thrown
+    error); the read/write authorization split itself — an organisation/
+    engagement-scoped Tenant A user (no `TenantMembership`) can read but
+    cannot write, while a genuine `TenantMembership` holder can do both
+    (proving the block is real access control, not a broken pipe).
+  - `audit.test.ts` (5 tests): creation, publish/retire transitions (each
+    an `UPDATE` audit row), draft modification, mapping insert/delete, and
+    `auth.uid()` attribution — all read back from the real `audit_log`
+    table.
+  - Direct raw-SQL confirmation (outside the test framework, per
+    instruction to inspect the database directly rather than infer from
+    application-level tests): a `psql` session publishing a
+    `ControlLibraryVersion` and then attempting a `Control` INSERT against
+    it, confirmed rejected with the exact trigger error text.
+
+### Testing performed (exact commands, run in this order)
+
+1. `npm run typecheck` — clean, both before and after the security
+   migration was hand-written.
+2. `npm run db:generate` — generated migration 0006; collided with
+   existing `0005_processing_activity_security.sql` (drizzle-kit's own
+   numbering, same recurring issue as Milestones 2-3) — renamed to
+   `0006_control_library.sql`, `meta/0005_snapshot.json` renamed to
+   `meta/0006_snapshot.json`, `meta/_journal.json`'s `idx`/`tag` fixed;
+   re-ran `db:generate`, confirmed "No schema changes, nothing to
+   migrate."
+3. `npx tsx scripts/reset-test-db.ts` (fresh database, all 8 migration
+   files applied in order) — succeeded cleanly, no manual reordering
+   needed this time (see "What was implemented").
+4. `npx vitest run tests/rls tests/master-data tests/processing-activity`
+   — all 75 pre-existing tests still passing against the post-Milestone-4
+   schema (no regressions).
+5. `npx vitest run tests/control-library` — all 48 new tests passing.
+6. `npm run test:db` (fresh reset + full suite: `tests/rls` +
+   `tests/master-data` + `tests/processing-activity` +
+   `tests/control-library`) — **123/123 passing**. Run **twice** in full
+   (fresh `reset-test-db` each time) to prove stability — 123/123 both
+   times, identical results.
+7. `npm run lint` — clean.
+8. `npm run build` (`next build`) — compiles successfully, static pages
+   generated, no type or lint errors.
+9. Direct `psql` inspection of the resulting database (not inferred from
+   source): `relrowsecurity`/`relforcerowsecurity` confirmed `t`/`t` on
+   all 6 new tables; `pg_policies` confirmed all 21 new policies with the
+   expected commands/roles; `information_schema.role_table_grants`
+   confirmed `authenticated` has exactly the intended privileges per
+   table and `anon`/`PUBLIC` have none; `pg_constraint` confirmed every
+   FK and `UNIQUE` constraint described above; `information_schema.triggers`
+   confirmed all 25 triggers (reparenting guards, the pin guard, the
+   version-tampering guard, the two draft-mutable guards, and the audit
+   triggers) present with the correct timing/events; a standalone `psql`
+   transaction (outside vitest) reproduced the published-immutability
+   rejection directly.
+
+### Files changed
+
+- New: `db/schema/regulatory-references.ts`, `db/schema/requirements.ts`,
+  `db/schema/control-library.ts`, `db/schema/control-library-links.ts`,
+  `drizzle/migrations/0006_control_library.sql`,
+  `drizzle/migrations/0007_control_library_security.sql`,
+  `drizzle/migrations/meta/0006_snapshot.json`,
+  `tests/control-library/helpers.ts`,
+  `tests/control-library/crud.test.ts`,
+  `tests/control-library/publishing-immutability.test.ts`,
+  `tests/control-library/historical-reproducibility.test.ts`,
+  `tests/control-library/tenant-isolation.test.ts`,
+  `tests/control-library/audit.test.ts`.
+- Modified: `db/schema/enums.ts` (new Milestone 4 enum block),
+  `db/schema/engagements.ts` (new column + FK, comment update),
+  `db/schema/index.ts` (barrel exports), `package.json` (new
+  `test:control-library` script, `test:db` extended),
+  `drizzle/migrations/meta/_journal.json` (renumbering fix),
+  `DATA_MODEL.md` (one additive implementation-clarification paragraph
+  after §6), `DECISIONS.md` (R-40 through R-48), `PROGRESS.md` (this
+  entry).
+- Unchanged: `ARCHITECTURE.md`, `SECURITY.md`, `PRODUCT_SPEC.md`,
+  `ROADMAP.md`, `README.md`, and every migration/schema file from
+  Milestones 1-3 (`0000`-`0005`, and every `db/schema/*.ts` file this
+  milestone didn't touch).
+
+### Known limitations (documented, not silently built around)
+
+- A `Control` carried forward into a new library version has no formal
+  FK chain back to its predecessor beyond a shared `code` value —
+  DECISIONS.md R-42's accepted trade-off; DATA_MODEL.md §6 gives `Control`
+  no `carried_forward_from_id` column, unlike `ProcessingActivity`/
+  `AIUseCase`.
+- `Requirement`'s own descriptive fields are not frozen by any
+  `ControlLibraryVersion`'s publish state — only the library's Control set
+  and mappings are (DECISIONS.md R-43/R-44). This is a deliberate scope
+  boundary, not an oversight.
+- No transition-rule constraint beyond the three-state
+  draft/published/retired lifecycle exists for `ControlLibraryVersion` —
+  no approval workflow, no per-transition role requirement beyond
+  `is_active_tenant_member` (DECISIONS.md R-45, matching the milestone's
+  explicit "keep it simple" instruction).
+- No UI of any kind was built (none was requested) — every table above
+  was exercised exclusively through direct SQL/RLS-aware test clients.
+
+### Recommended Milestone 5
+
+The Assessment Engine (`Assessment`, `AssessmentControl`, `AssessmentResponse`,
+`ControlTest`) is the explicit next layer named in DATA_MODEL.md §6, and is
+the natural next milestone: it is the first entity that actually
+*consumes* both an `Engagement` (via `engagement_id`) and a pinned
+`ControlLibraryVersion` (via `engagement.control_library_version_id`,
+wired up this milestone) together, and DATA_MODEL.md §12's "Engagement/
+assessment-instance versioning" section already describes its
+`previous_assessment_id` chain in the same terms as this milestone's
+methodology-versioning discussion — the two sections were clearly written
+to be built in this order.
+
+### Git status / remote synchronization status
+
+All Milestone 4 work is committed on `claude/primus-privacy-architecture-39p3gh`
+and pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Milestone 3 — Processing Activity & Version-Pinned Junction Layer (Session 6, 2026-09-01)
 

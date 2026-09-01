@@ -380,6 +380,28 @@ finalization is made by opening a new `Assessment` (linked via
 "compare posture across assessment periods" possible and satisfies
 "historical assessments must remain intact."
 
+**Implementation clarification (Milestone 4, DECISIONS.md R-40/R-42/R-43):**
+this milestone implements `RegulatoryReference`, `Requirement`,
+`RequirementRegulatoryReference`, `ControlLibraryVersion`, `Control`, and
+`ControlRequirement` only (`Assessment` and everything below it in this
+table remain out of scope, as this section already says). All six
+implemented tables denormalize `tenant_id` directly (not listed in the
+field columns above, which predate the Tenant/Practice split) — `Control`
+also carries it despite belonging to a `ControlLibraryVersion`, so its own
+RLS/triggers never need to join out to resolve tenancy. `Requirement` is
+**not** scoped to a `ControlLibraryVersion` (no such column) — it is
+shared across library versions by design (R-43), which is what makes a
+Requirement like "R1" meaningfully the same object when referenced from
+both an older and a newer library version. A new library version's
+Controls are new rows (new `id`, same `code`), not new rows in a
+version-table chained to a shared identity row — the client SCD2 pattern
+(§5.1) is deliberately not reused here (R-42). `ControlLibraryVersion.status`
+is `draft`/`published`/`retired`; a `Control` (and its `ControlRequirement`
+mappings) may only be inserted, updated, or deleted while its own
+`control_library_version_id`'s version is `draft` — enforced by database
+triggers, not the application layer, satisfying "published methodology
+cannot be modified through ordinary application paths" (R-44/R-45).
+
 ## 7. DPIA, SDF Screening & AI Use Case
 
 Per the brief, these must **not** be disconnected modules. They reuse the

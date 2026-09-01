@@ -91,3 +91,42 @@ export const processingActivityProcessorRoleEnum = pgEnum(
   "processing_activity_processor_role",
   ["processor", "joint_controller"],
 );
+
+// --- Milestone 4 (Regulatory Content & Control Library, DATA_MODEL.md §6) --
+
+// RegulatoryReference.status / Requirement.status. Practice-owned
+// reference data — mirrors master_data_status's two-state shape
+// (DATA_MODEL.md §5.1) but is kept as its own enum, not a reuse of
+// `master_data_status`: these are a structurally different concern
+// (practice methodology, Tenant-scoped) from client master data
+// (Organisation-scoped), and DATA_MODEL.md §12 explicitly warns against
+// conflating the two. Retired reference content is never hard deleted —
+// same convention as master data.
+export const regulatoryContentStatusEnum = pgEnum("regulatory_content_status", [
+  "active",
+  "retired",
+]);
+
+// ControlLibraryVersion.status, per DATA_MODEL.md §6. A simple,
+// three-state lifecycle (Milestone 4 instructions: "keep transition
+// rules simple, document decisions rather than building sophisticated
+// workflow logic") — draft (mutable; the only state new Controls/
+// ControlRequirement mappings may be written into), published
+// (immutable at the database level; what an Engagement pins to),
+// retired (a superseded published version — permanently immutable, no
+// longer offered for new Engagements, still referenced by old ones).
+export const controlLibraryVersionStatusEnum = pgEnum("control_library_version_status", [
+  "draft",
+  "published",
+  "retired",
+]);
+
+// Control.control_type. DATA_MODEL.md §6 names the field without fixing
+// its values — an engineering judgment call (DECISIONS.md), same posture
+// as Milestone 2's `data_sensitivity` enum: a small, standard, closed
+// taxonomy rather than free text or an invented DPDP-specific scheme.
+export const controlTypeEnum = pgEnum("control_type", [
+  "preventive",
+  "detective",
+  "corrective",
+]);

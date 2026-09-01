@@ -2,7 +2,7 @@
   "name": "primus-privacy",
   "version": "0.1.0",
   "private": true,
-  "description": "PRIMUS PRIVACY — DPDP advisory and continuous compliance platform. Milestone 3: database foundation (Identity + Tenancy + Engagement Structure + Client Master Data + Processing Activity & Version-Pinned Junction Layer) only. No product UI yet.",
+  "description": "PRIMUS PRIVACY — DPDP advisory and continuous compliance platform. Milestone 4: database foundation (Identity + Tenancy + Engagement Structure + Client Master Data + Processing Activity & Version-Pinned Junction Layer + Regulatory Content & Control Library) only. No product UI yet.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,7 +15,8 @@
     "test:rls": "tsx scripts/reset-test-db.ts && vitest run tests/rls",
     "test:master-data": "tsx scripts/reset-test-db.ts && vitest run tests/master-data",
     "test:processing-activity": "tsx scripts/reset-test-db.ts && vitest run tests/processing-activity",
-    "test:db": "tsx scripts/reset-test-db.ts && vitest run tests/rls tests/master-data tests/processing-activity"
+    "test:control-library": "tsx scripts/reset-test-db.ts && vitest run tests/control-library",
+    "test:db": "tsx scripts/reset-test-db.ts && vitest run tests/rls tests/master-data tests/processing-activity tests/control-library"
   },
   "dependencies": {
     "next": "14.2.35",
