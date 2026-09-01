@@ -82,24 +82,24 @@ describe("Application layer — Organisation creation (Slice B1)", () => {
     });
   });
 
-  it("Organisation detail visibility: the creator cannot immediately read back the organisation they just created (documented consequence of the existing, unchanged authorization model — not a regression introduced here)", async () => {
-    // getOrganisationDetail's own requireOrganisationAccess call mirrors
-    // migration 0001's organisations_select policy (can_access_organisation)
-    // exactly, and neither grants implicit visibility from a bare
-    // TenantMembership — SECURITY.md §3's "no implicit cross-client
-    // access", already relied on and tested in Slice A1 (R-83). Creating
-    // an organisation does not, by itself, grant the creator organisation-
-    // or engagement-level membership on it (granting membership is
-    // membership-management functionality explicitly out of Slice B1's
-    // scope — see PHASE B instructions §18). The application handles this
-    // honestly rather than silently: see app/(shell)/organisations/
-    // [organisationId]/page.tsx's post-creation confirmation panel.
+  it("Organisation detail visibility: the creator CAN immediately read back the organisation they just created (Slice B2 closed the gap Slice B1 documented here)", async () => {
+    // Slice B1 originally found and documented (DECISIONS.md R-88) that
+    // getOrganisationDetail's own requireOrganisationAccess call — which
+    // mirrors migration 0001's organisations_select policy
+    // (can_access_organisation) exactly, and does not grant implicit
+    // visibility from a bare TenantMembership (SECURITY.md §3's "no
+    // implicit cross-client access", Slice A1/R-83) — meant a brand-new
+    // organisation's own creator could not view it. Slice B2 closes this
+    // (migration 0019 + createOrganisation's own auto-membership-grant,
+    // see its docstring and DECISIONS.md) by granting the creator a real
+    // OrganisationMembership in the same transaction as the organisation
+    // itself — so this now succeeds, without requireOrganisationAccess
+    // or organisations_select having been weakened at all.
     const { id } = await withRequestDb(tenantMemberA, (db) =>
       createOrganisation(db, tenantMemberA, { name: "Slice B1 Not-Yet-Visible Org" }),
     );
-    await expect(
-      withRequestDb(tenantMemberA, (db) => getOrganisationDetail(db, tenantMemberA, id)),
-    ).rejects.toThrow(NotFoundOrForbiddenError);
+    const detail = await withRequestDb(tenantMemberA, (db) => getOrganisationDetail(db, tenantMemberA, id));
+    expect(detail).toMatchObject({ id, name: "Slice B1 Not-Yet-Visible Org" });
   });
 
   it("1. a Tenant A tenant-member's created organisation is scoped to Tenant A, never to another tenant", async () => {
@@ -200,15 +200,12 @@ describe("Application layer — Organisation creation (Slice B1)", () => {
   it("Duplicate-name handling: creating a second organisation with the same name (case-insensitive), visible to the caller, is rejected", async () => {
     // The duplicate check is itself RLS-scoped (see createOrganisation's
     // own docstring) — it can only see organisations the caller already
-    // has read access to. Granting tenantMemberA an OrganisationMembership
-    // here is fixture setup simulating "this consultant was later given
-    // access to the org they created" (a future slice's concern, not
-    // something this application code does itself), so this test proves
-    // the check actually fires once that visibility exists.
-    const { id: firstId } = await withRequestDb(tenantMemberA, (db) =>
-      createOrganisation(db, tenantMemberA, { name: "Duplicate Check Org" }),
-    );
-    await asFixtureSetup((c) => grantOrganisationMembership(c, tenantMemberA, firstId));
+    // has read access to. Since Slice B2, createOrganisation itself
+    // grants the creator OrganisationMembership on what they create (no
+    // separate fixture grant needed any more, unlike this test's
+    // original Slice B1 form), so the caller already has the visibility
+    // this check needs for their own prior creation.
+    await withRequestDb(tenantMemberA, (db) => createOrganisation(db, tenantMemberA, { name: "Duplicate Check Org" }));
 
     await expect(
       withRequestDb(tenantMemberA, (db) => createOrganisation(db, tenantMemberA, { name: "duplicate check org" })),

@@ -1,29 +1,383 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice B1 COMPLETE (Session 14): Organisation
-Creation + Organisation Detail — Phase B of the actual PRIMUS product,
-built on top of the now-approved Slice A1 application foundation. A real
-`/organisations/new` creation form, gated by a new narrow
-`requireTenantMembership` authorization check mirroring migration
-0001's `organisations_insert` RLS policy exactly, writes through a
-Server Action → `createOrganisation` (`lib/domain/organisations.ts`) →
-PostgreSQL → the audit trail, using only existing schema fields (no new
-table, no schema change). Closed one genuine, pre-existing gap found
-while building this (`organisations` never had an audit trigger since
-Milestone 1) via one minimal, hand-written, purely additive migration
-(`0018_organisation_audit.sql`) reusing the existing audit mechanism
-unchanged. Discovered and worked around, without weakening RLS or using
-service-role, a real Postgres RLS/`RETURNING` interaction that blocked
-the obvious implementation. Discovered and honestly documented, rather
-than silently routed around, a real consequence of the already-approved
-authorization model: a bare TenantMembership can create an organisation
-but cannot immediately view its own detail page — closing that gap for
-real is membership-management functionality explicitly out of this
-slice's scope. 16 new tests (406/406 full suite, run twice). No
-engagement creation/editing, membership management, client invitation,
-client portal, methodology configuration, or assessment workspace (all
-deliberately out of this slice). Slice A1 (Session 13) and everything
-before it passed before this slice began.
+Status: 2026-09-01 — Slice B2 COMPLETE (Session 15): Organisation
+Membership + Engagement Creation — closes the onboarding chain Slice B1
+identified (Tenant → Organisation → OrganisationMembership → Engagement
+→ EngagementMembership), built on top of the now-approved Slice B1
+organisation-creation slice. `createOrganisation` now auto-grants the
+creator a real `organisation_memberships` row (role: Client
+Administrator) in the same transaction as the organisation itself,
+closing Slice B1's own documented gap (DECISIONS.md R-88) for real. A
+new `createEngagement` (`/organisations/[organisationId]/engagements/
+new`) creates an Engagement and auto-grants the creator an
+`engagement_memberships` row (role: Engagement Manager), same pattern.
+Both required a new, narrow migration
+(`0019_organisation_engagement_membership_onboarding.sql`):
+`organisation_memberships`/`engagement_memberships` never had an INSERT
+policy or GRANT for `authenticated` at all — confirmed by direct
+inspection before writing any code — so membership could previously
+only ever be created by a superuser script. The new INSERT policies
+mirror `organisations_insert`/`engagements_insert`'s own existing rules
+exactly, plus a same-tenant guard on the target user (verified directly
+against real PostgreSQL, including the specific cross-tenant attacks
+instructions named, before any application code was written). The same
+migration also closes `engagements`' own pre-existing audit-trigger gap
+(the same Milestone-1-era gap R-86 found for `organisations`) and adds
+audit coverage for both membership tables. Methodology/control-library
+selection on engagement creation respects the existing published/
+retired/tenant-consistency rules (migration 0007's trigger remains the
+real enforcement). 26 new tests (432/432 full suite, run twice).
+Deliberately deferred: granting membership to a user other than the
+creator (a real, documented, narrowly-scoped limitation — DECISIONS.md
+R-91) — no role-management console, no invitations, no client portal,
+no assessment workspace (all explicitly out of this slice). Slice B1
+(Session 14) and everything before it passed before this slice began.
+
+## Slice B2 — Organisation Membership + Engagement Creation (Session 15, 2026-09-01)
+
+**Scope:** exactly what PHASE B2 instructed — solve the onboarding
+chain Slice B1 identified (Tenant → Organisation → OrganisationMembership
+→ Engagement → EngagementMembership) through the existing membership
+model. No client portal, no full engagement workspace, no assessment
+workspace, no role-management console, no invitations/email/SSO/user
+provisioning. No new domain table, no new role hierarchy — one narrow,
+purely additive migration closing a real, confirmed schema/policy gap.
+
+Read `DATA_MODEL.md`, `SECURITY.md`, `ARCHITECTURE.md`, `PRODUCT_SPEC.md`,
+`PRODUCT_UX_BLUEPRINT.md`, `DECISIONS.md`, `PROGRESS.md`, the `users`/
+`organisations`/`organisation_memberships`/`engagement_memberships`/
+`engagements` schema files, every relevant RLS migration, the
+authorization service, the existing organisation domain/actions/pages,
+and the existing tests fresh from disk before writing anything, per
+instruction. Did not assume the membership model — confirmed by direct
+`pg_policy`/`information_schema.role_table_grants` inspection (see §1
+below) before designing anything.
+
+### 1. Existing membership architecture discovered
+
+`organisation_memberships` and `engagement_memberships` had a `SELECT`
+policy and `GRANT SELECT` for `authenticated` only — confirmed by direct
+inspection of migration 0001 and of `pg_policy`/
+`information_schema.role_table_grants` on a fresh database, before
+writing any application code. Neither table had ever had an `INSERT`
+policy or `GRANT INSERT`. This means, as the schema stood before this
+slice, a membership row could only ever be created by a superuser/
+migration/seed script — never by ordinary authenticated application
+traffic. This is the structural root cause of Slice B1's own finding
+(DECISIONS.md R-88): a bare TenantMembership is sufficient to create an
+Organisation (`organisations_insert`'s `WITH CHECK`) but not to grant
+anyone — including its own creator — real read access to it
+(`organisations_select` requires organisation- or engagement-level
+membership). `organisations_select`/`can_access_organisation` and
+`engagements_select`/`can_access_engagement` were confirmed unchanged —
+this slice does not touch either.
+
+### 2. Design decision for organisation membership
+
+Who can create OrganisationMembership: an active tenant member of the
+organisation's own tenant, granting to a user who is themselves a
+member of that same tenant — the exact rule `organisations_insert`
+already uses for creating the organisation itself
+(`is_active_tenant_member`), plus a same-tenant guard on the *target*
+user (instructions §5's two "never allow" cases). Implemented as a new
+RLS `WITH CHECK` policy (migration 0019, §5 below), not an
+application-layer-only restriction — RLS remains the real backstop.
+`createOrganisation` (`lib/domain/organisations.ts`) now calls this
+policy implicitly by inserting the creator's own membership row
+immediately after the organisation, in the same transaction (see §5,
+§10). The role granted is `Client Administrator` — a consequential
+interpretation (see §7, DECISIONS.md R-90) since no seeded
+organisation-scope role is PRIMUS-practice-facing. **Deferred:**
+granting membership to a user *other than* the creator — no UI/Server
+Action was built for it, though the RLS policy itself already permits
+it for a future slice (see §20, DECISIONS.md R-91).
+
+### 3. Design decision for engagement membership
+
+Who can create EngagementMembership: the exact same set of people who
+may create an Engagement in the first place — a tenant member of the
+engagement's own tenant, or an organisation-wide member of the
+engagement's own organisation (mirrors `engagements_insert`'s own rule
+exactly), plus the same same-tenant guard on the target user.
+`createEngagement` (`lib/domain/engagements.ts`) grants the creator's
+own membership immediately after the engagement, in the same
+transaction. The role granted is `Engagement Manager` — a clean,
+unambiguous fit (db/seed/roles.ts's own description), not a comparable
+interpretive stretch to the organisation-scope choice (DECISIONS.md
+R-90).
+
+### 4. Engagement creation architecture
+
+`/organisations/[organisationId]/engagements/new` — Browser → Server
+Action (`createEngagementAction`) → authenticate → Zod-validate → 
+`createEngagement` → authorize (`requireOrganisationAccess` — matches
+how the page itself is gated — AND `requireEngagementCreateAccess`,
+the correctly-scoped mirror of `engagements_insert`'s own rule, since
+the first check alone is broader than what RLS would actually allow;
+see the function's own docstring) → validate methodology → check for a
+visible duplicate name → insert engagement (id generated
+application-side, no `.returning()` — the same RLS/`RETURNING`
+interaction R-87 found, applied uniformly) → insert the creator's
+EngagementMembership → audit (automatic, via trigger) → redirect to the
+new Engagement Detail page.
+
+### 5. Transactional workflow
+
+No new transaction API. `lib/db/request-client.ts`'s existing
+`withRequestDb` already wraps its whole callback in one real Postgres
+transaction (`BEGIN`/`COMMIT` on success/`ROLLBACK` on any thrown
+error, unchanged since Slice A1) — `createOrganisation` and
+`createEngagement` each perform their two `INSERT`s sequentially inside
+that one callback, with no `try/catch` between them, so any failure
+anywhere in either function rolls back everything, never leaving a
+half-created onboarding state. See DECISIONS.md R-92 for the full
+reasoning, including why an artificial third-statement failure was not
+manufactured purely to demonstrate this (real, already-tested)
+mechanism further.
+
+### 6. Methodology/control-library selection
+
+`createEngagement`'s `controlLibraryVersionId` input, if provided, is
+validated against the SAME tenant as the organisation and against
+`status IN ('published', 'retired')` — a clean, pre-check version of
+exactly what migration 0007's `engagements_prevent_control_library_pin_
+change` trigger already enforces at the database level regardless (the
+trigger remains the real, unconditional enforcement; the pre-check only
+turns its raw exception into a clean `InvalidMethodologyError`, the
+same pattern Slice A1's `updateAssessmentResponse` established for
+finalization). `listSelectableControlLibraryVersions` populates the
+form's dropdown with only the caller's own tenant's published/retired
+versions — never a draft, never another tenant's.
+
+### 7. Authorization changes
+
+`lib/authorization/service.ts` gained `getUserTenantId` (Slice B1) and
+two new B2 additions: `canCreateEngagement`/`requireEngagementCreateAccess`
+(tenant member OR organisation member of the target organisation — an
+independently-implemented mirror of `engagements_insert`'s own RLS
+rule, matching this project's two-layer model). No new authorization
+*mechanism* — the existing TenantMembership → OrganisationMembership →
+EngagementMembership hierarchy is used exactly as designed. `lib/domain/
+roles.ts` (new, tiny) adds `getRoleIdByName` — resolves a fixed,
+server-chosen role name to its id; never accepts a browser-supplied
+role.
+
+### 8. Route changes
+
+New: `/organisations/[organisationId]/engagements/new` (page + Server
+Action). No deeper routes — `/organisations/[organisationId]/
+engagements/[engagementId]` (already existing since Slice A1) is
+enhanced (§10 below), not replaced.
+
+### 9. Organisation detail changes
+
+`getOrganisationDetail` (`lib/domain/organisations.ts`) now also returns
+`tenantId` (needed for the engagement-creation authorization/methodology
+checks) and `members` (active `organisation_memberships` joined to
+`users`/`roles` — readable because the caller already passed
+`requireOrganisationAccess`, so fellow members share the caller's own
+membership scope under `users_select`'s existing RLS). The page
+(`app/(shell)/organisations/[organisationId]/page.tsx`) now shows a
+Members section and a "Create Engagement" link, gated by
+`canCreateEngagement`. Slice B1's own "not yet visible" fallback branch
+(shown when a just-created organisation couldn't be read back) is now
+dead code — since creation always grants real access — and was removed;
+replaced with a simple, honest one-time success banner using the same
+create-action redirect parameters.
+
+### 10. Engagement detail changes
+
+`getEngagementDetail` (`lib/domain/engagements.ts`) now also returns
+`periodStart`/`periodEnd` and `currentUserRoleName` (the caller's own
+engagement-scoped role, if they hold direct `EngagementMembership`; null
+if they can see it only via organisation-wide membership — instructions
+§14's "current authorised user context where appropriate"). The page
+displays the period and a "Your role on this engagement: ..." line (or
+an org-level-access note when null).
+
+### 11. Audit behavior
+
+All three material writes this slice performs are audited via triggers,
+not application code — no second audit mechanism. `organisations_audit_
+log` (Slice B1) continues to fire on the organisation insert.
+`engagements_audit_log` (new, migration 0019, reusing
+`log_methodology_change()` unchanged — `engagements` already carries
+the `tenant_id`/`id` columns that function requires) fires on the
+engagement insert. `organisation_memberships_audit_log`/
+`engagement_memberships_audit_log` (new, migration 0019, using a new
+`log_membership_change()` function — the same shape as
+`log_methodology_change()`, adapted to resolve `tenant_id` via the new
+resolver functions since neither membership table carries the column
+directly) fire on each membership grant. All four are verified by a
+dedicated test asserting real `audit_log` rows with correct
+`actor_user_id`/`action`/`tenant_id`.
+
+### 12. RLS behavior
+
+Tenant/organisation/engagement isolation is preserved and extended, not
+weakened, anywhere. Migration 0019's two new `INSERT` policies
+(`organisation_memberships_insert`, `engagement_memberships_insert`)
+are the only new *capability* added at the database level — both are
+narrow mirrors of already-existing, already-approved rules
+(`organisations_insert`/`engagements_insert`), not a new, more
+permissive concept, and both were verified directly against real
+PostgreSQL (including the specific cross-tenant/cross-user attacks
+instructions §5 named) before any application code was written. No
+`SELECT` policy was touched. `RLS`/`FORCE RLS` confirmed still enabled
+on every touched table (§27 below).
+
+### 13. Security tests
+
+All 14 required scenarios (instructions §18), each run against real
+PostgreSQL with no mocked permission function — see
+`tests/app/engagement-onboarding.test.ts`:
+1. Tenant A cannot create an engagement under Tenant B's organisation.
+2. Tenant A cannot create OrganisationMembership in Tenant B.
+3. Tenant A cannot create EngagementMembership in Tenant B.
+4. Tenant A cannot read Tenant B's engagement.
+5. An Organisation-A2 member cannot administer a different Tenant-A
+   organisation (Org A) — organisation-level membership does not cross
+   organisations, even within the same tenant.
+6. An Organisation-A2 member cannot create an engagement under
+   Organisation B.
+7. A Tenant A user cannot be granted membership on a Tenant B
+   organisation, even by a legitimate Tenant B administrator.
+8. A browser-supplied `user_id` cannot cross the tenant boundary, even
+   on the acting user's own legitimate organisation (isolates the
+   second `WITH CHECK` clause specifically, distinct from #7).
+9. An Engagement-A member cannot access Engagement B.
+10. The engagement creator CAN access the engagement they just created.
+11. An unauthorized role (no membership at all) cannot create an
+    engagement.
+12. An anonymous user cannot create an engagement.
+13. An unauthorized role (no membership at all) cannot administer
+    organisation membership.
+14. A direct request that skips the application authorization layer
+    entirely (a raw `engagements` INSERT under a different tenant's
+    organisation) is still rejected by RLS.
+
+### 14. Application tests
+
+Organisation-membership auto-grant on creation (role, status,
+attribution); organisation detail visibility for the creator (Slice B1's
+own now-fixed test); engagement creation success (engagement +
+membership both created, detail reads back correctly); methodology
+selection (published accepted, retired accepted, draft rejected,
+cross-tenant rejected, even if published); `listSelectableControlLibraryVersions`
+scoping; duplicate engagement name (best-effort, RLS-scoped, same
+documented limitation as organisations); no-orphaned-records on a
+rejected creation; audit attribution for all three membership/entity
+inserts; `canCreateEngagement` matching what `engagements_insert`
+actually allows for a tenant member, an organisation member, and
+neither.
+
+### 15. Exact full-suite count/results
+
+```
+npm run test:db   # fresh reset + full 10-directory suite incl. tests/app: 432/432 passing
+npm run test:db   # run again for stability: 432/432 passing, identical results
+```
+(406 tests carried forward from Slice B1 + 26 new in
+`tests/app/engagement-onboarding.test.ts` = 432. Two pre-existing Slice
+B1 tests in `tests/app/organisations.test.ts` were updated, not
+removed, to assert the new, correct post-Slice-B2 behavior — see §9 and
+DECISIONS.md's note appended to R-88.)
+
+### 16. Typecheck/lint/build results
+
+```
+npm run typecheck   # clean
+npx eslint .         # clean
+npm run build        # succeeds; /organisations/[organisationId]/engagements/new correctly reported dynamic, none prerendered
+```
+
+### 17. Files changed
+
+- `drizzle/migrations/0019_organisation_engagement_membership_onboarding.sql` (new)
+- `lib/authorization/service.ts` (`canCreateEngagement`, `requireEngagementCreateAccess`)
+- `lib/domain/roles.ts` (new — `getRoleIdByName`)
+- `lib/domain/organisations.ts` (`createOrganisation` now also grants
+  the creator's `organisation_memberships` row; `OrganisationDetail`
+  gained `tenantId`/`members`)
+- `lib/domain/engagements.ts` (new `createEngagement`,
+  `listSelectableControlLibraryVersions`, `DuplicateEngagementError`,
+  `InvalidMethodologyError`; `EngagementDetail` gained `periodStart`/
+  `periodEnd`/`currentUserRoleName`)
+- `app/(shell)/organisations/[organisationId]/engagements/new/page.tsx` (new)
+- `app/(shell)/organisations/[organisationId]/engagements/new/actions.ts` (new)
+- `app/(shell)/organisations/[organisationId]/page.tsx` (members
+  section, gated Create Engagement link, simplified success banner —
+  Slice B1's "not yet visible" fallback removed as dead code)
+- `app/(shell)/organisations/[organisationId]/engagements/[engagementId]/page.tsx`
+  (period, methodology, current-user-role display)
+- `tests/app/engagement-onboarding.test.ts` (new, 26 tests)
+- `tests/app/organisations.test.ts` (2 pre-existing tests updated to
+  assert the new, correct post-Slice-B2 behavior)
+- `tests/app/helpers.ts` (re-exports `retireControlLibraryVersion`)
+- `DECISIONS.md` (R-89 through R-92; a superseded-note appended to R-88)
+- `PROGRESS.md` (this entry)
+
+No `DATA_MODEL.md` change — no new field or entity; the migration adds
+policies/triggers/resolver functions, not schema.
+
+### 18. Dependencies changed
+
+None. No `package.json` change this slice.
+
+### 19. Known limitations
+
+1. Granting `OrganisationMembership` to a user other than the creator
+   is not built (DECISIONS.md R-91) — the RLS policy already supports
+   it; only the UI/Server Action is deferred.
+2. A direct, unworked-around consequence of #1: a Tenant A consultant
+   who did not create a given organisation, and has no
+   `EngagementMembership` under it, has no way to discover or reach it
+   (not in their Organisations list, no known URL) — closing this
+   without weakening `organisations_select` is future work (DECISIONS.md
+   R-91).
+3. The duplicate-engagement-name check is best-effort and RLS-scoped —
+   same documented limitation as Slice B1's organisation-name check.
+4. Carries forward Slice A1/B1's own recorded limitation (DECISIONS.md
+   R-85/D-03): no real Supabase Auth backend is reachable from this
+   environment.
+
+### 20. Deferred membership decisions
+
+- Adding an existing user other than the creator to an
+  `OrganisationMembership` or `EngagementMembership` (§19.1 above).
+- Editing or revoking any membership (no UPDATE/DELETE policy was added
+  to either membership table this slice — instructions §23 explicitly
+  forbid a role-management console).
+- A general "browse my tenant's organisations" directory/discovery
+  capability (§19.2 above) — would require either weakening
+  `organisations_select` or a new, parallel, less-restrictive read
+  path; both are materially larger decisions than this slice's scope.
+- Adding a real PRIMUS-practice-facing organisation-scope role to the
+  seed catalogue (DECISIONS.md R-90) — `Client Administrator` remains a
+  documented, imperfect placeholder for this slice's onboarding grant.
+
+### 21. Recommended next slice
+
+With the full onboarding chain now working end-to-end (Tenant →
+Organisation → OrganisationMembership → Engagement →
+EngagementMembership), the natural next steps are either: (a) the
+deferred membership-administration UI (§20) — letting an existing org/
+engagement member add colleagues, which would also close the
+discoverability gap (§19.2); or (b) beginning Phase C's Assessment
+workspace deepening, now that a real Engagement can be created and
+reached end-to-end. This report does not preempt the user's own choice.
+
+### 22. Git status
+
+All Slice B2 work is committed on `claude/primus-privacy-architecture-39p3gh`.
+
+### 23. Remote synchronization
+
+Pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Slice B1 — Organisation Creation + Organisation Detail (Session 14, 2026-09-01)
 

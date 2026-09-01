@@ -42,6 +42,16 @@ export default async function EngagementDetailPage({
         {engagement.engagementType} · Control library:{" "}
         {engagement.controlLibraryVersionLabel ?? "not yet pinned"}
       </p>
+      {engagement.periodStart || engagement.periodEnd ? (
+        <p className="mt-1 text-sm text-slate-600">
+          Period: {engagement.periodStart ?? "?"} – {engagement.periodEnd ?? "?"}
+        </p>
+      ) : null}
+      <p className="mt-1 text-sm text-slate-500">
+        {engagement.currentUserRoleName
+          ? <>Your role on this engagement: {engagement.currentUserRoleName}</>
+          : "You can view this engagement through your organisation-level access."}
+      </p>
 
       <section className="mt-8">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assessments</h2>

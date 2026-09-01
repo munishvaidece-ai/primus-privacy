@@ -26,6 +26,7 @@ export {
 export {
   createControlLibraryVersion,
   publishControlLibraryVersion,
+  retireControlLibraryVersion,
   createControl,
 } from "../control-library/helpers";
 

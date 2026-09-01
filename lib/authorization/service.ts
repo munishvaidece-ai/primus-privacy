@@ -211,3 +211,35 @@ export async function requireTenantMembership(db: RequestDb, userId: string, ten
     throw new NotFoundOrForbiddenError();
   }
 }
+
+/**
+ * Slice B2 (PHASE B2 instructions §7): the exact rule migration 0001's
+ * `engagements_insert` RLS policy already uses — a tenant member (any
+ * role) opening a new engagement for any client under their own tenant,
+ * OR an organisation member (an org-wide client role) requesting a new
+ * engagement for their own organisation. Not a new rule invented for
+ * this slice; this function only gives that existing RLS-level rule an
+ * application-layer, independently-implemented counterpart, matching
+ * this project's two-layer model (SECURITY.md §2) the same way every
+ * other `canAccess*`/`require*` pair in this file already does.
+ */
+export async function canCreateEngagement(
+  db: RequestDb,
+  userId: string,
+  organisationId: string,
+  tenantId: string,
+): Promise<boolean> {
+  if (await isActiveTenantMember(db, userId, tenantId)) return true;
+  return isActiveOrganisationMember(db, userId, organisationId);
+}
+
+export async function requireEngagementCreateAccess(
+  db: RequestDb,
+  userId: string,
+  organisationId: string,
+  tenantId: string,
+): Promise<void> {
+  if (!(await canCreateEngagement(db, userId, organisationId, tenantId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}

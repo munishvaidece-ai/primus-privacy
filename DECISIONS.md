@@ -2176,3 +2176,168 @@ cannot see, including, structurally, any organisation the caller has
 *just* created and not yet been granted access to. This is tested
 directly (`tests/app/organisations.test.ts`) rather than left as an
 untested assumption.
+
+**Superseded (Slice B2, Session 15):** option (a) above — a new
+`organisation_memberships` INSERT policy — is exactly what Slice B2's
+own brief asked for and migration 0019 adds. `createOrganisation` now
+grants the creator that membership in the same transaction; see R-89
+below. This entry is left as-is (not rewritten) as the historical record
+of the original finding and the reasoning that ruled out a quick fix at
+the time; `tests/app/organisations.test.ts`'s corresponding test was
+updated in Slice B2 to assert the new, correct behavior.
+
+### R-89 — `organisation_memberships`/`engagement_memberships` never had an INSERT policy or GRANT for `authenticated`; closed via one narrow migration adding both, mirroring the existing organisation/engagement creation rules exactly
+
+**Decision:** Migration `0019_organisation_engagement_membership_
+onboarding.sql` adds: (1) four small `SECURITY DEFINER` resolver
+functions (`organisation_tenant_id`, `engagement_tenant_id`,
+`engagement_organisation_id`, `user_tenant_id`) that each return a
+single UUID, needed because `organisation_memberships`/`engagement_
+memberships` don't carry `tenant_id` directly and an ordinary subquery
+against `organisations`/`engagements`/`users` would itself be blocked
+by those tables' own SELECT policies for a row created moments earlier
+in the same transaction (the same RLS/RETURNING interaction R-87
+found, generalized); (2) `organisation_memberships_insert`, `WITH CHECK
+(is_active_tenant_member(organisation_tenant_id(organisation_id)) AND
+user_tenant_id(user_id) = organisation_tenant_id(organisation_id))` —
+the exact rule `organisations_insert` already uses for creating the
+organisation itself, plus a same-tenant guard on the *target* user;
+(3) `engagement_memberships_insert`, the same shape mirroring
+`engagements_insert`'s own tenant-or-organisation-member rule; (4) the
+matching `GRANT INSERT` for `authenticated` on both tables (previously
+`SELECT`-only, confirmed by direct inspection of migration 0001 and of
+`information_schema.role_table_grants`); (5) an `engagements_audit_log`
+trigger reusing `log_methodology_change()` unchanged (the same
+Milestone-1-era gap R-86 found for `organisations`, generalized to
+`engagements` — Slice B2 is the first slice to write `engagements` rows
+via application code); and (6) a new `log_membership_change()` function
+(the same audit shape as `log_methodology_change()`, adapted to resolve
+`tenant_id` via the resolver functions above since neither membership
+table has the column directly) plus its own two audit triggers.
+Deliberately does NOT touch `tenant_memberships` (no INSERT policy
+added — nothing in Slice B2 creates one) and does NOT add UPDATE/DELETE
+policies on either membership table (Slice B2 only grants membership,
+never edits or revokes it — instructions §23 explicitly forbid a
+"role-management console").
+**Rationale:** Confirmed by direct inspection (`pg_policy`,
+`information_schema.role_table_grants`) before writing any code: as of
+migration 0001, a membership row on either table could only ever be
+created by a superuser/migration/seed script — never by ordinary
+authenticated application traffic. This is the structural cause of
+R-88's finding, not merely a symptom of it. PHASE B2 instructions §2F
+explicitly anticipate exactly this: "If a schema/policy change is
+genuinely required, document exactly why before making it" — this is
+that documentation. The migration is deliberately the narrowest
+possible fix: it grants no capability beyond "the same set of people
+who may already create an Organisation/Engagement may also grant
+membership on what they created, to users within the same tenant" —
+mechanically identical to the existing `organisations_insert`/
+`engagements_insert` rules, not a new, more permissive authorization
+concept. Verified directly against real PostgreSQL, independent of any
+application code, before writing `lib/domain/organisations.ts`'s or
+`lib/domain/engagements.ts`'s callers (see PROGRESS.md's testing
+section) — including the specific cross-tenant attacks instructions §5
+names ("Organisation A → membership for a User from Tenant B,"
+"Tenant A → Organisation B membership").
+
+### R-90 — The organisation-scope onboarding role remains `Client Administrator` (R-88's finding); the engagement-scope onboarding role is `Engagement Manager` — a materially better fit, not a comparable interpretive stretch
+
+**Decision:** `lib/domain/organisations.ts`'s `createOrganisation`
+grants the creator's auto-membership using role `Client Administrator`
+(scope `organisation`) — the same choice already reasoned about, though
+not yet acted on, when R-88 was written. `lib/domain/engagements.ts`'s
+`createEngagement` grants the creator's auto-membership using role
+`Engagement Manager` (scope `engagement`).
+**Rationale:** PHASE B2 instructions §6: "If multiple existing roles
+are possible, choose the narrowest role appropriate to an organisation
+administrator/consultant workflow. Document the choice... only if it
+represents a consequential interpretation." The two choices are not
+equally consequential. Every seeded `organisation`-scope role (`Client
+Administrator`, `Privacy Officer`, `CXO / Executive Viewer` —
+`db/seed/roles.ts`) is described as client-side; there is still no
+seeded PRIMUS-practice-facing organisation-scope role at all, so
+`Client Administrator` is chosen because its description — "Manages the
+client organisation's own users and access on the platform" — is
+functionally exactly what this grant is for (administering who has
+access to this organisation), even though the person holding it here is
+a PRIMUS consultant during onboarding, not (yet) a real client-side
+user. This remains a genuine, consequential interpretation, unresolved
+by this slice — closing it properly means either adding a real
+PRIMUS-facing organisation-scope role to the seed catalogue or deciding
+`organisation`-scope grants to practice staff should not happen at all
+(and access should instead always flow through `EngagementMembership`),
+neither of which this slice's "no new role hierarchy" / "no new DB
+roles" constraint permits deciding unilaterally. By contrast,
+`Engagement Manager` ("Owns delivery of one or more engagements:
+scoping, staffing, timeline, client relationship, final report
+sign-off") is an unambiguous, well-fitting match for "the person who
+just opened this engagement" — recorded here for completeness, not
+because it required a judgment call.
+
+### R-91 — Deferred: adding an existing user other than the creator to an OrganisationMembership, and discovering an organisation a different tenant colleague created
+
+**Decision:** Slice B2 builds only the creator's own auto-grant (R-89/
+R-90) — no UI or Server Action lets one user grant `OrganisationMembership`
+to a *different* existing user, even though migration 0019's own RLS
+policy already permits it (any active tenant member may grant
+membership on any organisation under their tenant, to any same-tenant
+user — not restricted to self-grants). `lib/domain/organisations.ts`
+exposes no `grantOrganisationMembership`-style function taking an
+arbitrary target user; only `createOrganisation`'s own internal,
+self-targeted grant exists.
+**Rationale:** PHASE B2 instructions §4's "If another user's membership
+is required, allow selection only from existing users..." is a
+conditional, not a mandate — and instructions §23 explicitly forbid "a
+role-management console." The literal target workflow (§3) only
+requires the *creator's* own access to work end-to-end; the RLS policy
+is intentionally already broad enough for a future slice to add this
+UI on top with zero further schema/policy work, but building that UI
+now risks exactly the scope creep §23 warns against. A direct,
+un-worked-around consequence of deferring this: a Tenant A consultant
+who did **not** create a given organisation, and holds no
+`EngagementMembership` under it either, still has no way to discover or
+reach that organisation at all (it appears in neither their
+Organisations list nor any URL they'd know) — the RLS-visibility
+constraint R-88 first identified is closed only for the creator, not
+for colleagues. This is a real, user-facing limitation, deliberately
+left open rather than solved with a broader "browse my tenant's
+organisations" read capability, which would itself require weakening
+`organisations_select`/`canAccessOrganisation` (forbidden — instructions
+§17) or adding a parallel, less-restrictive read path (a materially
+larger, more consequential decision than this slice's own narrow
+scope). Recorded here and in PROGRESS.md's "Known limitations" /
+"Deferred membership decisions" rather than silently built around;
+naturally closed by whichever future slice builds real organisation
+membership administration.
+
+### R-92 — Transactional safety for the two-insert onboarding operations (Organisation + OrganisationMembership; Engagement + EngagementMembership) is provided entirely by `withRequestDb`'s existing BEGIN/COMMIT/ROLLBACK wrapper — no new transaction API was added
+
+**Decision:** `createOrganisation` and `createEngagement` each perform
+two `INSERT`s (the entity, then its creator's membership row)
+sequentially, inside the same JavaScript function, with no `try/catch`
+between them and no explicit `db.transaction(...)` call.
+**Rationale:** `lib/db/request-client.ts`'s `withRequestDb` already
+wraps its entire callback in one real Postgres transaction — `BEGIN`
+before the callback runs, `COMMIT` only if it returns without throwing,
+`ROLLBACK` on any thrown error, regardless of which statement inside
+the callback threw (established in Slice A1, unchanged since). A
+thrown error from either `INSERT` — a duplicate name, an RLS
+violation, a unique-constraint violation, a missing role — therefore
+already rolls back the *whole* operation, including whichever earlier
+statement in the same call already succeeded. PHASE B2 instructions
+§10/§11 ask for "an appropriate database transaction... do not fake
+transactionality in application code" — this uses a real one, already
+built and already relied upon, rather than introducing a second,
+parallel transaction mechanism for no added correctness. Verified
+directly: `tests/app/engagement-onboarding.test.ts`'s "No orphaned
+onboarding records" test confirms a rejected `createEngagement` call
+(invalid methodology, caught *before* either `INSERT` runs) leaves no
+row behind; the "Engagement creation success" test confirms a
+successful call leaves *both* rows present together, never just one.
+Engineering a THIRD-statement-style failure specifically between the
+two `INSERT`s (to prove the second one rolling back the first, not
+merely "nothing was attempted at all") was judged not worth the risk of
+mutating shared, cross-test-file seed data (e.g. temporarily renaming a
+global `roles` row) purely to manufacture a failure point — the
+guarantee itself follows directly from `withRequestDb`'s already-tested
+mechanics, not from anything new this slice adds.
