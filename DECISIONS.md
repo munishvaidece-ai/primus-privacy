@@ -2071,3 +2071,108 @@ allow — a real, tracked production-readiness gap (PROGRESS.md), closed
 automatically once a real Supabase project is provisioned and
 `DATABASE_URL` is repointed at its `authenticator` connection string,
 requiring no code change to `lib/db/request-client.ts` itself.
+
+### R-86 — `organisations` never had an audit trigger; closed via a minimal, hand-written migration reusing the existing mechanism unchanged
+
+**Decision:** Migration `0018_organisation_audit.sql` adds exactly one
+`CREATE TRIGGER organisations_audit_log AFTER INSERT OR UPDATE ON
+"organisations" ... EXECUTE FUNCTION public.log_methodology_change()` —
+no new table, column, or function. `engagements` carries the identical
+gap but is deliberately left untouched, since Slice B1 does not create
+or update any `engagements` row (out of scope, PHASE B instructions
+§18); it is left for whichever future slice builds engagement creation/
+editing.
+**Rationale:** Grepping every migration file (0000-0017) for a trigger
+on `"organisations"` finds only `organisations_prevent_reparenting`
+(migration 0001) — `organisations` has had no audit trigger since
+Milestone 1, unnoticed until Slice B1's own instruction §10 ("organisation
+creation must be auditable using the existing audit mechanism... do not
+create a second audit system") required one to actually exist. Reusing
+`log_methodology_change()` (introduced migration 0007, unchanged since,
+already proven on `regulatory_references`/`requirements`/
+`control_library_versions`/`controls`) needed no new mechanism —
+`organisations` already has the `tenant_id`/`id` columns that function
+requires. `AFTER INSERT OR UPDATE` (not INSERT-only) matches the
+established convention for every other ordinarily-mutable entity, so no
+further migration is needed once a future slice adds organisation
+editing (deferred here, R-88 below). Hand-written migrations are never
+added to `drizzle/migrations/meta/_journal.json` (confirmed by
+inspection — only drizzle-kit-generated migrations are tracked there),
+so 0018 needed no journal/snapshot entry, matching the project's
+existing hand-written-migration convention (DECISIONS.md R-02).
+
+### R-87 — Organisation creation succeeds without `.returning()`; the id is generated application-side, because Postgres RLS re-checks a `RETURNING` row against the table's own SELECT policy, not only the INSERT policy's `WITH CHECK`
+
+**Decision:** `createOrganisation` (`lib/domain/organisations.ts`)
+generates the new organisation's `id` with `randomUUID()` and inserts
+it explicitly, with no `.returning()` clause on the `INSERT`.
+**Rationale:** Discovered directly during Slice B1 implementation, not
+assumed: an `INSERT ... RETURNING id` run as a fully-authorized tenant
+member (satisfying `organisations_insert`'s `WITH CHECK
+(is_active_tenant_member(tenant_id))` — confirmed independently true)
+still fails with "new row violates row-level security policy for table
+\"organisations\"" — because Postgres additionally requires a
+`RETURNING` row to satisfy the table's own `SELECT` row-security
+policy, and `organisations_select` (`can_access_organisation`) requires
+organisation- or engagement-level membership, which nobody has yet on a
+row that was just created. The identical `INSERT` without `RETURNING`
+succeeds (confirmed directly). Generating the id in application code
+sidesteps the read-back entirely — no RLS change, no service-role use,
+and no weakening of either policy was needed to fix this; it was purely
+a matter of not asking Postgres to read back a row through a stricter
+lens than the write itself required.
+
+### R-88 — Organisation creation does not grant the creator any membership on the organisation it creates; a bare TenantMembership can create an organisation but cannot immediately view its detail page — a real, documented consequence of the already-approved authorization model, not a bug introduced by Slice B1, and not fixed by weakening or bypassing it
+
+**Decision:** `createOrganisation` does not insert any
+`organisation_memberships` row for the creator. Immediately after
+creation, the creator's own session cannot read the new organisation
+back via `getOrganisationDetail`/`listAccessibleOrganisations` — both
+correctly, consistently throw/omit it, exactly as they would for any
+other organisation the caller has no organisation- or engagement-level
+membership on. The Organisation detail page
+(`app/(shell)/organisations/[organisationId]/page.tsx`) handles this
+honestly: a request carrying the create action's own `?created=1&name=`
+redirect parameters (set only by `createOrganisationAction` on its own
+successful redirect, and never treated as authoritative — the page does
+not use them to grant, infer, or reveal any actual row access) renders
+a plain confirmation panel explaining the organisation was created and
+is not yet visible, instead of the ordinary not-found page; any other
+request — including one to the very same URL without those parameters,
+or for a genuinely nonexistent id — still gets the identical "not
+found" response SECURITY.md §13 requires. No RLS policy, no
+`canAccessOrganisation`/`can_access_organisation`, and no GRANT was
+touched to make this work.
+**Rationale:** `organisations_select`'s `can_access_organisation`
+(migration 0001, re-confirmed by direct SQL inspection during this
+slice) requires organisation-wide or engagement-level membership —
+by design, matching SECURITY.md §3's "no implicit cross-client access"
+and already relied on and tested in Slice A1 (R-83). A bare
+TenantMembership — the correct, narrowest existing authorization for
+*creating* an organisation (`is_active_tenant_member`, matching
+`organisations_insert`'s own `WITH CHECK`, see `requireTenantMembership`)
+— was never intended by that same model to also grant *viewing* one.
+The only way to make an immediate detail-page view work would be to
+either (a) grant the creator an `organisation_memberships` row at
+creation time — but `organisation_memberships` carries no `INSERT`
+policy for the `authenticated` role at all (confirmed by direct
+inspection of `pg_policy`), so this is not achievable without a new RLS
+policy (a migration, requiring its own instructions-§17 stop-and-report,
+and itself a form of membership-management functionality PHASE B
+instructions §18 explicitly excludes from Slice B1); or (b) read the row
+back via a service-role/RLS-bypassing connection — explicitly forbidden
+by instructions §15 without first stopping and reporting. Neither is
+Slice B1's to do; both are natural fits for whichever future slice
+builds engagement creation (which already legitimately grants the
+practice member real, principled access to a client organisation by
+opening an engagement under it) or organisation membership management.
+Recorded here, in the code, and in PROGRESS.md's "Known limitations"
+rather than silently working around it. A related, narrower consequence
+of the same fact: `createOrganisation`'s own soft duplicate-name check
+(also RLS-scoped, by the same instructions-§15 constraint) can only
+ever see organisations the calling user already has read access to —
+it cannot detect a name collision with an organisation the caller
+cannot see, including, structurally, any organisation the caller has
+*just* created and not yet been granted access to. This is tested
+directly (`tests/app/organisations.test.ts`) rather than left as an
+untested assumption.

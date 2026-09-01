@@ -1,27 +1,251 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice A1 COMPLETE (Session 13): Application
-Foundation — Phase A of the actual PRIMUS product, built on top of the
-now-approved Milestones 1-8A domain model. Supabase Auth (login/logout/
-session refresh via `@supabase/ssr`), a single centralized session-
-resolution layer (`lib/auth/session.ts`), a single centralized
-application-layer authorization service (`lib/authorization/service.ts`,
-built on the existing TenantMembership → OrganisationMembership →
-EngagementMembership model — no new role database), a request-scoped
-database access layer that runs every query through the exact same
-`SET LOCAL ROLE authenticated` + `request.jwt.claim.sub` mechanism
-Supabase's own request layer uses (and every RLS test since Milestone 1
-already exercises), the first authenticated application shell
-(Organisations → Organisation detail → Engagement detail → Assessment
-detail), and the first real vertical slice — an authorized consultant
-recording an `AssessmentResponse` through a Server Action, database
-mutation, and audit trail, with the database's own finalization
-guard (Milestone 5) still the real enforcement even if the application
-layer's own check were ever bypassed. No new domain tables, no schema
-change, no migration. Real PostgreSQL throughout — no mock data. No
-Evidence UI, Risk UI, Findings, Remediation, Maturity UI, client portal,
-dashboards, or reporting (all deliberately out of this slice). Milestone
-8A (Session 12) and everything before it passed before this slice began.
+Status: 2026-09-01 — Slice B1 COMPLETE (Session 14): Organisation
+Creation + Organisation Detail — Phase B of the actual PRIMUS product,
+built on top of the now-approved Slice A1 application foundation. A real
+`/organisations/new` creation form, gated by a new narrow
+`requireTenantMembership` authorization check mirroring migration
+0001's `organisations_insert` RLS policy exactly, writes through a
+Server Action → `createOrganisation` (`lib/domain/organisations.ts`) →
+PostgreSQL → the audit trail, using only existing schema fields (no new
+table, no schema change). Closed one genuine, pre-existing gap found
+while building this (`organisations` never had an audit trigger since
+Milestone 1) via one minimal, hand-written, purely additive migration
+(`0018_organisation_audit.sql`) reusing the existing audit mechanism
+unchanged. Discovered and worked around, without weakening RLS or using
+service-role, a real Postgres RLS/`RETURNING` interaction that blocked
+the obvious implementation. Discovered and honestly documented, rather
+than silently routed around, a real consequence of the already-approved
+authorization model: a bare TenantMembership can create an organisation
+but cannot immediately view its own detail page — closing that gap for
+real is membership-management functionality explicitly out of this
+slice's scope. 16 new tests (406/406 full suite, run twice). No
+engagement creation/editing, membership management, client invitation,
+client portal, methodology configuration, or assessment workspace (all
+deliberately out of this slice). Slice A1 (Session 13) and everything
+before it passed before this slice began.
+
+## Slice B1 — Organisation Creation + Organisation Detail (Session 14, 2026-09-01)
+
+**Scope:** exactly what PHASE B / Slice B1 instructed — turn the
+read-only Organisations page into a real creation + detail workflow.
+No engagement creation/editing, membership management, client
+invitation, client portal, methodology configuration, or assessment
+workspace — none of those exist anywhere in this slice's changes. No
+new domain table, no schema change. One migration (`0018_organisation_
+audit.sql`) — a single `CREATE TRIGGER` closing a pre-existing gap
+(below), not a schema/domain change.
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, the
+existing `app/`/`db/schema/`/`tests/` structure, and migration 0001's
+exact `organisations_insert`/`organisations_select` RLS policies fresh
+from disk before writing anything, per instruction.
+
+### 1. A pre-existing gap found and closed: `organisations` never had an audit trigger
+
+Grepping every migration file (0000-0017) for a trigger on
+`"organisations"` found only `organisations_prevent_reparenting`
+(migration 0001) — no `organisations_audit_log` trigger has ever
+existed, since Milestone 1, unnoticed until this slice's own
+instruction §10 ("organisation creation must be auditable using the
+existing audit mechanism... do not create a second audit system")
+required one to actually exist. Closed via
+`drizzle/migrations/0018_organisation_audit.sql` — one `CREATE TRIGGER
+organisations_audit_log AFTER INSERT OR UPDATE ON "organisations" ...
+EXECUTE FUNCTION public.log_methodology_change()`, reusing the exact
+existing audit function (migration 0007, unchanged since) with no new
+table, column, or function. Deliberately not also added to
+`engagements`, which carries the identical gap — out of this slice's
+scope (instructions §18); left for whichever future slice builds
+engagement creation/editing. See DECISIONS.md R-86. Hand-written
+migrations are never tracked in `drizzle/migrations/meta/_journal.json`
+(confirmed by inspection), so 0018 needed no journal/snapshot entry,
+matching this project's established hand-written-migration convention.
+
+### 2. A real Postgres RLS/`RETURNING` interaction, discovered and fixed without weakening anything
+
+The obvious implementation — `INSERT INTO organisations (...) VALUES
+(...) RETURNING id` — fails with "new row violates row-level security
+policy for table \"organisations\"" even for a fully-authorized tenant
+member (`organisations_insert`'s `WITH CHECK` independently confirmed
+true). Postgres additionally re-checks a `RETURNING` row against the
+table's own `SELECT` policy (`organisations_select` /
+`can_access_organisation`), which requires organisation- or
+engagement-level membership nobody has yet on a brand-new row. Fixed by
+generating the id application-side (`randomUUID()`) and inserting it
+explicitly, with no `.returning()` clause — confirmed directly that the
+identical `INSERT` without `RETURNING` succeeds. No RLS policy, GRANT,
+or service-role connection was touched. See DECISIONS.md R-87.
+
+### 3. A real, documented consequence of the already-approved authorization model: the creator cannot immediately view the organisation they just created
+
+`organisations_select`/`can_access_organisation` (migration 0001, Slice
+A1's own `canAccessOrganisation`, R-83) requires organisation- or
+engagement-level membership — deliberately, matching SECURITY.md §3's
+"no implicit cross-client access." A bare TenantMembership is the
+correct, narrowest authorization for *creating* an organisation, but
+was never intended to also grant *viewing* one. Confirmed directly:
+immediately after creation, the creator's own session gets an identical
+`NotFoundOrForbiddenError` from `getOrganisationDetail` as it would for
+any organisation with no membership grant. Granting the creator an
+`organisation_memberships` row to work around this is not achievable
+within this slice's constraints: `organisation_memberships` has no
+`INSERT` policy for the `authenticated` role at all (confirmed by
+direct `pg_policy` inspection), so doing so would require a new RLS
+policy (its own migration and stop-and-report per instructions §17),
+and granting membership is itself membership-management functionality
+instructions §18 explicitly excludes from this slice. Handled honestly
+rather than worked around: the Organisation detail page renders a plain
+"Organisation created" confirmation (driven only by the create action's
+own redirect parameters — the organisation's real database id, and the
+name the caller themselves typed — never by an unauthorized read)
+instead of a bare not-found, for exactly the create-action's own
+redirect; every other request to the same route, including the
+identical URL without those parameters, still gets the SECURITY.md
+§13-required identical "not found" response regardless of whether the
+row is real, forbidden, or nonexistent. The same RLS-scoping applies to
+the best-effort duplicate-name check: it can only see organisations the
+caller already has read access to, and is tested as such. See
+DECISIONS.md R-88 for the full reasoning and the recommended future
+resolution (engagement creation, or organisation membership
+management, whichever slice builds it, naturally closes this).
+
+### What was implemented
+
+- **`lib/authorization/service.ts`** — `getUserTenantId(db, userId)`
+  (reads the authenticated user's own `users.tenant_id`, always
+  readable via the existing `users_select` RLS policy's `id =
+  auth.uid()` clause) and `requireTenantMembership(db, userId,
+  tenantId)` — a new, narrow, separately-named check mirroring
+  `organisations_insert`'s exact `is_active_tenant_member(tenant_id)`
+  WITH CHECK, deliberately distinct from `requireTenantAccess`/
+  `canAccessTenant` (whose own docstring already anticipates growing a
+  broader org-fallback for an unrelated read-only screen — conflating
+  the two would silently broaden who can create an organisation the
+  moment that happens).
+- **`lib/domain/organisations.ts`** — `createOrganisation(db, userId,
+  input)`: derives `tenant_id` only from the authenticated user's own
+  session (never from `input`, which carries no such field at all —
+  there is no code path by which a browser-supplied tenant id could
+  reach the INSERT), authorizes via `requireTenantMembership`, runs the
+  best-effort RLS-scoped duplicate-name check, and inserts using an
+  application-generated id (see §2 above). `DuplicateOrganisationError`
+  (new). `getOrganisationDetail`/`OrganisationDetail` extended with
+  `createdAt`.
+- **`app/(shell)/organisations/new/page.tsx`** — the creation form.
+  Pre-checks the same `requireTenantMembership` condition purely for
+  UX (a consultant with no TenantMembership sees a clear message
+  instead of a form that would only fail on submit — the actual
+  security boundary is enforced server-side regardless) and
+  `app/(shell)/organisations/new/actions.ts` — `createOrganisationAction`,
+  the Server Action: authenticate → Zod-validate `name` (2-200 chars,
+  trimmed; server-side, not solely a browser `minLength`/`maxLength`
+  hint) → `createOrganisation` → catch `DuplicateOrganisationError`/
+  `NotFoundOrForbiddenError`/generic errors into clean, non-leaking
+  messages → redirect.
+- **`app/(shell)/organisations/page.tsx`** — a "Create Organisation"
+  link, shown only when the same `requireTenantMembership` pre-check
+  passes.
+- **`app/(shell)/organisations/[organisationId]/page.tsx`** — displays
+  `createdAt`; renders the honest post-creation confirmation described
+  in §3 above instead of a bare not-found for the create action's own
+  redirect. Organisation editing was NOT built — instructions §9's own
+  allowed path (no clearly-supported trivial editable field was judged
+  to exist within this slice's tight scope; deferred).
+- **`drizzle/migrations/0018_organisation_audit.sql`** — see §1 above.
+
+### Testing performed (exact commands, run in this order)
+
+```
+npm run typecheck   # clean
+npx eslint .         # clean
+npm run build        # succeeds; /organisations/new correctly reported dynamic, none prerendered
+npm run test:db      # fresh reset + full 9-directory suite incl. tests/app: 406/406 passing
+npm run test:db      # run again for stability: 406/406 passing, identical results
+```
+
+Direct browser-bundle check (`grep -rl "SUPABASE_SERVICE_ROLE_KEY\|DATABASE_URL\|postgres://" .next/static` and a `service_role` count): no matches, consistent with Slice A1's own finding — no new client-side data exposure introduced.
+
+### tests/app/organisations.test.ts (1 new file, 16 new tests)
+
+Creation success (persisted with correct real column values — name,
+status, tenant_id, created_by); organisation-scoping proof (2 tests);
+the "creator cannot immediately view what they created" consequence,
+tested directly rather than left as an assumption; the 8 required
+security scenarios (Tenant A creates in Tenant A; Tenant A cannot
+create in Tenant B — both via the structural absence of any
+client-supplied-tenant path and a raw malicious INSERT attempt; Tenant
+A cannot read Tenant B's organisations; unauthorized role — org-only,
+engagement-only, and no-membership-at-all — cannot create, 3 tests;
+anonymous cannot create; malicious client-supplied tenant_id cannot
+change ownership; direct unauthorized DB access blocked by RLS; org
+detail cannot be used to enumerate another tenant's organisation, with
+an explicit assertion that the forbidden and nonexistent cases produce
+byte-identical error messages); duplicate-name handling within the
+caller's visible scope, and its explicit non-detection outside that
+scope (2 tests); duplicate-name scoping is per-tenant; audit
+attribution (verifying the new `organisations_audit_log` trigger writes
+a real `audit_log` row, correctly attributed to the acting user and
+tenant, `action = 'insert'`). All run against real PostgreSQL — no
+mocked permission functions.
+
+### Files changed
+
+- `drizzle/migrations/0018_organisation_audit.sql` (new)
+- `lib/authorization/service.ts` (`getUserTenantId`, `requireTenantMembership`)
+- `lib/domain/organisations.ts` (`createOrganisation`, `DuplicateOrganisationError`, `OrganisationDetail.createdAt`)
+- `app/(shell)/organisations/new/page.tsx` (new)
+- `app/(shell)/organisations/new/actions.ts` (new)
+- `app/(shell)/organisations/page.tsx` (Create Organisation link)
+- `app/(shell)/organisations/[organisationId]/page.tsx` (`createdAt` display, post-creation confirmation)
+- `tests/app/organisations.test.ts` (new)
+- `DECISIONS.md` (R-86, R-87, R-88)
+- `PROGRESS.md` (this entry)
+
+No `DATA_MODEL.md` change — organisation creation uses only fields the
+schema already defines.
+
+### Known limitations (documented, not silently built around)
+
+1. The creator of an organisation cannot immediately view its detail
+   page or find it in their own Organisations list — see §3 above and
+   DECISIONS.md R-88. Closed naturally once a future slice grants real
+   organisation- or engagement-level access (e.g., Slice B2's
+   engagement creation, which the tenant member can already perform
+   under the new organisation via `engagements_insert`'s own
+   tenant-membership fallback).
+2. The duplicate-name check is best-effort and RLS-scoped to what the
+   caller can already see — it will not catch every real duplicate,
+   only ones visible to the caller. No database uniqueness constraint
+   exists on `organisations.name` and none was added (instructions
+   §17). See DECISIONS.md R-88.
+3. Organisation editing was not built this slice (instructions §9's own
+   allowed deferral).
+4. Carries forward, unchanged, Slice A1's own recorded limitation
+   (DECISIONS.md R-85 / D-03): no real Supabase Auth backend is
+   reachable from this environment, so the actual network-call boundary
+   remains untested end-to-end; every authorization decision downstream
+   of a resolved `userId` is tested for real against real PostgreSQL.
+
+### Recommended next application slice
+
+With organisation creation proven end-to-end, Slice B2 — engagement
+creation under an organisation — is the natural next step per
+PRODUCT_UX_BLUEPRINT.md §23's own build sequence, and would also
+naturally close this slice's §3 visibility limitation (a tenant member
+opening an engagement gains real, principled access to the client
+organisation it belongs to). This report does not preempt the user's
+own choice of next slice.
+
+### Git status / remote synchronization status
+
+All Slice B1 work is committed on `claude/primus-privacy-architecture-39p3gh`
+and pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Slice A1 — Application Foundation (Session 13, 2026-09-01)
 

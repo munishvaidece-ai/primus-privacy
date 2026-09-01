@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, exists } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
-import { tenantMemberships, organisationMemberships, engagementMemberships, engagements } from "@/db/schema";
+import { tenantMemberships, organisationMemberships, engagementMemberships, engagements, users } from "@/db/schema";
 
 // The single centralized application-layer authorization service
 // (PHASE A instructions §6/§7). Consistent with SECURITY.md §2's
@@ -174,6 +174,40 @@ export async function requireEngagementAccess(
   organisationId: string,
 ): Promise<void> {
   if (!(await canAccessEngagement(db, userId, engagementId, organisationId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
+/** The authenticated user's own home tenant (`users.tenant_id`), read via
+ * the existing `users_select` RLS policy's `id = auth.uid()` clause —
+ * every user can always read their own row, so this needs no additional
+ * authorization check of its own. Returns null only if no `users` row
+ * exists for this id, which should not happen for a real authenticated
+ * session (Slice A1's provisioning trigger always creates one). */
+export async function getUserTenantId(db: RequestDb, userId: string): Promise<string | null> {
+  const [row] = await db.select({ tenantId: users.tenantId }).from(users).where(eq(users.id, userId)).limit(1);
+  return row?.tenantId ?? null;
+}
+
+/**
+ * Slice B1 (PHASE B instructions §7): the exact narrow check migration
+ * 0001's `organisations_insert` RLS policy performs —
+ * `is_active_tenant_member(tenant_id)`, nothing broader. Deliberately a
+ * distinct, separately-named function from `requireTenantAccess` above
+ * rather than reusing `canAccessTenant`: that function's own docstring
+ * already anticipates growing an org-level fallback once a slice needs
+ * one, and organisation *creation* specifically requires real tenant-
+ * level membership, not merely the ability to see some organisation
+ * under the tenant — conflating the two would silently broaden who can
+ * create an organisation the moment `canAccessTenant` is extended for an
+ * unrelated read-only screen. There is no finer-grained "can create
+ * organisations" permission in the current Role/Permission catalogue
+ * (PRODUCT_UX_BLUEPRINT.md §22 — only 8 illustrative rows) to check
+ * instead; this is the narrowest existing role/permission consistent
+ * with that catalogue and with SECURITY.md — see DECISIONS.md.
+ */
+export async function requireTenantMembership(db: RequestDb, userId: string, tenantId: string): Promise<void> {
+  if (!(await isActiveTenantMember(db, userId, tenantId))) {
     throw new NotFoundOrForbiddenError();
   }
 }
