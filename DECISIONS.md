@@ -1,10 +1,10 @@
 # PRIMUS PRIVACY — Architectural Decisions
 
-Status: Draft v0.9 (Session 9 / Milestone 6, 2026-09-01: added R-57
-through R-65, recording implementation decisions made while building
-Evidence & Document Management — see PROGRESS.md for the milestone
-report. D-01/D-02 remain RESOLVED from Session 2; D-03/D-05 remain open
-per Sessions 2/3; R-16 through R-56 from Sessions 3-8 stand unchanged).
+Status: Draft v0.10 (Session 17, 2026-09-01: D-03 — data residency —
+RESOLVED: Supabase, AWS Mumbai region `ap-south-1`, directed by the
+product owner; see D-03 below. D-01/D-02 remain RESOLVED from Session
+2; D-04/D-05/D-06 remain open; R-16 through R-93 from Sessions 3-16
+stand unchanged — see PROGRESS.md for the Slice-by-slice build log).
 This log records material architectural decisions and
 their rationale, in the order they were made. Items requiring a human
 product/business decision that cannot be safely inferred from the brief are
@@ -119,25 +119,105 @@ in the form originally posed. `ProcessingActivity` is engagement-scoped
 a genuinely persistent, versioned client-level record — the two-tier split
 above.
 
+### D-03 — RESOLVED (Session 17, 2026-09-01) — Data residency: Supabase, AWS Mumbai region (`ap-south-1`)
+
+**Decision (directed by product owner):** PRIMUS production
+infrastructure will use Supabase with the specific AWS Mumbai region
+`ap-south-1`. Concretely:
+
+- **Supabase PostgreSQL** → Mumbai (`ap-south-1`).
+- **Supabase Storage** → Mumbai, the same production project as the
+  database (not a separate project/region).
+- **Supabase Auth** → the same production project (not a separate
+  project/region).
+- Any other Supabase-managed regional processing (e.g. Edge Functions,
+  if ever adopted) should use Mumbai where the service supports
+  regional pinning.
+- **No production client documents** are to be uploaded or stored
+  anywhere until the actual Mumbai-region production Supabase project
+  exists and is the one in use — this decision authorizes the choice
+  of region, not the provisioning itself (explicitly not done as part
+  of this decision — see "Not done by this decision" below).
+
+**Basis for the decision:** PRIMUS's own product/security/contractual
+requirement for India-region residency of client data — a business
+decision the product owner made for this product, not a claim that
+India-region hosting is the only legally permissible configuration.
+
+**Important clarification, recorded verbatim because it is easy to
+mis-state:** the DPDP Act does **not** universally require all personal
+data to remain in India. The Act permits the Central Government to
+restrict transfers of personal data to specified countries or
+territories (a notified-list mechanism, not a blanket in-country-only
+rule) — as of this decision, no such notification exists that would
+make India-only hosting a DPDP-mandated requirement for PRIMUS's own
+processing. PRIMUS is choosing India-region residency as its **own**,
+stronger-than-legally-required product/security/contractual posture —
+useful for client procurement credibility and a defensible-by-default
+security stance, not because DPDP itself compels it. Nothing in this
+project's documentation should assert or imply the stronger claim
+("DPDP requires all personal data to stay in India") — SECURITY.md,
+ARCHITECTURE.md, and any client-facing material should describe this as
+PRIMUS's own residency commitment, not a restatement of DPDP's actual
+transfer-restriction mechanism.
+
+**Region selection is a data-location control only.** Choosing
+`ap-south-1` decides *where the bytes physically sit* — it is not, by
+itself, a claim of regulatory compliance, security adequacy, or DPDP
+conformance. Production readiness still requires the full set of
+separate, substantive controls this decision does **not** provide:
+
+- private storage (no publicly-readable buckets/objects)
+- signed URLs (time-limited, scoped access to any stored file — never a
+  permanent public link)
+- Row-Level Security (already built, Milestones 1-9; a real Supabase
+  project must actually run with it enforced, not merely have the SQL
+  defined)
+- authentication (Supabase Auth is provisioned, but its production
+  configuration — session policy, MFA where required, etc. — is a
+  separate exercise from picking a region)
+- audit (the existing `audit_log` mechanism; a production deployment
+  must actually be writing to it under real traffic)
+- encryption (at rest and in transit — Supabase's own platform defaults
+  plus anything PRIMUS layers on top, evaluated separately)
+- malware/content scanning on uploads (D-05, still open/deferred)
+- retention/deletion policy and its actual enforcement
+- processor contractual controls (a Data Processing Agreement/equivalent
+  with Supabase itself, and with any other processor in the chain)
+- backup/recovery (a tested restore procedure, not merely "backups are
+  enabled")
+- monitoring (of the production system's own health/security signals)
+- incident response (a real, exercised plan, not only a document)
+
+None of these are addressed by this decision. Each remains its own,
+separate piece of production-readiness work, tracked in PROGRESS.md's
+production-readiness section, not silently assumed to be "handled" by
+having picked a region.
+
+**Not done by this decision (explicitly, per instruction):** the
+production Supabase project itself is **not** provisioned as part of
+recording this decision — `ap-south-1` is now the settled *target*
+region for when it is provisioned, closing the "which region" half of
+D-03's original open question, but no infrastructure change, Storage
+implementation, or schema change accompanies this entry. `lib/db/
+request-client.ts`'s own documented limitation (DECISIONS.md R-85) —
+that this project's `DATABASE_URL` still points at a local Postgres
+superuser rather than a real Supabase `authenticator` role — is
+therefore **not** closed by this decision either; it closes only once a
+real `ap-south-1` project exists and the application is repointed at
+it, which remains separate, future work.
+
+*Original framing (for record):* "Is there a hard requirement
+(contractual, or as a matter of DPDP-practice credibility) that client
+evidence and personal-data-adjacent metadata be hosted in an India
+Supabase region, or is any region acceptable for MVP?" — resolved as
+above: yes, a hard requirement, specifically `ap-south-1`, decided by
+the product owner as PRIMUS's own posture rather than as a restatement
+of what DPDP itself mandates.
+
 ---
 
 ## DECISION REQUIRED items (still open)
-
-### D-03 — Data residency
-
-**Question:** Is there a hard requirement (contractual, or as a matter of
-DPDP-practice credibility) that client evidence and personal-data-adjacent
-metadata be hosted in an India Supabase region, or is any region acceptable
-for MVP?
-
-**Why it matters:** the Supabase project region is chosen once and is
-expensive to change later (a full data migration). A DPDP-focused
-consulting product plausibly gets asked this by clients during
-procurement.
-
-**Current status:** no region has been selected. Blocking before the first
-production Supabase project is provisioned — not blocking for continued
-architecture/documentation work.
 
 ### D-04 — Will the platform ever store individual data-principal PII (DSR requests, consent-receipt transactions)?
 
@@ -2058,19 +2138,28 @@ domain query, so RLS is genuinely, independently re-checked on every
 request this slice's application code issues — this does not weaken
 enforcement for the actual code paths built.
 **Rationale:** No Supabase project has ever been provisioned for this
-repository (DECISIONS.md D-03, still unresolved) — there is no
-`authenticator` role to connect as. D-03 was recorded as a Milestone-1-
-era limitation affecting migration/seed/test tooling; Slice A1 is the
-first point real, user-facing application code inherits the same
-limitation, so it is re-recorded here specifically for that reason,
-not because the underlying fact has changed. The connection's *ceiling*
-privilege (what the connecting role could theoretically do if this
-module's own `SET LOCAL ROLE` discipline were ever bypassed by a future
-code change) is broader than a production `authenticator` role would
-allow — a real, tracked production-readiness gap (PROGRESS.md), closed
-automatically once a real Supabase project is provisioned and
-`DATABASE_URL` is repointed at its `authenticator` connection string,
-requiring no code change to `lib/db/request-client.ts` itself.
+repository — there is no `authenticator` role to connect as. This was
+originally a Milestone-1-era limitation affecting migration/seed/test
+tooling; Slice A1 is the first point real, user-facing application code
+inherits the same limitation, so it is re-recorded here specifically
+for that reason, not because the underlying fact has changed. The
+connection's *ceiling* privilege (what the connecting role could
+theoretically do if this module's own `SET LOCAL ROLE` discipline were
+ever bypassed by a future code change) is broader than a production
+`authenticator` role would allow — a real, tracked production-readiness
+gap (PROGRESS.md), closed automatically once a real Supabase project is
+provisioned and `DATABASE_URL` is repointed at its `authenticator`
+connection string, requiring no code change to `lib/db/request-client.ts`
+itself.
+
+**Updated (Session 17, 2026-09-01):** D-03 (data residency) is now
+RESOLVED — production will use Supabase in the AWS Mumbai region
+(`ap-south-1`). This settles *where* the eventual production project
+will live; it does not itself provision that project. This function's
+own limitation is therefore still fully open exactly as described
+above — it closes only once a real `ap-south-1` project actually exists
+and `DATABASE_URL` is repointed at it, which remains separate, future
+work (see D-03's own entry above for the full decision).
 
 ### R-86 — `organisations` never had an audit trigger; closed via a minimal, hand-written migration reusing the existing mechanism unchanged
 

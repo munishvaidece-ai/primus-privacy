@@ -1,35 +1,109 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C1 COMPLETE (Session 16): Assessment
-Workspace + Control Assessment — Phase C, the first major workflow
-slice of the actual PRIMUS product, turning the existing Assessment
-Engine (Milestones 5/6) into a genuinely usable consultant assessment
-workspace. No new migration was needed: direct inspection of migration
-0009 (assessment engine) confirmed `assessments`/`assessment_controls`/
-`assessment_responses`/`control_tests` already had full INSERT/UPDATE
-policies, GRANTs, and audit triggers for `authenticated` since
-Milestone 5 — unlike Slices B1/B2's own findings, this slice's writes
-needed no new RLS/GRANT/audit-trigger work at all. New: an Assessment
-list (`/organisations/[organisationId]/engagements/[engagementId]/
-assessments`, real progress/methodology/last-update, the exact read
-model PRODUCT_UX_BLUEPRINT.md §7 already specifies) and a full
-navigable workspace at the existing per-assessment URL (superseding
-Slice A1's minimal one-card-per-control vertical slice) — a searchable/
-filterable control sidebar, and a main area showing the selected
-Control's identity, its mapped Requirements (with regulatory
-reference), its AssessmentResponse (rating/rationale/system-suggested
-rating/respondent/submitted-at), its ControlTests (view + create), and
-a read-only Evidence summary (no storage paths, no upload — that is a
-separate future slice). Real PostgreSQL data throughout; batched,
-non-N+1 queries. Finalized assessments render fully read-only,
-server-enforced by the existing Milestone 5 triggers regardless of the
-UI. 24 new tests (456/456 full suite, run twice). Deliberately not
-built: a "Finalize Assessment" action (DECISIONS.md R-93 — the brief
-never asks for one, and the current Role/Permission catalogue has no
-real "may finalize" permission to gate it with), Risk/Findings/
-Remediation/Maturity UI, Evidence upload, client portal, reporting, AI
-(all explicitly out of this slice). Slice B2 (Session 15) and
-everything before it passed before this slice began.
+Status: 2026-09-01 — D-03 (Data Residency) RESOLVED (Session 17):
+production infrastructure will use Supabase, AWS Mumbai region
+(`ap-south-1`) — PostgreSQL, Storage, and Auth all in the same
+production project, decided by the product owner as PRIMUS's own
+product/security/contractual posture (not a claim that the DPDP Act
+itself mandates India-only hosting — see DECISIONS.md D-03 for the
+full clarification). Documentation-only session: no code, schema,
+migration, or infrastructure change — the production Supabase project
+is **not** provisioned, Storage is **not** implemented, and C2 was
+**not** started, all per explicit instruction. Region selection is a
+data-location control only; production readiness still requires
+private storage, signed URLs, RLS (already built, enforcement pending
+a real project), authentication, audit (already built), encryption,
+malware scanning (D-05, still open), retention/deletion,
+processor contractual controls, backup/recovery, monitoring, and
+incident response — none of which this decision addresses. Slice C1
+(Session 16) remains the most recent functional build state, entirely
+unaffected by this decision.
+
+## D-03 Resolution — Data Residency (Session 17, 2026-09-01)
+
+**What happened:** the product owner resolved DECISIONS.md's
+previously-open D-03 ("Is there a hard requirement... that client
+evidence and personal-data-adjacent metadata be hosted in an India
+Supabase region?"). Full decision text, rationale, and the DPDP
+clarification are recorded in DECISIONS.md D-03 (moved from "DECISION
+REQUIRED items (still open)" into "Resolved blocking decisions,"
+alongside D-01/D-02, in numeric order). This session recorded that
+decision only — no other work was performed.
+
+**Decision, summarized** (see DECISIONS.md D-03 for the complete text):
+Supabase, AWS Mumbai region `ap-south-1` — PostgreSQL, Storage, and
+Auth all in the same production project; other regional processing
+uses Mumbai where supported; no production client documents until that
+project exists. Explicitly **not** a claim that the DPDP Act requires
+India-only hosting — the Act permits the Central Government to restrict
+transfers to specified countries/territories, and no such notification
+currently exists; PRIMUS is choosing India-region residency as its own,
+stronger-than-legally-required posture.
+
+**Explicitly not done this session** (per instruction): the production
+Supabase project was not provisioned; Supabase Storage was not
+implemented; the database schema was not modified; C2 was not started.
+`lib/db/request-client.ts`'s own documented limitation (DECISIONS.md
+R-85 — `DATABASE_URL` still points at a local Postgres superuser, not a
+real Supabase `authenticator` role) is unchanged by this decision; a
+brief "Updated" note was appended to R-85 pointing at D-03's resolution
+without altering R-85's own still-accurate substance, matching this
+project's established practice of appending rather than rewriting
+(the same practice already used for R-88's own supersession note in
+Slice B2).
+
+**Remaining production-readiness controls** (explicitly not addressed
+by region selection alone, per D-03's own text): private storage,
+signed URLs, Row-Level Security actually running in the production
+project (already built at the schema level, Milestones 1-9), production
+authentication configuration, the existing `audit_log` mechanism
+actually receiving real production traffic, encryption at rest/in
+transit, malware/content scanning on uploads (D-05, still open),
+retention/deletion policy and enforcement, a Data Processing Agreement/
+equivalent processor contractual control with Supabase, tested backup/
+recovery, production monitoring, and an exercised incident-response
+plan. None of these are newly introduced by this session; all were
+already implicitly required for production go-live and are now
+explicitly enumerated against D-03's own entry so they aren't mistaken
+for "handled" by having picked a region.
+
+### Consistency check (performed after the documentation update)
+
+- Confirmed D-03 is the only "DECISION REQUIRED" item touched — D-04
+  (data-principal PII), D-05 (malware scanning), and D-06 (billing)
+  remain open, unchanged, and correctly still listed under "DECISION
+  REQUIRED items (still open)".
+- Confirmed D-03's entry was placed in numeric order (D-01, D-02, D-03)
+  within "Resolved blocking decisions", matching D-01/D-02's own
+  existing format (`### D-0N — RESOLVED — <title>`, a **Decision**
+  paragraph, and an *Original framing (for record)* footer preserving
+  the original open question verbatim) — not left out of order or in a
+  differently-shaped entry.
+- Confirmed DECISIONS.md's own top status line was updated to reflect
+  D-03 as resolved (previously read "D-03/D-05 remain open"; now
+  correctly lists only D-04/D-05/D-06 as open).
+- Grepped every remaining `D-03` reference in DECISIONS.md (R-24, the
+  Milestone 6/8A inline mentions, R-85): R-24 and the Milestone 6/8A
+  mentions are accurate, dated historical statements of the project's
+  state *at that session* and were deliberately left unchanged, per
+  this project's established practice of not rewriting history; R-85 —
+  the one still-current, forward-facing reference — received the
+  appended "Updated (Session 17)" note above rather than a rewrite.
+- Grepped SECURITY.md, ARCHITECTURE.md, and DATA_MODEL.md for `D-03`/
+  "data residency"/"Mumbai"/"ap-south" — no references exist in any of
+  them, so no inconsistency was introduced or left behind by not
+  updating those files (also consistent with the explicit instruction
+  to update only DECISIONS.md and PROGRESS.md this session).
+- Confirmed no code, schema, migration, or dependency file was touched
+  (`git status` shows only `DECISIONS.md`/`PROGRESS.md` modified).
+
+### Git status / remote synchronization status
+
+Committed on `claude/primus-privacy-architecture-39p3gh` and pushed to
+`origin`, with local and remote `HEAD` confirmed matching (see the
+commit this entry accompanies). No commits are queued or pending push.
+
+---
 
 ## Slice C1 — Assessment Workspace + Control Assessment (Session 16, 2026-09-01)
 
