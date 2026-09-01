@@ -1,24 +1,513 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C2 (Secure Evidence Storage + Evidence
-Review) COMPLETE (Session 18): real, secure, file-based evidence
-upload/versioning/review is built on the existing Document/
-DocumentVersion/Evidence/EvidenceLink model — a storage-adapter
-abstraction (real Supabase Storage once a production project exists;
-a real-file-I/O local/test stand-in until then, mirroring D-03/R-85's
-own precedent), server-side file validation, SHA-256 checksums,
-compensating cleanup on failed uploads, short-lived signed URLs
-(never persisted, never a public URL), and the Assessment workspace
-extended with an Evidence upload/review/version UI. No production
-Supabase project is provisioned and no real Supabase Storage call has
-been exercised (network egress to `supabase.co` remains blocked in
-this environment, confirmed since Slice A1) — this is reported
-explicitly, not glossed over. Malware scanning (D-05) remains
-unresolved by design: every new `DocumentVersion.scan_status` stays at
-its column default (`pending`); nothing in this slice claims scanning
-exists or marks an upload "clean." Full details in the "Slice C2"
-section below. STOP after C2 per explicit instruction — no C3/Risk/
-Findings/Remediation/Maturity/Client Portal/Reporting/AI.
+Status: 2026-09-01 — Slice C3 (Risk Engine) COMPLETE (Session 19): the
+existing (Milestone 7, database-only) Risk/RiskScoringModel/RiskControl
+model now has a real, traceable consultant workflow — create a Risk
+from an Assessment control's context, an engagement-wide Risk list, a
+Risk detail page with full source (Assessment/Control/
+AssessmentResponse) and Evidence traceability resolved through the
+EXISTING assessment-workspace read functions, and a minimal status
+update. No new domain table, no schema change, no invented scoring
+algorithm: `inherentRating`/`residualRating` are recorded exactly as
+the consultant enters them against the tenant's own pinned, active
+`RiskScoringModel` — no calculator exists anywhere in this codebase
+(deliberate, matching the schema's own already-established posture).
+Risk creation/editing is explicitly NOT blocked by Assessment
+finalization (no database trigger enforces that; see DECISIONS.md
+R-98). One genuine, previously-undocumented database gap was found and
+recorded, not silently patched: `risks.owner_id` carries no
+tenant-scoping FK, so only the application's own self-assignment-only
+design (never a user-directory) prevents a cross-tenant owner
+assignment via a direct/raw route (DECISIONS.md R-99). Full details in
+the "Slice C3" section below. STOP after C3 per explicit instruction —
+no Findings/Remediation/Validation/Maturity/Client Portal/Reporting/AI.
+
+## Slice C3 — Risk Engine (Session 19, 2026-09-01)
+
+**Scope:** exactly what PHASE C — RISK / Slice C3 instructed — turn
+Assessment results into a structured, traceable Risk workflow using the
+EXISTING Risk/RiskScoringModel/RiskControl/RiskProcessingActivity model
+built (database-only) in Milestone 7 (migrations 0012/0013). No
+Findings, Remediation, Validation, Maturity, Client Portal, Reporting,
+or AI UI — none of those exist anywhere in this slice's changes. No new
+domain table, no new migration (confirmed after direct inspection —
+migration 0013 already carried every RLS policy, GRANT, trigger, and
+audit hook this slice's writes needed, the same finding Slices C1/C2
+made for their own tables).
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, every
+Risk/RiskScoringModel/RiskControl/Assessment/AssessmentControl/
+AssessmentResponse/ControlTest/Evidence/EvidenceLink schema file, both
+Risk migrations' exact triggers/policies/grants, the existing
+authorization service, the existing Assessment workspace, the existing
+Evidence implementation, existing tests (including
+`tests/risk-remediation/*`, Milestone 7's own DB-only test suite), and
+`package.json` fresh from disk before writing anything, per instruction.
+
+### 1. Existing Risk architecture discovered
+
+`risks` (DATA_MODEL.md §8): `engagement_id`/`organisation_id`/
+`tenant_id` (engagement-scoped client data, like `Assessment`),
+`assessment_response_id` (nullable — an additive FK from Milestone 7,
+DECISIONS.md R-66, making the brief's own "Assessment Response → Risk"
+prose relationship a real foreign key), `title`, `description`,
+`likelihood`/`impact` (1-5, CHECK-constrained), `inherent_rating`
+(`risk_rating` enum: low/medium/high/critical), `residual_likelihood`/
+`residual_impact`/`residual_rating` (all nullable), `risk_scoring_
+model_id` (NOT NULL, immutable after creation), `status` (`risk_status`
+enum: open/mitigating/accepted/closed), `owner_id`, `previous_risk_id`
+(nullable self-reference, for a deliberate re-score chain). `risk_
+controls`/`risk_processing_activities` are plain insert/delete-only
+junctions (Risk × Control, Risk × ProcessingActivity — DATA_MODEL.md
+§11's "Risk N ←→ N Control"). `risk_scoring_models` is Tenant-scoped,
+append-only practice content (mirrors `ControlLibraryVersion`'s shape
+exactly — DECISIONS.md R-67): `matrix_definition` (JSONB), `is_active`
+(a BEFORE INSERT trigger closes out the prior active row per tenant).
+No genuine discrepancy was found between DATA_MODEL.md and the actual
+schema — nothing to stop and report on that front. Two real,
+consequential findings ARE recorded (not schema discrepancies, but
+architectural facts this slice had to design around): no Risk-scoring
+calculator exists anywhere in this codebase (DECISIONS.md R-96), and no
+database trigger ties Risk to Assessment finalization at all
+(DECISIONS.md R-98).
+
+### 2. Risk schema used
+
+Used exactly as built — no field renamed, no field added, no field
+repurposed. `EvidenceLink` was NOT extended with a `risk` subject type
+(confirmed by direct inspection of `evidence_links`' CHECK constraint:
+only `assessment_response`/`control_test`/`remediation_action`/
+`validation_record` are valid) — Risk has no direct Evidence
+relationship in the approved schema at all; see item 7 below for how
+traceability is nonetheless satisfied without inventing one.
+
+### 3. Risk creation workflow
+
+`lib/domain/risks.ts`'s `createRisk`: Browser → Server Action
+(`createRiskAction`, in the existing Assessment workspace's own
+`actions.ts`) → authenticate → `requireEngagementAccess` → validate →
+`createRisk` → PostgreSQL (one transaction, two inserts: `risks` then
+`risk_controls`) → RLS → audit (via the existing `risks_audit_log`/
+`risk_controls_audit_log` triggers — no new audit mechanism). Mirrors
+`createControlTest`'s (Slice C1) exact shape: only `assessmentId`/
+`controlId` identify the source context; tenant/organisation/
+engagement scope, the AssessmentResponse (if one exists), and the
+active RiskScoringModel are ALL re-derived server-side, never trusted
+from the caller (instructions §15). The `assessment_controls` row
+lookup that proves the Control is in scope for the Assessment is the
+same "proof by construction via composite FK" mechanism `createControlTest`
+already established. Both inserts share one `withRequestDb` transaction
+— no cross-system compensating cleanup is needed (unlike Evidence's
+Storage+Postgres split in Slice C2), since a failure in either rolls
+both back together.
+
+### 4. Risk scoring architecture
+
+No calculator, no algorithm, no hard-coded thresholds (DECISIONS.md
+R-96) — `likelihood`/`impact`/`inherentRating` and the optional
+residual triad are recorded exactly as the consultant enters them.
+`risk_scoring_model_id` is always the tenant's own single currently-
+`is_active` `RiskScoringModel` row, resolved server-side — never a
+caller-supplied value (instructions §15's "do not accept browser-
+supplied scoring-model identifiers without validation" is satisfied by
+never accepting one at all). If no active model exists for the tenant,
+`NoActiveRiskScoringModelError` is thrown and no Risk is created
+(DECISIONS.md R-97) — no default matrix is invented, no
+RiskScoringModel-authoring UI was built this slice (mirrors the
+existing, still-true absence of a `ControlLibraryVersion`-authoring
+UI).
+
+### 5. Historical scoring integrity
+
+Fully inherited from Milestone 7, unmodified: `risks_prevent_
+reparenting` (migration 0013) makes `risk_scoring_model_id` immutable
+after creation; a re-score under a newer model requires creating a NEW
+Risk row via `previous_risk_id`, never an in-place edit. This slice
+adds no new mechanism — `tests/app/risks.test.ts`'s own historical-
+scenario test proves the exact worked example instructions §29
+describes (Risk R1 under Model v1, then Model v2 created and made
+active, R1 still resolves to v1) through the real application
+functions, not only the pre-existing DB-level test
+(`tests/risk-remediation/risk-scoring-versioning.test.ts`, Milestone 7,
+still passing unchanged).
+
+### 6. Risk source traceability
+
+`risk_controls` (always exactly one row per Risk, created at Risk-
+creation time) gives the source Control(s); `risks.assessment_
+response_id` (nullable) gives the source AssessmentResponse, from which
+the source Assessment is resolved via `assessment_controls` →
+`assessments` (`getRiskDetail`). No duplicate relationship was created
+— both are the EXISTING relationships DATA_MODEL.md §8/§11 already
+name. `risk_processing_activities` (Risk × ProcessingActivity, the
+other junction DATA_MODEL.md §11 names) is deliberately NOT built this
+slice — PHASE C3 instructions §4's own enumerated traceability list
+names Assessment/AssessmentControl/AssessmentResponse/ControlTest/
+Evidence only, never ProcessingActivity, even though
+PRODUCT_UX_BLUEPRINT.md's own broader Risk Register row (#13) mentions
+"link control/PA" — this slice follows its own brief's narrower,
+explicit scope rather than the blueprint's fuller eventual vision;
+recorded as a known limitation (item 28), not a blueprint contradiction
+requiring a documentation change.
+
+### 7. Evidence traceability
+
+Risk has no direct Evidence relationship in the approved schema (item
+2 above) — `getRiskDetail`'s caller (the Risk detail page) resolves
+Evidence by reusing the EXISTING `getControlTestsForControl`/
+`getEvidenceSummaryForControl` functions (`lib/domain/assessments.ts`/
+`lib/domain/evidence.ts`, unchanged) with the Risk's own resolved
+source Assessment/Control/AssessmentResponse ids — the identical
+functions the Assessment workspace itself already calls. No Evidence
+metadata is copied onto `risks`; no duplicate storage/file relationship
+was created (instructions §17).
+
+### 8. Risk ownership
+
+`assignOwnerToSelf` is the only assignment mechanism — `owner_id` is
+either the calling user's own id or `NULL`; no code path anywhere
+accepts an arbitrary target user (instructions §13's "do not build a
+user-directory or invitation system," mirroring DECISIONS.md R-91's
+identical precedent). Displayed on Risk list/detail via a `LEFT JOIN`
+to `users`. A genuine database-level gap was found and recorded rather
+than silently patched: `risks.owner_id` has no composite FK tying the
+owner's tenant to the Risk's own, so a raw SQL route (bypassing this
+application) is not independently rejected — DECISIONS.md R-99, proven
+directly by a dedicated "[DOCUMENTED GAP]" test.
+
+### 9. Risk status
+
+Uses the existing `risk_status` enum exactly (open/mitigating/
+accepted/closed) — no new state. `updateRiskStatus` is the one
+supported post-creation edit; title/description/likelihood/impact/
+ratings/owner are not editable after creation in this slice (a
+minimal, professional form, not a full risk-register edit screen —
+recorded as a known limitation).
+
+### 10. Assessment workspace integration
+
+The existing Assessment workspace
+(`.../assessments/[assessmentId]/page.tsx`) gained a "Risks" section
+under the currently-selected control, alongside the existing Evidence
+section: a compact list of Risks already linked to this control
+(`listRisksForControl`, scoped by the same `(engagementId, controlId)`
+pair `risk_controls` actually stores), and a create-Risk form
+(title/description/likelihood/impact/inherent rating/optional residual
+triad/self-assign-to-me). Not gated behind `!finalized` (item 5/
+DECISIONS.md R-98) — the only section in this workspace that remains
+fully available on a finalized assessment. No redesign of the existing
+workspace beyond this one addition.
+
+### 11. Risk list
+
+New route, `/organisations/[organisationId]/engagements/[engagementId]/risks`
+— a real-data table (title, source control, inherent rating, residual
+rating, status, owner), one batched query
+(`listRisksForEngagement`), no dashboard, no chart, no analytics
+(instructions §9). Linked from the Engagement detail page ("Risks"
+section, mirroring the existing "Assessments" section) and from the
+Assessment workspace's own Risks section ("View all engagement
+risks").
+
+### 12. Risk detail
+
+New route, `/organisations/[organisationId]/engagements/[engagementId]/risks/[riskId]`
+— identity, description, scoring (likelihood/impact/inherent rating,
+residual triad if recorded, the pinned scoring methodology's name/
+version), status (with the one status-update form), owner, source
+Assessment/Control/AssessmentResponse (clickable back to the Assessment
+workspace, landing on the exact source control — instructions §18),
+relevant ControlTests, and relevant Evidence (via item 7's reused
+functions). A plain, non-interactive text note states that Findings/
+Remediation/Validation are not yet part of this application — never a
+link or button implying functionality that doesn't exist (instructions
+§8's own explicit caution).
+
+### 13. Authorization
+
+Reuses the existing centralized authorization service exactly —
+`requireEngagementAccess` is the sole primitive this slice needed; no
+new function was added to `lib/authorization/service.ts`. Every
+function in `lib/domain/risks.ts` re-derives tenant/organisation/
+engagement scope from the database itself before any read or write —
+a browser-supplied id that does not match what the database
+independently confirms is always rejected with
+`NotFoundOrForbiddenError`.
+
+### 14. RLS
+
+Unchanged and unweakened — migration 0013's existing forced-RLS
+policies on `risks`/`risk_controls`/`risk_scoring_models` remain
+exactly as they were; directly re-confirmed via `psql \d+` this session
+(see item 25 below), not only read from the migration file.
+
+### 15. Audit
+
+Relies on the existing audit architecture exactly — migration 0013's
+`risks_audit_log` (AFTER INSERT OR UPDATE) and `risk_controls_audit_log`
+(AFTER INSERT OR DELETE) triggers already cover every write this slice
+performs; no new trigger, no second audit log.
+
+### 16. Finalized-assessment behavior
+
+Deliberately NOT blocked — see item 5/DECISIONS.md R-98 for the full
+reasoning. Directly verified two ways: `tests/app/risks.test.ts`
+creates a Risk from an already-finalized Assessment's control and
+succeeds; a separate test queries `information_schema.triggers` for
+`risks`/`risk_controls` directly and asserts no trigger name matches
+`finaliz` (case-insensitive), rather than only trusting the absence
+noticed while reading the migration file.
+
+### 17. Performance/query approach
+
+`listRisksForEngagement`/`listRisksForControl`/`getRiskDetail` are each
+one to a small, fixed number of batched queries (`LEFT JOIN`s, not one
+query per risk) — no N+1. `getRiskDetail`'s Evidence/ControlTest
+resolution reuses the Assessment workspace's own already-efficient
+functions rather than adding a new, parallel read path. No search
+engine introduced — PostgreSQL is sufficient at this data volume
+(instructions §25).
+
+### 18. UI states
+
+No risks (empty-state copy on both list and per-control section);
+Risk creation (validated form, server-side error surfaced via the
+existing `?error=` query-flag pattern); validation error (`InvalidRiskInputError`
+messages surfaced the same way); unauthorized (`NotFoundOrForbiddenError`
+→ generic "you do not have access" message, never a stack trace or
+raw database error); not found (`getRiskDetail` → Next.js `notFound()`);
+database failure (caught, logged server-side only, generic user-facing
+message — instructions §17/§26 shared pattern with every prior slice);
+finalized-assessment restriction (deliberately absent for Risk — the
+section stays fully available, matching item 10/16); missing Evidence/
+ControlTest/scoring information (each renders an honest "not yet
+recorded"/"no control tests recorded"/"no evidence linked yet" message,
+never a silent blank or a fabricated placeholder value).
+
+### 19. Security tests
+
+`tests/app/risks.test.ts`, 15 numbered database/application security
+scenarios (PHASE C3 instructions §27), all passing, real PostgreSQL, no
+mocked authorization:
+1. Tenant A cannot read Tenant B's Risk.
+2. Organisation A cannot read Organisation A2's Risk (same tenant).
+3. Engagement A cannot read Engagement A3's Risk (same organisation).
+4. A Risk stays correctly attached to the Assessment it actually came
+   from, never conflated with a different Assessment sharing the same
+   Control (the concrete, faithful reading of "Assessment A cannot
+   access Risk from Assessment B" given Risk's own actual schema — see
+   item 2: Risk has no direct `assessment_id` column).
+5. Unauthorized user (no membership) cannot create a Risk.
+6. Unauthorized user (no membership) cannot update a Risk's status.
+7. A cross-tenant Control cannot be used to create a Risk (no matching
+   `assessment_controls` row can exist).
+8. Cross-tenant Evidence cannot be surfaced through a Risk's
+   traceability read path — RLS-filtered even when the real id is
+   known.
+9. Browser-supplied organisation/engagement ids cannot cross a boundary
+   even paired with a real Risk id.
+10. A cross-tenant RiskScoringModel cannot be referenced — `createRisk`
+    never accepts a caller-supplied model id at all (compile-time
+    fact), and a raw SQL attempt is independently rejected by
+    `risks_risk_scoring_model_tenant_fk`.
+11. Anonymous access (SELECT and INSERT) is rejected.
+12. A direct, malicious raw INSERT with forged tenant/organisation/
+    engagement is rejected by RLS.
+13. **[DOCUMENTED GAP, not a passing "protected" assertion]** the
+    database does NOT independently prevent a cross-tenant `owner_id` —
+    only the application's own self-assignment-only design does
+    (DECISIONS.md R-99); the test proves the raw INSERT succeeds,
+    rather than asserting a protection that does not exist.
+14. Historical scoring configuration cannot be silently replaced (item
+    5's historical scenario, run through the application layer).
+15. Finalized-assessment behavior matches the approved database rules
+    (item 16).
+
+### 20. Scoring tests
+
+Covered within the same file: valid likelihood/impact (1-5) accepted
+and stored unchanged (no computed value); out-of-range likelihood
+rejected by `InvalidRiskInputError` before any database write; a
+partial residual triad (some but not all of likelihood/impact/rating)
+rejected; a full residual triad accepted and stored; the created Risk's
+`risk_scoring_model_id` always matches the tenant's actual currently-
+active model (verified against a live query, not a hard-coded
+expectation — this was itself a bug this session's own debugging pass
+had to fix, since an earlier test in the same file changes which model
+is active); the historical-scenario test (item 5) proves the pin
+survives a newer model becoming active.
+
+### 21. Historical scenario result
+
+Constructed and verified exactly as instructions §29 describe:
+Assessment A → Control C1 → Response = `partially_implemented` → Risk
+R1 → RiskScoringModel v1.0. RiskScoringModel v2.0 is then created
+(active for the tenant). A second Risk, R2, created afterward against a
+different control, correctly pins to v2.0. R1's own
+`risk_scoring_model_id` is confirmed unchanged (still v1.0) — current
+configuration never silently rewrites historical Risk, matching the
+existing `risks_prevent_reparenting` trigger's own guarantee, exercised
+here through the real `createRisk` application function rather than
+only a raw SQL fixture.
+
+### 22. Exact application tests
+
+`tests/app/risks.test.ts` (28 tests): Risk creation success (with and
+without an existing AssessmentResponse, with a full/partial residual
+triad, with an out-of-range value, against a Control not in the
+Assessment's scope, against a finalized Assessment, with no active
+scoring model); `updateRiskStatus` success; the 15 security scenarios
+(item 19); `listRisksForEngagement`/`listRisksForControl` scoping and
+ordering; `getRiskDetail`'s full resolution (scoring model, source
+control(s), source assessment, source assessment response); and the
+Evidence-traceability composition test (item 7, using the exact
+functions the Risk detail page itself calls).
+
+### 23. Exact full-suite count/results
+
+```
+npm run test:db   # fresh reset + full 8-directory suite incl. tests/app: 521/521 passing
+npm run test:db   # run again for stability: 521/521 passing, identical results
+```
+(493 tests carried forward from Slice C2 + 28 new in
+`tests/app/risks.test.ts` = 521.)
+
+### 24. Typecheck/lint/build
+
+```
+npm run typecheck   # clean
+npx eslint .         # clean (after fixing two react/no-unescaped-entities
+                      # errors on the new "control's" apostrophes)
+npm run build        # succeeds; both new Risk routes correctly reported
+                      # dynamic (server-rendered on demand), none prerendered
+```
+
+### 25. Database inspection
+
+Directly queried via `psql` (not only read from the migration file)
+for `risks`/`risk_controls`/`risk_scoring_models`: forced RLS enabled
+on all three; `_select`/`_insert`(/`_update` on `risks`,/`_delete` on
+`risk_controls`) policies present, all scoped through
+`can_access_engagement` (`risk_scoring_models` through the
+`can_access_tenant`/`is_active_tenant_member` read/write asymmetry);
+`risks_prevent_reparenting`/`risk_scoring_models_close_out_previous`/
+the `_audit_log` triggers confirmed present, exactly as migration 0013
+defines them; `GRANT`s to `authenticated` confirmed as `INSERT, SELECT,
+UPDATE` on `risks` (no `DELETE` — never hard-deleted), `DELETE, INSERT,
+SELECT` on `risk_controls` (no `UPDATE` — a link is created or removed,
+never mutated), `INSERT, SELECT` on `risk_scoring_models` (append-only
+— no `UPDATE`/`DELETE` at all); `risks_risk_scoring_model_tenant_fk`
+confirmed present; `risks.owner_id`'s foreign key confirmed to be the
+single-column `risks_owner_id_users_id_fk` only — directly confirming
+item 8/DECISIONS.md R-99's documented gap, not merely inferred from
+reading the schema file.
+
+### 26. Files changed
+
+- `lib/domain/risks.ts` (new) — `createRisk`, `updateRiskStatus`,
+  `listRisksForEngagement`, `listRisksForControl`, `getRiskDetail`,
+  `NoActiveRiskScoringModelError`, `InvalidRiskInputError`
+- `components/ui/badge.tsx` (`riskRatingTone`/`riskStatusTone` added,
+  deliberately kept separate from the existing `statusTone` — see the
+  new functions' own doc comments for the naming-collision reasoning)
+- `app/(shell)/.../assessments/[assessmentId]/actions.ts` (extended —
+  `createRiskAction`)
+- `app/(shell)/.../assessments/[assessmentId]/page.tsx` (Risks section
+  added under the selected control)
+- `app/(shell)/.../engagements/[engagementId]/page.tsx` ("Risks"
+  section added, mirroring the existing "Assessments" section)
+- `app/(shell)/.../engagements/[engagementId]/risks/page.tsx` (new —
+  Risk list)
+- `app/(shell)/.../engagements/[engagementId]/risks/actions.ts` (new —
+  `updateRiskStatusAction`)
+- `app/(shell)/.../engagements/[engagementId]/risks/[riskId]/page.tsx`
+  (new — Risk detail)
+- `tests/app/risks.test.ts` (new, 28 tests)
+- `tests/app/helpers.ts` (re-exports `createRiskScoringModel`,
+  `createRisk as createRiskFixture`, `linkRiskControl` from
+  `tests/risk-remediation/helpers.ts`)
+- `DECISIONS.md` (R-96 through R-100)
+- `PROGRESS.md` (this entry)
+
+No `drizzle/migrations/*` change — confirmed unnecessary after direct
+inspection (items 1/25 above). No `DATA_MODEL.md` change — no new field
+or entity; the one prose/schema tension found (item "risk creation
+form," R-100's "rationale" field) was resolved by omission, per
+instructions §7's own literal override, not by editing DATA_MODEL.md.
+
+### 27. Dependencies changed
+
+None. No `package.json` change this slice.
+
+### 28. Known limitations
+
+1. No RiskScoringModel-authoring UI exists — a fresh tenant with no
+   active scoring model cannot create any Risk until one is created
+   directly in the database (DECISIONS.md R-97), mirroring the
+   existing, still-true absence of a ControlLibraryVersion-authoring
+   UI.
+2. No Risk-scoring calculator exists — `inherentRating`/
+   `residualRating` are consultant judgment calls, not computed values
+   (DECISIONS.md R-96).
+3. `risks.owner_id` carries no tenant-scoping FK — a real, documented
+   database-level gap; only this application's own self-assignment-only
+   design prevents cross-tenant owner assignment in practice
+   (DECISIONS.md R-99).
+4. No Risk edit form beyond status — title/description/likelihood/
+   impact/ratings/owner are not editable after creation.
+5. No standalone, non-assessment-context Risk creation UI — every Risk
+   this slice's UI can create is driven from an Assessment control's
+   own context (instructions §3's own literal framing); a Risk
+   identified "through other means" (risks.ts's own comment) remains
+   reachable only via direct database action, mirroring Slice C2's
+   identical Evidence-upload limitation.
+6. `risk_processing_activities` (Risk × ProcessingActivity) is not
+   built this slice — instructions §4's own traceability list does not
+   name ProcessingActivity, unlike PRODUCT_UX_BLUEPRINT.md's fuller
+   eventual Risk Register vision (row #13, "link control/PA").
+7. Carries forward every prior slice's own recorded limitation
+   (DECISIONS.md R-85/D-03, R-95): no real Supabase Auth/Storage
+   backend is reachable from this environment.
+
+### 29. Deferred decisions
+
+- Building a RiskScoringModel-authoring screen (Practice/methodology
+  administration — out of this slice's own scope).
+- Building an actual Risk-scoring calculator, once a real, approved
+  `matrix_definition` JSON convention and lookup algorithm are decided
+  by a product/methodology decision (mirrors Maturity's own identical,
+  already-documented deferral — PRODUCT_UX_BLUEPRINT.md §21).
+- Closing the `risks.owner_id` tenant-scoping gap (DECISIONS.md R-99) —
+  would require a schema change (a composite FK), out of this slice's
+  approved scope.
+- A full Risk edit form beyond status.
+- Standalone, non-assessment-context Risk creation.
+
+### 30. Recommended C4
+
+Per explicit instruction, no recommendation is pressed — the user's own
+brief states "we will review C3 before continuing" and forbids
+proceeding to Findings/Remediation/Validation/Maturity/Client Portal/
+Reporting/AI in this session. The natural next candidates, left open by
+this slice's own chain (Assessment → ... → Risk → later Finding → later
+Remediation → later Validation) and its own known limitations, are: (a)
+Findings (the schema and its junctions already exist, database-only,
+from Milestone 7 — the same pattern this slice just followed for Risk);
+(b) resolving the RiskScoringModel-authoring gap; (c) whichever slice
+the user's own roadmap names next. This report does not preempt that
+choice.
+
+### 31. Git status
+
+All Slice C3 work is committed on `claude/primus-privacy-architecture-39p3gh`.
+
+### 32. Remote synchronization
+
+Pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies).
+
+---
 
 ## Slice C2 — Secure Evidence Storage + Evidence Review (Session 18, 2026-09-01)
 

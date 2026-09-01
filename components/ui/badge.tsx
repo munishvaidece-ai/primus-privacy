@@ -60,3 +60,46 @@ export function statusTone(status: string): keyof typeof toneClasses {
       return "neutral";
   }
 }
+
+/**
+ * Slice C3 — `risk_rating` (low/medium/high/critical) tone, kept
+ * separate from `statusTone` above rather than added to its switch:
+ * `statusTone`'s existing `"accepted"`/`"closed"` cases already carry
+ * different, unrelated meanings (Evidence review acceptance; engagement/
+ * membership suspension) that would collide with Risk's own
+ * `risk_status` enum values of the same names if this were merged into
+ * one shared switch.
+ */
+export function riskRatingTone(rating: string): keyof typeof toneClasses {
+  switch (rating) {
+    case "low":
+      return "positive";
+    case "medium":
+      return "warning";
+    case "high":
+    case "critical":
+      return "critical";
+    default:
+      return "neutral";
+  }
+}
+
+/** Slice C3 — `risk_status` (open/mitigating/accepted/closed) tone. A
+ * risk register's own "closed" (successfully resolved) and "accepted"
+ * (a deliberate risk-acceptance decision) read as positive outcomes in
+ * this context — the opposite of what those same words mean elsewhere
+ * in `statusTone` above, which is exactly why this is its own function
+ * rather than a shared switch case. */
+export function riskStatusTone(status: string): keyof typeof toneClasses {
+  switch (status) {
+    case "open":
+      return "warning";
+    case "mitigating":
+      return "neutral";
+    case "accepted":
+    case "closed":
+      return "positive";
+    default:
+      return "neutral";
+  }
+}

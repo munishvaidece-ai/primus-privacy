@@ -2582,3 +2582,138 @@ mid-transaction database failure without corrupting shared,
 cross-test-file fixture data was judged impractical for the same
 reasons R-92 gives, not attempted, and recorded here rather than
 silently left untested.
+
+### R-96 — No Risk-scoring calculator was built; `inherentRating`/`residualRating` are recorded exactly as the consultant enters them (Slice C3)
+
+**Decision:** `createRisk` (`lib/domain/risks.ts`) takes `likelihood`,
+`impact`, `inherentRating`, and (optionally, all-or-nothing)
+`residualLikelihood`/`residualImpact`/`residualRating` directly as
+consultant input and stores them unchanged. Nothing in this slice reads
+`risk_scoring_models.matrix_definition` to compute a rating from
+likelihood × impact; the pinned model's name/version/matrix are
+displayed on the Risk detail page as reference context only.
+**Rationale:** `risk_scoring_models.ts`'s own comment states this was
+deliberate through every milestone that has touched Risk scoring so
+far: "this milestone stores and pins the configuration; it does not
+implement an automatic scoring calculator" — and
+PRODUCT_UX_BLUEPRINT.md §21 independently confirms no scoring engine
+exists as of this session, listing only the Maturity computation
+engine as an outstanding gap (Risk scoring is not listed as one).
+Direct inspection of every `matrix_definition` value ever created in
+this codebase (`tests/risk-remediation/helpers.ts`'s own default,
+`{ scale: "1-5", grid: "likelihood x impact" }`, and every test
+fixture's own ad hoc shape, including a bare `{}`) confirms no
+consistent, structured JSON convention has ever actually been
+established for this column — building a lookup function over it now
+would mean inventing BOTH a scoring algorithm AND a JSON-shape
+convention neither DATA_MODEL.md nor any prior milestone defines,
+exactly what PHASE C3 instructions §5 forbid ("do not invent a new
+scoring algorithm... do not put scoring logic in React components").
+The Risk detail page's own UI copy states this limitation plainly
+rather than implying a calculation happened.
+
+### R-97 — Risk creation requires the tenant's own currently-active RiskScoringModel; none exists yet for any tenant, and this slice builds no RiskScoringModel-authoring UI (Slice C3)
+
+**Decision:** `createRisk` always resolves `risk_scoring_model_id`
+server-side to whichever `risk_scoring_models` row currently has
+`is_active = true` for the caller's own tenant (migration 0013's
+close-out trigger guarantees at most one). If none exists,
+`NoActiveRiskScoringModelError` is thrown and no Risk is created — the
+form does not silently fall back to a default matrix or an arbitrary
+row. No screen anywhere in this application creates a
+`RiskScoringModel`; that remains fixture/direct-database-only.
+**Rationale:** `risk_scoring_models` is Practice-owned methodology
+content (Tenant-scoped, like `ControlLibraryVersion`) — and this
+application has never built authoring UI for its own direct analogue,
+`ControlLibraryVersion` (`lib/domain/engagements.ts`'s
+`listSelectableControlLibraryVersions` only ever *selects among*
+already-published versions; nothing creates one from the UI). No seed
+script populates a `RiskScoringModel` row for any tenant either.
+Building a RiskScoringModel-creation screen was not asked for by this
+slice's own brief (§3-§20 name only Risk creation/list/detail/
+workspace-integration) and would be scope creep into a separate
+"methodology administration" area; the honest alternative — silently
+inventing a default matrix, or accepting a caller-supplied model id
+(forbidden outright by instructions §15) — was rejected. This is a
+real, product-facing limitation (a fresh tenant cannot create any Risk
+until a `RiskScoringModel` exists) recorded here and in PROGRESS.md's
+"Known limitations," not silently worked around.
+
+### R-98 — Risk creation/editing is NOT blocked by Assessment finalization (Slice C3)
+
+**Decision:** `createRisk`, `updateRiskStatus`, and the `risk_controls`
+link they create carry no finalization check of any kind — a Risk can
+be created from, and its status changed regardless of, an
+already-finalized Assessment's control/response.
+**Rationale:** PHASE C3 instructions §24 required determining this from
+the existing model rather than inventing a rule, and, if genuinely
+ambiguous, stopping to report it. It is not ambiguous: direct
+inspection of migration 0013 (the only place Risk-related triggers are
+defined) confirms no trigger on `risks`/`risk_controls` references
+Assessment or its `status` at all — unlike `assessment_responses`/
+`control_tests`/`evidence_links`, which migrations 0009/0011 each give
+an explicit finalization-lock trigger. This absence is consistent with
+DATA_MODEL.md §8's own framing and this project's own brief, which
+both describe Risk as the *next* stage after an Assessment concludes
+("Assessment → AssessmentResponse/ControlTest/Evidence → Risk → later
+Finding...") — the common, expected case is a consultant identifying a
+risk precisely because a (frequently already-finalized) assessment
+found a control ineffective, not before. Blocking Risk creation on
+finalization would make the entire downstream Risk/Finding/
+Remediation/Validation chain this project's own roadmap describes
+unusable against any completed assessment, contradicting the chain's
+own purpose. Verified directly: `tests/app/risks.test.ts` creates a
+Risk from `assessmentAFinalized` and confirms no trigger event fires;
+a dedicated test also directly queries
+`information_schema.triggers` for `risks`/`risk_controls` and asserts
+none mention finalization.
+
+### R-99 — Risk owner assignment is self-only; no user-directory/picker was built, and a real, undocumented-until-now database gap was found and recorded (Slice C3)
+
+**Decision:** `createRisk`'s only owner-assignment mechanism is a
+boolean `assignOwnerToSelf` — when true, `owner_id` is set to the
+calling user's own id; there is no form field or code path anywhere in
+this application that accepts an arbitrary target user. Separately,
+direct inspection of `risks`' own foreign keys found that
+`risks.owner_id` references `users(id)` only, with no composite FK
+tying the owner's `tenant_id` to the Risk's own — meaning a raw SQL
+`INSERT`/`UPDATE` naming any real user as owner, including one from a
+different tenant, is NOT independently rejected by RLS or any FK; only
+the application's own self-only design prevents it in practice.
+**Rationale:** PHASE C3 instructions §13 require displaying and
+server-side validating the owner while explicitly forbidding building
+"a user-directory or invitation system" — self-assignment-only is the
+narrowest mechanism that satisfies "ensure it belongs to an authorized
+tenant/organisation context" and "do not permit cross-tenant user
+assignment" by construction (the only assignable value is the caller's
+own, already-authorized id), mirroring DECISIONS.md R-91's identical
+precedent (Slice B2 deferring an arbitrary-user membership-grant UI for
+the same reason). The database-level gap this uncovered is reported
+here rather than silently patched: instructions §32 forbid changing the
+Risk schema (or, by the same reasoning, `users`) merely to make this
+easier, and a composite `(id, tenant_id)` unique constraint on `users`
+plus a matching composite FK on `risks.owner_id` would itself be a
+schema change outside this slice's approved scope — closing it is left
+to a future, explicitly-scoped decision, not invented here. Directly
+proven by `tests/app/risks.test.ts`'s dedicated "[DOCUMENTED GAP]"
+test, which shows the raw cross-tenant-owner INSERT succeeding rather
+than merely asserting it should fail.
+
+### R-100 — "Rationale" is not an approved Risk field and was correctly omitted from the creation form, despite being named in the brief's own illustrative list (Slice C3)
+
+**Decision:** The Risk creation form and `CreateRiskInput` type have no
+"rationale" field. Only `title`, `description`, `likelihood`, `impact`,
+`inherentRating`, the optional residual triad, and self-assignable
+`ownerId` are accepted — every one of them a real column on `risks`
+(`risks.ts`, DATA_MODEL.md §8).
+**Rationale:** PHASE C3 instructions §7 list "rationale" among the
+potential form inputs to consider, but its own final sentence overrides
+that illustrative list: "only implement fields actually supported by
+the approved model." Direct inspection of `db/schema/risks.ts` and
+DATA_MODEL.md §8 confirms `risks` has no `rationale`/`decision_
+rationale`-shaped column at all (unlike `assessment_responses.decision_
+rationale`, which genuinely exists) — adding one would be exactly the
+kind of casual, UI-convenience schema change instructions §32
+prohibits without an explicit stop-and-report. No such column was
+added; this entry records the discrepancy instructions §7 itself
+anticipated rather than silently inventing the field.

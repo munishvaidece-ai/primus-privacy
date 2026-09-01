@@ -74,6 +74,21 @@ export default async function EngagementDetailPage({
           </p>
         )}
       </section>
+
+      <section className="mt-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Risks</h2>
+          <Link
+            href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/risks`}
+            className="text-sm font-medium text-slate-900 underline"
+          >
+            View risks
+          </Link>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          Created from an Assessment control&rsquo;s Assessment Response, in the Assessment workspace.
+        </p>
+      </section>
     </div>
   );
 }

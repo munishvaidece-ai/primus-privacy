@@ -41,3 +41,15 @@ export {
   createAssessmentResponse,
   createControlTest,
 } from "../assessment-engine/helpers";
+
+// Slice C3 — raw-SQL fixture builders only, used to set up scenarios the
+// real application code (lib/domain/risks.ts) doesn't itself create
+// (e.g. a second RiskScoringModel version, or a forged cross-tenant
+// row for a security test) — aliased to avoid colliding with
+// lib/domain/risks.ts's own `createRisk` domain function, which the
+// C3 test file imports separately and exercises directly.
+export {
+  createRiskScoringModel,
+  createRisk as createRiskFixture,
+  linkRiskControl,
+} from "../risk-remediation/helpers";

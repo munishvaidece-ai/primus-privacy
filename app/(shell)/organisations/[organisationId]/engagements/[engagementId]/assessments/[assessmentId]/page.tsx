@@ -8,8 +8,9 @@ import {
   getControlTestsForControl,
 } from "@/lib/domain/assessments";
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
+import { listRisksForControl } from "@/lib/domain/risks";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
-import { Badge, statusTone } from "@/components/ui/badge";
+import { Badge, statusTone, riskRatingTone, riskStatusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -18,7 +19,10 @@ import {
   uploadEvidenceAction,
   reviewEvidenceAction,
   unlinkEvidenceAction,
+  createRiskAction,
 } from "./actions";
+
+const RATING_OPTIONS = ["low", "medium", "high", "critical"] as const;
 
 const EFFECTIVENESS_OPTIONS = [
   { value: "not_assessed", label: "Not Assessed" },
@@ -83,14 +87,15 @@ export default async function AssessmentWorkspacePage({
   const nextControl =
     selectedIndex >= 0 && selectedIndex < assessment.controlRows.length - 1 ? assessment.controlRows[selectedIndex + 1]! : null;
 
-  const [requirementsList, controlTestRows, evidenceRows] = selected
+  const [requirementsList, controlTestRows, evidenceRows, riskRows] = selected
     ? await withRequestDb(user.id, async (db) => {
         const reqs = await getControlRequirements(db, selected.controlId);
         const tests = await getControlTestsForControl(db, assessment.id, selected.controlId);
         const ev = await getEvidenceSummaryForControl(db, selected.response?.id ?? null, tests.map((t) => t.id));
-        return [reqs, tests, ev] as const;
+        const risks = await listRisksForControl(db, { engagementId: params.engagementId, controlId: selected.controlId });
+        return [reqs, tests, ev, risks] as const;
       })
-    : ([[], [], []] as const);
+    : ([[], [], [], []] as const);
 
   const basePath = `/organisations/${params.organisationId}/engagements/${params.engagementId}/assessments/${params.assessmentId}`;
   const pct = assessment.progress.total > 0 ? Math.round((assessment.progress.completed / assessment.progress.total) * 100) : 0;
@@ -576,6 +581,159 @@ export default async function AssessmentWorkspacePage({
                       </form>
                     )
                   ) : null}
+                </section>
+
+                <section className="rounded-md border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-900">Risks</h3>
+                    <Link
+                      href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/risks`}
+                      className="text-xs font-medium text-slate-900 underline"
+                    >
+                      View all engagement risks
+                    </Link>
+                  </div>
+                  {riskRows.length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-500">No risks recorded from this control yet.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-2">
+                      {riskRows.map((r) => (
+                        <li key={r.id} className="rounded border border-slate-100 p-2 text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <Link
+                              href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/risks/${r.id}`}
+                              className="font-medium text-slate-900 underline"
+                            >
+                              {r.title}
+                            </Link>
+                            <div className="flex items-center gap-2">
+                              <Badge tone={riskRatingTone(r.inherentRating)}>{r.inherentRating}</Badge>
+                              <Badge tone={riskStatusTone(r.status)}>{r.status}</Badge>
+                            </div>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {r.residualRating ? <>Residual: {r.residualRating} · </> : null}
+                            Owner: {r.ownerEmail ?? "unassigned"}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <form action={createRiskAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+                    <input type="hidden" name="organisationId" value={params.organisationId} />
+                    <input type="hidden" name="engagementId" value={params.engagementId} />
+                    <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                    <input type="hidden" name="controlId" value={selected.controlId} />
+                    <input type="hidden" name="returnTo" value={controlHref(selected.assessmentControlId)} />
+
+                    <div>
+                      <label htmlFor="riskTitle" className="block text-xs font-medium text-slate-700">
+                        Risk title
+                      </label>
+                      <input id="riskTitle" name="title" type="text" required maxLength={200} className={INPUT_CLASS} />
+                    </div>
+                    <div>
+                      <label htmlFor="riskDescription" className="block text-xs font-medium text-slate-700">
+                        Description
+                      </label>
+                      <textarea id="riskDescription" name="description" rows={2} className={INPUT_CLASS} />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label htmlFor="likelihood" className="block text-xs font-medium text-slate-700">
+                          Likelihood (1–5)
+                        </label>
+                        <select id="likelihood" name="likelihood" defaultValue="3" className={INPUT_CLASS}>
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="impact" className="block text-xs font-medium text-slate-700">
+                          Impact (1–5)
+                        </label>
+                        <select id="impact" name="impact" defaultValue="3" className={INPUT_CLASS}>
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="inherentRating" className="block text-xs font-medium text-slate-700">
+                          Inherent rating
+                        </label>
+                        <select id="inherentRating" name="inherentRating" defaultValue="medium" className={INPUT_CLASS}>
+                          {RATING_OPTIONS.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <details>
+                      <summary className="cursor-pointer text-xs font-medium text-slate-700">
+                        Residual scoring (optional)
+                      </summary>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <div>
+                          <label htmlFor="residualLikelihood" className="block text-xs font-medium text-slate-700">
+                            Residual likelihood
+                          </label>
+                          <select id="residualLikelihood" name="residualLikelihood" defaultValue="" className={INPUT_CLASS}>
+                            <option value="">—</option>
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="residualImpact" className="block text-xs font-medium text-slate-700">
+                            Residual impact
+                          </label>
+                          <select id="residualImpact" name="residualImpact" defaultValue="" className={INPUT_CLASS}>
+                            <option value="">—</option>
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="residualRating" className="block text-xs font-medium text-slate-700">
+                            Residual rating
+                          </label>
+                          <select id="residualRating" name="residualRating" defaultValue="" className={INPUT_CLASS}>
+                            <option value="">—</option>
+                            {RATING_OPTIONS.map((r) => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </details>
+
+                    <label className="flex items-center gap-2 text-xs text-slate-700">
+                      <input type="checkbox" name="assignOwnerToSelf" />
+                      Assign this risk to me
+                    </label>
+
+                    <Button type="submit" variant="secondary" size="sm">
+                      Create risk
+                    </Button>
+                  </form>
                 </section>
               </div>
             )}

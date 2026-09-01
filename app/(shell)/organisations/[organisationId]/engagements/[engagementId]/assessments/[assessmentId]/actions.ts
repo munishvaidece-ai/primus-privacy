@@ -17,6 +17,7 @@ import {
   InvalidFileError,
   ReviewRationaleRequiredError,
 } from "@/lib/domain/evidence";
+import { createRisk, NoActiveRiskScoringModelError, InvalidRiskInputError } from "@/lib/domain/risks";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 
 function basePathFor(organisationId: string, engagementId: string, assessmentId: string): string {
@@ -427,6 +428,98 @@ export async function unlinkEvidenceAction(formData: FormData): Promise<void> {
     } else {
       console.error("unlinkEvidenceAction failed", err);
       errorMessage = "Something went wrong unlinking this evidence. Please try again.";
+    }
+  }
+
+  if (errorMessage) {
+    redirect(withQueryFlag(returnTo, "error", errorMessage));
+  }
+
+  revalidatePath(basePath);
+  redirect(withQueryFlag(returnTo, "saved", "1"));
+}
+
+const RATING_ENUM = z.enum(["low", "medium", "high", "critical"]);
+
+const createRiskSchema = z.object({
+  organisationId: z.string().uuid(),
+  engagementId: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+  controlId: z.string().uuid(),
+  title: z.string().trim().min(2, "Title must be at least 2 characters.").max(200, "Title must be 200 characters or fewer."),
+  description: z.string().trim().max(4000).optional(),
+  likelihood: z.coerce.number().int().min(1).max(5),
+  impact: z.coerce.number().int().min(1).max(5),
+  inherentRating: RATING_ENUM,
+  residualLikelihood: z.coerce.number().int().min(1).max(5).optional().or(z.literal("")),
+  residualImpact: z.coerce.number().int().min(1).max(5).optional().or(z.literal("")),
+  residualRating: RATING_ENUM.optional().or(z.literal("")),
+  assignOwnerToSelf: z.enum(["on"]).optional(),
+});
+
+/**
+ * Slice C3 (PHASE C3 instructions §3/§15): Browser → Server Action →
+ * authenticate → authorize → validate → domain function → PostgreSQL →
+ * RLS → audit. `assessmentId`/`controlId` identify the source context
+ * only — `createRisk` (lib/domain/risks.ts) re-derives tenant/
+ * organisation/engagement scope and the active scoring model server-side,
+ * never trusting these form fields as proof of anything beyond "this is
+ * what the consultant selected."
+ */
+export async function createRiskAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+
+  const raw = {
+    organisationId: formData.get("organisationId"),
+    engagementId: formData.get("engagementId"),
+    assessmentId: formData.get("assessmentId"),
+    controlId: formData.get("controlId"),
+    title: formData.get("title"),
+    description: formData.get("description") ?? undefined,
+    likelihood: formData.get("likelihood"),
+    impact: formData.get("impact"),
+    inherentRating: formData.get("inherentRating"),
+    residualLikelihood: formData.get("residualLikelihood") ?? "",
+    residualImpact: formData.get("residualImpact") ?? "",
+    residualRating: formData.get("residualRating") ?? "",
+    assignOwnerToSelf: formData.get("assignOwnerToSelf") ?? undefined,
+  };
+  const basePath =
+    typeof raw.organisationId === "string" && typeof raw.engagementId === "string" && typeof raw.assessmentId === "string"
+      ? basePathFor(raw.organisationId, raw.engagementId, raw.assessmentId)
+      : "/organisations";
+  const returnTo = safeReturnTo(formData.get("returnTo"), basePath);
+
+  const parsed = createRiskSchema.safeParse(raw);
+  if (!parsed.success) {
+    redirect(withQueryFlag(returnTo, "error", parsed.error.issues[0]?.message ?? "Invalid input."));
+  }
+
+  let errorMessage: string | null = null;
+  try {
+    await withRequestDb(user.id, (db) =>
+      createRisk(db, user.id, {
+        assessmentId: parsed.data.assessmentId,
+        controlId: parsed.data.controlId,
+        title: parsed.data.title,
+        description: parsed.data.description?.length ? parsed.data.description : null,
+        likelihood: parsed.data.likelihood,
+        impact: parsed.data.impact,
+        inherentRating: parsed.data.inherentRating,
+        residualLikelihood: parsed.data.residualLikelihood === "" || parsed.data.residualLikelihood === undefined ? null : parsed.data.residualLikelihood,
+        residualImpact: parsed.data.residualImpact === "" || parsed.data.residualImpact === undefined ? null : parsed.data.residualImpact,
+        residualRating: parsed.data.residualRating === "" || parsed.data.residualRating === undefined ? null : parsed.data.residualRating,
+        assignOwnerToSelf: parsed.data.assignOwnerToSelf === "on",
+      }),
+    );
+  } catch (err) {
+    if (err instanceof InvalidRiskInputError || err instanceof NoActiveRiskScoringModelError) {
+      errorMessage = err.message;
+    } else if (err instanceof NotFoundOrForbiddenError) {
+      errorMessage = "You do not have access to create a risk for this control.";
+    } else {
+      console.error("createRiskAction failed", err);
+      errorMessage = "Something went wrong creating this risk. Please try again.";
     }
   }
 
