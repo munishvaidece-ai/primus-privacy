@@ -1,10 +1,10 @@
 # PRIMUS PRIVACY — Architectural Decisions
 
-Status: Draft v0.4 (Session 4 / Milestone 1, 2026-09-01: added R-17
-through R-24, recording implementation decisions made while building the
-Identity + Tenancy + Engagement Structure database foundation — see
-PROGRESS.md for the milestone report. D-01/D-02 remain RESOLVED from
-Session 2; R-16 from Session 3 stands unchanged). This log records
+Status: Draft v0.5 (Session 5 / Milestone 2, 2026-09-01: added R-25
+through R-31, recording implementation decisions made while building the
+Client Master Data database layer — see PROGRESS.md for the milestone
+report. D-01/D-02 remain RESOLVED from Session 2; R-16 through R-24 from
+Sessions 3-4 stand unchanged). This log records
 material architectural decisions and
 their rationale, in the order they were made. Items requiring a human
 product/business decision that cannot be safely inferred from the brief are
@@ -599,3 +599,144 @@ policies depend on. Full end-to-end verification against a real Supabase
 project is still required once D-03 is resolved and a project is
 provisioned, before this is considered production-verified rather than
 locally-verified.
+
+---
+
+## Milestone 2 implementation decisions (Session 5, 2026-09-01)
+
+Recorded while building the Client Master Data database layer
+(`drizzle/migrations/0002_client_master_data.sql`,
+`0003_client_master_data_security.sql`). See PROGRESS.md for the full
+milestone report.
+
+### R-25 — Every master-data version table denormalizes `organisation_id`, with a composite FK back to its identity table
+
+**Decision:** `system_versions`, `processor_versions`, and the other four
+version tables all carry their own `organisation_id` column (not just
+`system_id`/`processor_id`/etc.), constrained by
+`FOREIGN KEY (<entity>_id, organisation_id) REFERENCES <identity>(id,
+organisation_id)`.
+**Rationale:** two reasons, both load-bearing. First, RLS: every policy
+on a version table evaluates `can_access_organisation(organisation_id)`
+directly off the row's own column — with **no subquery back into that
+same table** — deliberately avoiding the exact class of bug Milestone 1
+found and fixed in `can_access_engagement` (a self-referential subquery
+on the table being `INSERT ... RETURNING`-ed into cannot see the row
+being inserted). Second, integrity: the composite FK means a version row
+can never be inserted under an `organisation_id` that doesn't actually
+match its own identity row's organisation, even by a bug or a
+direct/service-role write — the same discipline as
+`engagements(organisation_id, tenant_id) -> organisations(id,
+tenant_id)` from Milestone 1, applied one level deeper.
+
+### R-26 — SCD2 "close out the previous version" runs as a `BEFORE INSERT` trigger, not `AFTER INSERT`
+
+**Decision:** each version table's close-out trigger fires `BEFORE
+INSERT`, closing out whatever row was previously current for that
+identity *before* the new row is actually written — not `AFTER INSERT`.
+**Rationale:** the `one_current_key` partial unique index (`(<entity>_id)
+WHERE is_current = true`) is checked immediately as each row is written,
+not deferred. An `AFTER INSERT` trigger would try to insert the new
+current row first (while the old one is still marked current), which
+would trip that very index before the trigger ever got a chance to close
+the old row out — a real ordering bug, not a hypothetical one (caught by
+directly reasoning through the transaction semantics before writing any
+test, given how costly this exact class of self-reference/timing bug
+proved in Milestone 1). Firing `BEFORE INSERT` and closing out the old
+row first means the new row's own insert never conflicts with anything.
+
+### R-27 — Version rows are immutable to application code via `GRANT`, not only via a missing RLS policy
+
+**Decision:** `authenticated` receives `SELECT, INSERT` on every version
+table and explicitly no `UPDATE` grant at all (migration 0003 §7) — not
+merely "no UPDATE policy," which alone would already deny it under RLS,
+but a genuine absence of the underlying table privilege, checked before
+RLS is even evaluated.
+**Rationale:** the same belt-and-suspenders posture Milestone 1 applied
+to `audit_log`'s append-only guarantee (DECISIONS.md, migration 0001
+§7): a version row's descriptive fields must never be edited in place —
+only the `SECURITY DEFINER` close-out trigger (R-26), owned by the
+migration-running role rather than `authenticated`, may ever change a
+version row's `is_current`/`valid_to` after creation. Removing the grant
+outright means even a future bug in RLS policy authoring couldn't
+accidentally reopen a write path here.
+
+### R-28 — Cross-organisation reference safety for a future engagement-to-master-data link is proven with a test-only scratch table, not a shipped junction table
+
+**Decision:** `tests/master-data/version-tenant-consistency.test.ts`
+creates and rolls back an ordinary (not `TEMP` — Postgres forbids a
+foreign key from a temporary table to a permanent one) scratch table
+shaped exactly like DATA_MODEL.md §5.3's future
+`ProcessingActivitySystem` junction, to prove the composite-FK mechanism
+correctly rejects a cross-organisation reference — without building
+`ProcessingActivity` or any of its junction tables, which Milestone 2
+instructions §1/§12 explicitly place out of scope.
+**Rationale:** instruction §4 requires demonstrating "an engagement
+cannot reference a version belonging to another Organisation/Tenant,"
+but the entity that will actually hold that reference doesn't exist
+yet. Building it prematurely to satisfy a test would violate the
+milestone's own scope boundary; not testing the property at all would
+leave a core historical-integrity claim unverified. A scratch table
+scoped to one test's transaction — never migrated, never part of the
+shipped schema — resolves the tension: it proves the *mechanism* (the
+same composite-FK technique already used throughout this schema) works,
+using only already-shipped tables as its FK targets. The two *already
+shipped* composite FKs that touch this same property directly
+(`DataStoreVersion.system_version_id`, `Processor.parent_processor_id`)
+are also tested, for a real (not scratch-table) proof point.
+
+### R-29 — `ProcessorVersion.dpa_document_id` deferred; `dpa_version_label` (free text) carries the worked examples instead
+
+**Decision:** DATA_MODEL.md §5.1 lists `dpa_document_id` as a
+`ProcessorVersion` field; this migration does not include it.
+**Rationale:** mirrors DECISIONS.md R-23's pattern from Milestone 1 — a
+Document/Evidence table doesn't exist until a later milestone
+(Discovery/Evidence, not yet built), so a hard FK to it isn't possible,
+and an FK-less dangling UUID column inviting future wiring was judged
+worse than simply not having the column yet. `dpa_version_label` (plain
+text, already in the schema) is enough to represent DATA_MODEL.md §5.5's
+own worked examples ("DPA version 1") without it.
+
+### R-30 — Master-data auditability is enforced by database triggers, not left to a future application-layer audit service
+
+**Decision:** every one of the 13 master-data tables carries a
+`SECURITY DEFINER` `AFTER INSERT` (and, for identity tables, `AFTER
+UPDATE`) trigger that writes an `audit_log` row automatically — one
+generic function (`log_master_data_change()`), reused across all 13
+tables since every one of them carries `organisation_id` directly.
+**Rationale:** Milestone 1 documented audit-log population as an
+application-layer "Audit service" responsibility (ARCHITECTURE.md §4,
+SECURITY.md §6) and built only the table + RLS foundation, since no
+application code existed yet to call it. Milestone 2 instructions §15
+make "must be auditable" an explicit deliverable for master-data
+creation, modification, version creation, and retirement — and since
+there is still no application/service layer in this milestone either,
+the only way to make that true *now*, rather than as a promise for a
+later milestone, is to enforce it at the database level. This is a
+strengthening of the original design, not a contradiction of it: a
+future application-layer audit service can still write additional,
+richer audit entries (e.g. with a human-authored `reason` for an
+override) alongside these automatic ones — the trigger guarantees a
+baseline that never depends on application code remembering to log
+anything, which the original app-layer-only design didn't.
+
+### R-31 — One generic reparenting-guard trigger function, reused across all seven master-data identity tables
+
+**Decision:** `public.prevent_master_data_reparenting()` is a single
+function (using `TG_TABLE_NAME` for its error message, not per-table
+logic) attached via `CREATE TRIGGER` to each of the seven identity
+tables — unlike Milestone 1, which wrote two separate, table-specific
+functions (`prevent_organisation_reparenting`,
+`prevent_engagement_reparenting`) for the same kind of guard.
+**Rationale:** Milestone 1's two guarded tables protected different
+column sets (`organisations.tenant_id` alone vs.
+`engagements.{tenant_id, organisation_id}` together), so table-specific
+functions were the simplest correct option there. Every Milestone 2
+master-data identity table protects exactly one column,
+`organisation_id`, with identical semantics — a genuine case where one
+generic function is simpler and no less clear than seven near-identical
+copies, not a departure from Milestone 1's general preference for
+explicit, un-clever SQL (which is why the six SCD2 close-out triggers,
+whose column names genuinely differ per table, remain six separate
+functions rather than one dynamic-SQL one — see R-26 and the migration
+file's own comments).

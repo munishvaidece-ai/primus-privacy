@@ -8,6 +8,13 @@
       "when": 1788248240584,
       "tag": "0000_identity_tenancy_engagement",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788249577915,
+      "tag": "0002_client_master_data",
+      "breakpoints": true
     }
   ]
 }

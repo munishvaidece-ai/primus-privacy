@@ -47,3 +47,24 @@ export const auditActionEnum = pgEnum("audit_action", [
   "update",
   "delete",
 ]);
+
+// --- Milestone 2 (Client Master Data, DATA_MODEL.md §5.1) ------------------
+
+// Shared by all seven master-data identity tables. "Retired" is the only
+// deactivation state this milestone needs — master data is never hard
+// deleted (DATA_MODEL.md §5.1: "never deleted, only retired").
+export const masterDataStatusEnum = pgEnum("master_data_status", [
+  "active",
+  "retired",
+]);
+
+// PersonalDataElementVersion.sensitivity_category. DATA_MODEL.md §5.1
+// names the field without fixing its values; this is an engineering
+// judgment call (PROGRESS.md), not a DPDP legal classification — a
+// consultant can still record a more specific legal basis elsewhere
+// later without this enum needing to model it.
+export const dataSensitivityEnum = pgEnum("data_sensitivity", [
+  "general",
+  "sensitive",
+  "critical",
+]);

@@ -158,6 +158,18 @@ master data belongs to the client, not to any one engagement) and a
 table carries `created_by`/`created_at` per the usual convention (§1) so
 each version change is itself attributable and audited.
 
+**Implementation clarification (Milestone 2, DECISIONS.md R-25):** every
+version table also denormalizes its own `organisation_id`, constrained by
+a composite FK back to its identity table's `(id, organisation_id)` —
+not called out above since it follows directly from this section's own
+design rather than changing it, but recorded here because it materially
+shaped the RLS policies (DECISIONS.md R-25 explains why: it lets every
+policy check organisation scope off the row's own column, with no
+subquery back into the table it's protecting). `ProcessorVersion.
+dpa_document_id` is deferred until a Document/Evidence table exists to
+reference (DECISIONS.md R-29); `dpa_version_label` and `risk_tier` are
+implemented as-is.
+
 **"What is the client's current state" query:** identity row JOIN its
 version row `WHERE is_current = true` — no engagement involved at all.
 This is what a client-wide Data Inventory / Processor Register "current

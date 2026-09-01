@@ -1,10 +1,310 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 1 COMPLETE (Session 4): database
-foundation for Identity + Tenancy + Engagement Structure implemented,
-migrated, and RLS-tested against a real PostgreSQL 16 database. No
-product UI, no other product modules. Architecture gate (Sessions 1-3)
-passed before this milestone began.
+Status: 2026-09-01 — Milestone 2 COMPLETE (Session 5): Client Master Data
+(the seven DATA_MODEL.md §5.1 entities, identity+SCD2-versioned)
+implemented, migrated, and tested against real PostgreSQL 16. No
+Processing Activity or anything downstream of it; no product UI.
+Milestone 1 (Session 4) and the architecture gate (Sessions 1-3) passed
+before this milestone began.
+
+## Milestone 2 — Client Master Data (Session 5, 2026-09-01)
+
+**Scope:** exactly what MILESTONE 2 instructed — the seven master-data
+entities (Business Unit, Data Principal Category, Personal Data Element,
+Purpose, System, Data Store, Processor) with the identity+SCD2 versioning
+mechanism from DATA_MODEL.md §5.1. No Processing Activity, ROPA, Data
+Flows, Controls, Assessments, Evidence workflows, Risk, Findings,
+Remediation, DPIA, AI, dashboards, or reports — none of those tables, or
+the junction tables that would connect them to this milestone's master
+data, exist anywhere in this schema. No real personal data anywhere
+(synthetic test fixtures only — `"ABC Financial Services"`, `"Customer
+CRM"`, etc., matching the milestone's own worked examples).
+
+Read `DATA_MODEL.md` §5.1-§5.5 and the actual Milestone 1 code
+(`db/schema/*.ts`, `drizzle/migrations/0000-0001`) fresh from disk before
+writing anything, per instruction — the identity+composite-FK+
+denormalized-scoping-column pattern this milestone uses throughout is a
+direct extension of Milestone 1's `organisations`/`engagements` pattern,
+not a new one invented from scratch.
+
+### What was implemented
+
+- **Drizzle TS schema** (`db/schema/*.ts`, 7 new files): `businessUnits`
+  (identity only — DATA_MODEL.md §5.1's explicit no-version-table
+  carve-out); `dataPrincipalCategories`/`dataPrincipalCategoryVersions`;
+  `personalDataElements`/`personalDataElementVersions`;
+  `purposes`/`purposeVersions`; `systems`/`systemVersions`;
+  `dataStores`/`dataStoreVersions`; `processors`/`processorVersions` — 13
+  tables total.
+- **Migration 0002** (`drizzle-kit` generated from the TS schema): all 13
+  tables, 2 new Postgres enums (`master_data_status`,
+  `data_sensitivity`), composite FKs from every version table to its
+  identity table `(id, organisation_id)`, `DataStoreVersion.
+  system_version_id`'s composite FK to `system_versions(id,
+  organisation_id)`, `Processor.parent_processor_id`'s self-referential
+  composite FK (keeping subprocessor chains within one organisation), and
+  a partial unique index per version table enforcing "at most one current
+  version per identity, ever" — SCD2's core invariant, database-enforced.
+- **Migration 0003** (hand-written, per DECISIONS.md R-02): the
+  `users(id)` audit-column FKs; one generic reparenting-guard trigger
+  (`organisation_id` immutable after creation) reused across all 7
+  identity tables (DECISIONS.md R-31); six explicit SCD2 close-out
+  triggers, one per version table, that atomically supersede the previous
+  current version — descriptive fields untouched, only `is_current`/
+  `valid_to` change (DECISIONS.md R-26 explains why `BEFORE INSERT`, not
+  `AFTER`); RLS enabled with `FORCE` on all 13 tables and 33 policies,
+  every one reusing Milestone 1's `can_access_organisation()` helper
+  unchanged (instruction §14: no second authorization mechanism); 13
+  `GRANT`/`REVOKE` statements, including version tables getting no
+  `UPDATE` grant at all for `authenticated` (DECISIONS.md R-27 — version
+  rows are immutable at the privilege level, not just by RLS policy); and
+  13 auto-audit triggers (one generic function, DECISIONS.md R-30) making
+  master-data creation/modification/version-creation genuinely auditable
+  now, not left as a promise for a future application layer.
+
+### Migration names
+
+- `0002_client_master_data.sql`
+- `0003_client_master_data_security.sql`
+
+(Milestone 1's `0000_identity_tenancy_engagement.sql` and
+`0001_identity_tenancy_engagement_security.sql` were **not modified** —
+instruction §19. `drizzle/migrations/meta/_journal.json` and the
+matching snapshot file were renumbered from `0001`/idx 1 to `0002`/idx 2
+immediately after generation, before any other work, to resolve a
+filename collision with Milestone 1's hand-written `0001` file — `npx
+drizzle-kit generate` was re-run afterward and reported "No schema
+changes, nothing to migrate," confirming the renumbering left drizzle-kit's
+own bookkeeping consistent.)
+
+### Relationship summary
+
+`Organisation` 1→N each of the 7 identity tables (`organisation_id` FK).
+Each identity table 1→N its own version rows (`<entity>_id` FK), with a
+composite FK `(< entity>_id, organisation_id) → identity(id,
+organisation_id)` guaranteeing the denormalized `organisation_id` on
+every version row can never drift from its identity row's real owner.
+`DataStoreVersion.system_version_id` → `system_versions(id,
+organisation_id)` (nullable — "may relate to a System," instruction §10).
+`Processor.parent_processor_id` → `processors(id, organisation_id)`
+(self-referential, nullable — subprocessor chain, DECISIONS.md R-03,
+unchanged). `BusinessUnit.parent_business_unit_id` → `business_units.id`
+(self-referential, nullable — the one hierarchy column DATA_MODEL.md §2
+already specified, not a hierarchy *engine*). No junction tables to
+`ProcessingActivity` exist — deliberately (instruction §12; see
+DECISIONS.md R-28 for how the "cannot reference a version from another
+organisation" property is proven anyway).
+
+### RLS policy summary
+
+33 new policies (21 across the 7 identity tables — SELECT/INSERT/UPDATE
+each; 12 across the 6 version tables — SELECT/INSERT each, no UPDATE).
+Every one evaluates `public.can_access_organisation(organisation_id)`
+unchanged from Milestone 1 — reused, not reimplemented (instruction
+§14). `anon` has zero grants on any of the 13 tables (verified directly
+against `information_schema.role_table_grants`, count = 0). Version
+tables additionally have no `UPDATE` grant for `authenticated` at the
+privilege level (not just no RLS policy) — the only way a version row's
+lifecycle columns ever change after creation is the `SECURITY DEFINER`
+close-out trigger, verified directly: a raw `UPDATE system_versions SET
+owner = ...` as an authenticated user fails with "permission denied"
+before RLS is even reached.
+
+### Authorization model
+
+Unchanged from Milestone 1, reused as instructed (§14): the application
+layer decides *what* a user should be allowed to do; RLS decides whether
+a database operation crosses a security boundary. No second
+authorization mechanism was introduced — every Milestone 2 policy calls
+the exact same `can_access_organisation()` function Milestone 1's
+`organisations`/`engagements` policies already used.
+
+### Tests actually executed and exact results
+
+All of the following were run against a real local PostgreSQL 16.13
+database (`primus_privacy_test`), reset from scratch before each full
+run — not type-only checks, not mocked:
+
+1. `npx tsc --noEmit` — **passed, zero errors**.
+2. `npm run lint` (`eslint .`) — **passed, zero errors/warnings**.
+3. `npx drizzle-kit generate` — succeeded (twice: once to produce
+   `0002_client_master_data.sql`, once afterward to confirm "No schema
+   changes, nothing to migrate" after the journal renumbering).
+4. `npx tsx scripts/apply-migrations.ts` — all 4 migration files (0000
+   through 0003) applied successfully, via `scripts/reset-test-db.ts`
+   (fresh database each run).
+5. `npx next build` — **succeeded** (2 static routes — unchanged from
+   Milestone 1, confirming no UI was added).
+6. `npm run test:db` (`tsx scripts/reset-test-db.ts && vitest run
+   tests/rls tests/master-data`) — **46/46 tests passed**, run twice
+   consecutively against a freshly reset database each time:
+
+   ```
+   ✓ tests/master-data/version-tenant-consistency.test.ts  (6 tests)
+   ✓ tests/master-data/system-versioning.test.ts            (7 tests)
+   ✓ tests/master-data/entity-coverage.test.ts               (6 tests)
+   ✓ tests/rls/membership-boundaries.test.ts                 (7 tests)
+   ✓ tests/master-data/tenant-org-isolation.test.ts          (6 tests)
+   ✓ tests/rls/tenancy-consistency.test.ts                   (6 tests)
+   ✓ tests/rls/tenant-isolation.test.ts                      (5 tests)
+   ✓ tests/rls/engagement-access.test.ts                     (3 tests)
+   Test Files  8 passed (8)
+        Tests  46 passed (46)
+   ```
+
+   All 46 tests actually execute SQL against Postgres; none merely
+   inspect TypeScript types or source code (instruction §18).
+
+   **Three genuine bugs were found and fixed by this suite while writing
+   it — not merely passed around:**
+   - **`CREATE TEMP TABLE ... REFERENCES <permanent table>`** — Postgres
+     rejects a foreign key from a temporary table to a permanent one
+     ("constraints on temporary tables may reference only temporary
+     tables"). Fixed by using an ordinary table instead, created and
+     rolled back within the test's own transaction (same cleanup
+     guarantee `ON COMMIT DROP` would have given, via the transaction
+     boundary instead) — DECISIONS.md R-28.
+   - **A real timestamp-precision bug in the point-in-time versioning
+     test**, caught two ways in sequence: first, creating both CRM
+     versions inside one `asFixtureSetup` transaction gave them the
+     *identical* timestamp, because Postgres's `now()` is frozen for an
+     entire transaction, not evaluated fresh per statement — fixed by
+     using separate transactions per version (which also just matches
+     reality: real version-creation events are separate application
+     actions). Second, after that fix, the boundary comparison still
+     failed intermittently because `pg` returns `timestamptz` as a
+     JavaScript `Date` (millisecond precision) while Postgres stores
+     microseconds — round-tripping a version row's own boundary
+     timestamp through JS could lose enough precision to flip a
+     `<=`/`<` comparison exactly at the boundary. Fixed by capturing
+     independent "as of" markers via fresh `SELECT now()` calls with a
+     real 50ms wall-clock margin on each side, instead of reusing a
+     version row's own timestamp — the realistic case anyway (a
+     "what did this look like during FY2026" query picks an arbitrary
+     moment, not the exact millisecond a row was inserted).
+   - **A transaction-abort ordering bug** in the composite-FK consistency
+     test: asserting an `INSERT` fails, then trying a second `INSERT` in
+     the *same* Postgres transaction, doesn't work — a failed statement
+     aborts the whole transaction until it ends, so the second command was
+     always rejected regardless of its own correctness. Fixed by splitting
+     into two independent tests, each with its own transaction.
+
+7. **Manual security inspection**, run directly against the test database
+   (not inferred from the SQL source alone), per instruction §21:
+   - `information_schema.tables` — 24 tables total (11 from Milestone 1 +
+     13 new), confirmed exactly.
+   - `pg_class.relrowsecurity`/`relforcerowsecurity` — RLS enabled and
+     `FORCE`d on all 13 new tables.
+   - `pg_policies` — exactly 33 new policies, matching the design (21 +
+     12).
+   - `information_schema.role_table_grants` — `authenticated` has exactly
+     `SELECT, INSERT` on every version table (no `UPDATE`); `anon` has
+     zero grants on any of the 13 new tables.
+   - `information_schema.triggers` — trigger counts per table match the
+     design exactly (identity tables: reparenting-guard + audit-log = 2
+     distinct triggers, showing as 3 rows because the audit-log trigger's
+     `AFTER INSERT OR UPDATE` produces one information_schema row per
+     event; version tables: close-out + audit-log = 2 triggers, 2 rows).
+   - A direct `psql` smoke test confirmed the audit-log triggers actually
+     write correct, attributed rows: creating a `System` and a
+     `SystemVersion` as an authenticated user produced exactly two
+     `audit_log` entries (`systems`/`insert`, `system_versions`/`insert`),
+     both correctly attributed to the acting user via `auth.uid()`.
+
+### Historical-state scenario result (instruction §4, the required test)
+
+Directly verified, both by a manual `psql` walk-through before writing
+the automated suite and by `tests/master-data/system-versioning.test.ts`
+afterward — **all 5 required demonstrations hold**:
+
+1. **Both versions remain queryable** — `SELECT * FROM system_versions
+   WHERE system_id = ...` returns both rows, with their original
+   `owner`/`hosting_environment` values intact.
+2. **FY2026 still resolves to Version 1** — a point-in-time query "as of"
+   a marker taken during the FY2026 window returns Version 1
+   (`owner = 'Digital Banking'`, `hosting_environment = 'India'`).
+3. **FY2027 resolves to Version 2** — the same query shape, marker taken
+   during the FY2027 window, returns Version 2 (`owner = 'Technology'`,
+   `hosting_environment = 'Singapore'`).
+4. **Reading the current CRM state returns Version 2** — `systems JOIN
+   system_versions ON is_current = true` resolves to Version 2.
+5. **Changing Version 2 does not rewrite Version 1** — inserting a
+   Version 3 leaves Version 1's own fields completely untouched, and
+   Version 2's own fields (not just Version 1's) also stay untouched —
+   only its `is_current`/`valid_to` bookkeeping columns change, because
+   it was superseded, not edited. A direct `UPDATE system_versions SET
+   owner = 'tampered'` against a historical version is rejected outright
+   ("permission denied") — there is no grant path to it at all.
+
+### Cross-tenant test result (instructions §13-§14, the required tests)
+
+All required, directly verified by `tests/master-data/
+tenant-org-isolation.test.ts` and `tests/master-data/
+version-tenant-consistency.test.ts`:
+
+- **Organisation A can access its own master data** — pass.
+- **Organisation A cannot access Organisation B's master data, even
+  under the same Tenant** — pass (both a direct-id lookup and an
+  unfiltered listing were checked, to rule out a policy that only
+  filters point lookups).
+- **Tenant A cannot access Tenant B's master data** — pass.
+- **A user without appropriate membership cannot access protected
+  records** — pass, for both a provisioned-but-unaffiliated user and a
+  fully anonymous request (denied at the `GRANT` level, before RLS is
+  even evaluated).
+- **An engagement cannot reference a version belonging to another
+  Organisation/Tenant** — pass, proven via the scratch-table mechanism
+  described above (DECISIONS.md R-28) plus the two real, already-shipped
+  composite FKs (`DataStoreVersion.system_version_id`,
+  `Processor.parent_processor_id`) that touch this same property
+  directly.
+- **Cross-tenant reads are blocked by RLS** — pass, covered by the same
+  tests as the bullets above.
+
+### Known limitations
+
+1. **Same local-Postgres-plus-shim testing posture as Milestone 1**
+   (DECISIONS.md R-24) — D-03 (data residency) is still open, so no real
+   Supabase project exists. Nothing new here; the two real migrations are
+   unmodified, Supabase-deployable SQL.
+2. **No `ProcessingActivity` and no junction tables to it** — deliberate,
+   per instruction §12. The composite-FK mechanism that will make those
+   junctions safe is proven (DECISIONS.md R-28) but not yet wired to a
+   real product table.
+3. **`ProcessorVersion.dpa_document_id` is not implemented** — no
+   Document/Evidence table exists yet to reference (DECISIONS.md R-29).
+4. **Business Unit hierarchy is exactly the one column DATA_MODEL.md §2
+   already specified** (`parent_business_unit_id`) — no cycle-prevention
+   trigger, no depth limit, no hierarchy-aware query helpers. Not
+   required by this milestone's instructions (§5: "do not yet build
+   sophisticated organisational hierarchy"); would need attention before
+   any UI tries to render a BU tree.
+5. **Auto-audit triggers log the full new/changed row as JSON**
+   (`to_jsonb(NEW)`, or an old/new pair for updates) rather than a
+   field-level diff — informative enough to prove auditability works, but
+   a real audit-log UI (a later milestone, explicitly out of scope here
+   too) would likely want a tighter, field-level diff format.
+6. **No migration-history tracking table still** — same limitation noted
+   in Milestone 1's report; now four files deep, still applied
+   unconditionally in filename order by `scripts/apply-migrations.ts`.
+   Worth addressing before a fifth migration makes this a real risk.
+
+### Next milestone
+
+Per the STOP CONDITION: this milestone is complete and the session stops
+here, before any Processing Activity work. Recommended next milestone
+(not started, pending review/approval): **Milestone 3 — Processing
+Activity & the Version-Pinned Junction Layer**, covering DATA_MODEL.md
+§5.2-§5.4: the `ProcessingActivity` table itself (engagement-scoped, with
+its `carried_forward_from_id` chain), the version-pinned junction tables
+connecting it to this milestone's seven master-data entities
+(`ProcessingActivitySystem`, `ProcessingActivityProcessor`, etc. —
+DATA_MODEL.md §5.3), and the "carry forward into a new engagement" action
+(§5.4) — at which point the scratch-table proof in this milestone's
+`version-tenant-consistency.test.ts` can be replaced with real tests
+against the real junction tables, and the FY2026→FY2027 worked example
+from DATA_MODEL.md §5.5 (Processor XYZ replaced by Processor ABC, PA-014
+reassessed) becomes fully testable end to end for the first time.
 
 ## Milestone 1 — Database Foundation (Session 4, 2026-09-01)
 
