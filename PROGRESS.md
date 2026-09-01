@@ -1,38 +1,230 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C6 (Validation) COMPLETE (Session 23): the
-existing (Milestone 7, database-only) ValidationRecord model now has a
-real, traceable consultant workflow, closing the chain Assessment →
-Response/ControlTest → Evidence → Risk → Finding → Remediation Action →
-Validation → Closure. `lib/domain/validation.ts` is new
-(`createValidationRecord`/`listValidationRecordsForRemediation`/
-`getValidationRecordDetail`); creation is embedded in the
-RemediationAction detail page (PRODUCT_UX_BLUEPRINT.md row #16: "not a
-top-level screen"), not a new route — a full validation history (every
-past record, most recent first, including superseded/rejected ones)
-plus a create-only form (outcome + rationale, required on rejection,
-reusing the exact Slice C2 `ReviewRationaleRequiredError` precedent).
-`validated_by` is always the acting user (self-validation-only,
-preserved as-is), never touches `remediation_actions.status` (no
-trigger anywhere connects the two tables — the definitive evidence
-instructions §11 required before ruling this out), and every decision
-field remains permanently frozen by the pre-existing
-`prevent_validation_record_tampering` trigger (migration 0013) — a
-correction is always a new ValidationRecord, never an edit. Evidence
-was extended a fourth and final time to support `validation_record` as
-an EvidenceLink target (DECISIONS.md R-110), completing all four
-subject types this schema has carried since Milestone 7. The one
-schema gap this slice found — `validation_records.validated_by` in the
-identical unprotected shape `risks.owner_id`/`findings.owner_id`/
-`remediation_actions.owner_id` had before their own fixes — is now
-database-enforced tenant-scoped via migration 0023 (DECISIONS.md
-R-107), which is also an honest correction: Slice C5's own report
-called its fix "the third and... final instance" of this pattern; this
-is a fourth. 615 tests pass (57 files), including a new 33-test
-`tests/app/validation.test.ts` and a standalone raw-SQL attack
-demonstration outside the suite. Full details in the "Slice C6" section
-below. STOP after C6 per explicit instruction — no
-Maturity/Client Portal/Reporting/AI.
+Status: 2026-09-01 — Slice C7.1 (Assessment Creation & Control
+Population) COMPLETE (Session 24): fixes the C7 review's own P0
+finding — before this slice, no function anywhere in the codebase
+could ever create an Assessment, so the entire Risk→Finding→
+Remediation→Validation chain, however well-built each of its own
+slices was, was structurally unreachable by a real consultant without
+a database script. `createAssessment` (new, `lib/domain/
+assessments.ts`) derives every scope value (tenant/organisation/pinned
+control library) from the Engagement's own authoritative row, never
+the browser; it creates the Assessment and, in the same transaction,
+populates its `AssessmentControls` from every Control belonging to the
+Engagement's pinned `ControlLibraryVersion` — the one behavior
+DATA_MODEL.md/PRODUCT_UX_BLUEPRINT.md actually document, since no
+applicability-exclusion or manual-selection mechanism exists anywhere
+in the schema (DECISIONS.md R-113). Authorization reuses the exact
+existing `can_access_engagement` rule every other `create*` function in
+this codebase already uses — the C7 review itself found this was
+already the schema's own answer, not an open question. A new route,
+`.../assessments/new`, reachable from both the Assessments list page
+and the Engagement detail page's own empty state — no orphan route, no
+URL the user has to construct by hand. No migration was needed — the
+existing composite FKs (migration 0008) already made a
+cross-tenant/cross-library AssessmentControl database-impossible,
+re-verified via `psql` and a dedicated raw-SQL test this slice. 637
+tests pass (58 files, +22 new in `tests/app/assessment-creation.test.ts`),
+run twice for stability. Per explicit instruction, this slice does
+NOT touch membership management, Assessment finalization, evidence
+download, Engagement editing, Maturity, Client Portal, Reporting, ROPA,
+or AI — those remain exactly where the C7 review's own recommended
+sequence (C7.2 onward) puts them. Full details in the "Slice C7.1"
+section below. STOP after C7.1 per explicit instruction.
+
+## Slice C7.1 — Assessment Creation & Control Population (Session 24, 2026-09-01)
+
+**Scope:** exactly what the C7.1 brief instructed — the single P0 fix
+the C7 review identified: Organisation → Engagement → Create Assessment
+→ Assessment automatically populated with the Engagement's pinned
+Control Library → Assessment Workspace → Responses/Tests/Evidence →
+Risk → Finding → Remediation → Validation, all reachable through the
+real application, no fixture/database-script intervention. Explicitly
+NOT built this slice, per instruction: engagement membership management
+(C7.2), Assessment finalization (C7.3), evidence download (C7.4),
+engagement editing (C7.5), Client Portal, Reporting, Maturity, Data
+Landscape/ROPA, AI, billing.
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`,
+`db/schema/{assessments,assessment-controls,engagements,control-library}.ts`,
+the existing Assessment/Engagement domain functions, the authorization
+service, the Assessment workspace routes, the existing assessment
+tests, migrations 0008/0009 (Assessment Engine + its security layer),
+and the Control Library lifecycle fresh from disk before writing
+anything, per instruction — not relying on the C7 review's own prior
+report for anything beyond "where to look."
+
+### 1. Existing Assessment/AssessmentControl architecture discovered
+
+`assessments` (DATA_MODEL.md §6, migration 0008): `engagement_id`,
+denormalized `organisation_id`/`tenant_id`, `control_library_version_id`
+(NOT NULL — an Assessment cannot be created at all for an Engagement
+with no pinned library, since the composite FK requires the Engagement's
+own `(id, control_library_version_id)` pair to already exist),
+`assessment_type` (the existing 5-value enum: control_readiness/
+annual/dpia/sdf_screening/third_party), `period_label` (plain text, no
+format constraint in the schema), `status` (draft/finalized, defaults
+draft), `previous_assessment_id` (nullable, self-referential, never
+read or written by any existing application code). `assessment_controls`
+(migration 0008): a plain, insert/delete-only junction, carrying no
+state of its own beyond which Control is in scope, protected by two
+composite FKs (`assessment_controls_assessment_scope_fk` proving the
+row's own tenant/organisation/engagement/library-version all match its
+Assessment's; `assessment_controls_control_library_version_fk` proving
+the referenced Control genuinely belongs to that same library version)
+that together make a cross-tenant or cross-library AssessmentControl
+database-impossible to insert, by construction — confirmed fresh via
+`psql` and a dedicated raw-SQL test this slice, not assumed from a
+prior report. No genuine discrepancy was found between DATA_MODEL.md
+and the actual schema.
+
+### 2. The five sub-questions (instructions §2), answered from the repo
+
+**A. Assessment creation:** the schema already supports creation,
+draft status (default), assessment type (existing 5-value enum),
+period label (plain text), previous-assessment linkage (column exists,
+never used by any code), and control-library pinning (a NOT NULL
+composite FK to the Engagement's own pin) — nothing missing at the
+schema level; only the application function was missing.
+
+**B. AssessmentControl population:** resolved definitively — every
+Control in the Engagement's pinned ControlLibraryVersion becomes an
+AssessmentControl. No applicability mechanism exists to exclude
+controls (`ApplicabilityDetermination` is `[NOT YET BUILT]`, and even
+if built has no documented relationship to Control/AssessmentControl
+at all — it concerns RegulatoryReference applicability, a different
+question). No manual-selection mechanism is documented anywhere.
+PRODUCT_UX_BLUEPRINT.md §12 step 4 independently confirms this exact
+shape ("AssessmentControl scoped from the pinned library"). See
+DECISIONS.md R-113.
+
+**C. Assessment type:** the existing enum used exactly — no new type
+added, all 5 values offered in the creation form's dropdown (dpia/
+sdf_screening included as legitimate enum values, even though their
+own specialized DPIA/SDFScreeningDetail workflows remain unbuilt —
+DATA_MODEL.md §7 already frames these types as "specializations of
+Assessment," not disconnected modules, so offering the type value
+itself invents nothing).
+
+**D. Period label:** no format/validation rule is named anywhere in
+the schema or product documents beyond "text, required" — the form
+requires a non-empty string (1-100 characters), no date-format
+invented.
+
+**E. Previous assessment:** left entirely alone — no application code
+anywhere (before or after this slice) reads or writes this column, so
+this slice's own creation form does not expose it, per instruction not
+to invent carry-forward/correction-selection semantics the repository
+doesn't already define.
+
+### 3. Assessment creation authorization
+
+`assessments_insert`'s own RLS `WITH CHECK` (migration 0009) is
+`can_access_engagement(engagement_id, organisation_id)` — the exact
+same rule `requireEngagementAccess` already implements and every other
+`create*` function in this codebase (Risk/Finding/RemediationAction/
+ValidationRecord) already uses. This was not an undefined permission
+model requiring a STOP — the schema already encodes the answer, and
+`createAssessment` uses it unchanged, inventing no new role or
+narrower gate.
+
+### 4. Creation workflow
+
+`lib/domain/assessments.ts`'s `createAssessment`: Browser → Server
+Action (`createAssessmentAction`, new file `assessments/actions.ts`) →
+authenticate → `requireEngagementAccess` (derived from the Engagement's
+own row, never the browser's claim) → validate (Zod at the Server
+Action layer, this function's own TypeScript input type as the second
+layer) → load the authoritative Engagement row → derive tenant/
+organisation/pinned-library server-side → reject cleanly if no library
+is pinned (`NoControlLibraryPinnedError`) → insert `assessments` →
+batch-insert `assessment_controls` for every Control in the pinned
+library (one query to read the Control set, one batched INSERT to
+write it — never one insert per Control) → both inserts in the SAME
+`withRequestDb` transaction (mirrors `createRemediationAction`'s own
+two-insert shape) → audit (existing `assessments_audit_log`/
+`assessment_controls_audit_log` triggers — no new audit mechanism) →
+redirect to the new Assessment's own workspace route.
+
+### 5. Assessment form
+
+A minimal form at `.../assessments/new`: Assessment Type (select, all
+5 existing enum values), Period (text input, required). No methodology
+selector — the pinned control library is shown read-only, sourced from
+the Engagement. If the Engagement has no library pinned, the form is
+replaced entirely by an explanatory message (no submit path that would
+only fail server-side). Reachable from a "Create Assessment" button
+always visible on the Assessments list page (both populated and empty
+states) and from the Engagement detail page's own empty-state message
+— never a URL the user has to construct.
+
+### 6. Library-version integrity / AssessmentControl security
+
+No new consistency mechanism was added. `assessments_engagement_
+control_library_version_fk` and `assessment_controls_assessment_
+scope_fk`/`assessment_controls_control_library_version_fk` (all
+migration 0008, pre-existing) already make it database-impossible for
+an Assessment to disagree with its Engagement's pin, or for an
+AssessmentControl to reference a Control outside the Assessment's own
+pinned library version — re-verified fresh via `psql \d+` and two
+dedicated raw-SQL security tests this slice (a cross-library Control
+reference, and a forged-scope AssessmentControl), both rejected with
+the exact expected constraint names. No new migration was required —
+confirmed by a fresh `reset-test-db.ts` run still applying exactly 24
+migration files, the same count as before this slice.
+
+### 7. Historical control-set / snapshot integrity
+
+Verified directly: an Assessment's AssessmentControls are materialized
+once, at creation, from the pinned library version's Control set as it
+exists at that moment; nothing anywhere in the codebase re-joins
+against `controls` for an already-created Assessment. A dedicated test
+creates a baseline Assessment against Library v1 (3 controls), then
+creates a wholly separate Library v2 (4 new Control rows, since a new
+library version's controls are new rows per DECISIONS.md R-42, not a
+mutation of v1's own frozen set) and a second Assessment against a
+second Engagement pinned to v2 — confirms the original Assessment's
+control set is completely unaffected (still exactly its original 3,
+never acquiring the 4th), while the new Assessment correctly gets all
+4 of v2's own controls.
+
+### 8. Test results
+
+`tests/app/assessment-creation.test.ts` (new, 22 tests) — 22/22 passing
+standalone, covering creation, population, security (tenant/
+organisation/engagement isolation, anonymous rejection, cross-library
+rejection, forged-scope AssessmentControl rejection), transactionality
+(a manually-reproduced failed-population scenario proving no orphan
+Assessment survives a rolled-back transaction), historical/snapshot
+integrity, workspace reachability, and audit attribution. Full
+`tests/app` — 267/267 passing (13 files, no regressions). Full `npm
+run test:db` (fresh reset + entire suite) — **58 test files, 637
+tests, all passing**, run twice for stability with identical counts
+both times. `npm run typecheck` clean. `npx eslint .` clean, zero
+warnings. `npm run build` succeeds — the new `.../assessments/new`
+route compiles and appears in the route manifest alongside every
+existing route.
+
+### 9. What was NOT built (explicit STOP boundaries honored)
+
+No engagement membership management, no Assessment finalization, no
+evidence download extension, no Engagement editing, no Maturity, no
+Client Portal, no Reporting, no Data Landscape/ROPA, no AI, no
+billing — none of these appear anywhere in this slice's diff. The
+`previous_assessment_id` field remains entirely unexposed in the UI
+(§2E above). No duplicate-Assessment check was added (the schema
+permits duplicates; none of the product documents require blocking
+them).
+
+### 10. Recommended next slice
+
+Per the C7 review's own ordered sequence: **C7.2 — Engagement
+membership management**, the second P0 finding (no way to add a second
+user to an Engagement or Organisation without a database script) —
+still open, still blocking any real multi-person or client-involving
+engagement. This report does not preempt the user's own choice of
+which C7.x slice to authorize next.
 
 ## Slice C6 — Validation (Session 23, 2026-09-01)
 

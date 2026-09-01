@@ -12,6 +12,7 @@ import {
   requirements,
   regulatoryReferences,
   controlTests,
+  engagements,
   users,
 } from "@/db/schema";
 import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
@@ -21,6 +22,221 @@ export class AssessmentFinalizedError extends Error {
     super(message);
     this.name = "AssessmentFinalizedError";
   }
+}
+
+export class InvalidAssessmentInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidAssessmentInputError";
+  }
+}
+
+/**
+ * Slice C7.1 (instructions §5/§15): the exact same "store and pin the
+ * configuration, don't build a calculator" shape as
+ * `NoActiveRiskScoringModelError` (lib/domain/risks.ts) — a clean,
+ * named failure for the one real precondition Assessment creation has
+ * (its Engagement must already have a `control_library_version_id`
+ * pinned), rather than a generic "invalid input" message or a silent
+ * fallback. `engagements.control_library_version_id` is nullable by
+ * design (an Engagement may legitimately exist before a methodology is
+ * pinned — engagements.ts's own file comment) — this is the honest,
+ * named error for that real, expected state, not a bug.
+ */
+export class NoControlLibraryPinnedError extends Error {
+  constructor(
+    message = "This engagement has no control library version pinned yet. Pin a control library version to the engagement before creating an assessment.",
+  ) {
+    super(message);
+    this.name = "NoControlLibraryPinnedError";
+  }
+}
+
+// --- Assessment creation (Slice C7.1) ---------------------------------------
+
+const ASSESSMENT_TYPE_VALUES = ["control_readiness", "annual", "dpia", "sdf_screening", "third_party"] as const;
+type AssessmentTypeValue = (typeof ASSESSMENT_TYPE_VALUES)[number];
+
+export interface CreateAssessmentInput {
+  engagementId: string;
+  assessmentType: AssessmentTypeValue;
+  periodLabel: string;
+}
+
+/**
+ * Creates a new Assessment for an Engagement and immediately populates
+ * its AssessmentControls from every Control in the Engagement's own
+ * pinned ControlLibraryVersion (the C7 review's own P0 finding: no
+ * function anywhere in this codebase created an Assessment before this
+ * slice — the entire Risk→Finding→Remediation→Validation chain was
+ * unreachable for real use as a result).
+ *
+ * **Population mechanism (instructions §2B, resolved from the repo,
+ * not invented):** DATA_MODEL.md §6 names `AssessmentControl` as "the
+ * specific controls in scope for this assessment instance" with no
+ * applicability-exclusion mechanism named for it anywhere, and
+ * PRODUCT_UX_BLUEPRINT.md §12 step 4 describes exactly this shape:
+ * "Controls are assessed — `AssessmentControl` scoped from the pinned
+ * library." `ApplicabilityDetermination` (DATA_MODEL.md §4) is a
+ * distinct, engagement-level record about which *RegulatoryReferences*
+ * apply — it has no relationship to `AssessmentControl`/`Control`
+ * anywhere in the schema, and is itself `[NOT YET BUILT]` (no
+ * migration exists for it at all, confirmed by direct inspection this
+ * slice) — so there is no applicability mechanism to consult, and none
+ * is invented here. There is likewise no manual-control-selection
+ * mechanism named anywhere. The only behavior the repository actually
+ * supports is therefore: **every Control belonging to the Engagement's
+ * pinned ControlLibraryVersion becomes an AssessmentControl**, which is
+ * exactly what this function does.
+ *
+ * **Scope derivation (instructions §3/§16):** `engagementId` identifies
+ * the target only; `tenantId`/`organisationId`/`controlLibraryVersionId`
+ * are always re-derived from the Engagement's own authoritative row,
+ * never trusted from the caller — the same established pattern every
+ * `create*` function in this codebase already uses (mirrors
+ * `createRemediationAction`'s identical shape one hop up the chain).
+ *
+ * **Library-version integrity (instructions §7/§17):** no new
+ * consistency mechanism is introduced. `assessments`' own
+ * `assessments_engagement_control_library_version_fk` (migration 0008)
+ * already makes it database-impossible for an Assessment's
+ * `control_library_version_id` to disagree with its Engagement's pinned
+ * one; `assessment_controls`' own `assessment_controls_assessment_
+ * scope_fk` + `assessment_controls_control_library_version_fk`
+ * (migration 0008) together already make it database-impossible for an
+ * AssessmentControl to reference a Control from any library version
+ * other than the Assessment's own pinned one — both existing composite
+ * FKs, re-verified fresh this slice, not new ones added for it
+ * (instructions §18: "prefer existing composite FK constraints... if
+ * insufficient, STOP" — they are sufficient).
+ *
+ * **Historical/snapshot integrity (instructions §8):** this function
+ * populates AssessmentControls exactly once, at creation, from the
+ * pinned library version's Control set *as it exists at that moment*.
+ * Nothing here or anywhere else in the codebase re-queries or re-joins
+ * against `controls` for an existing Assessment's control set — every
+ * read (`getAssessmentDetail` above) reads the already-materialized
+ * `assessment_controls` rows, never a live join to `controls` filtered
+ * by library version. A Control added to the same library version
+ * later (impossible in practice anyway, since a `published` version's
+ * Control set is itself frozen by migration 0007's own triggers — see
+ * DECISIONS.md R-44/R-45) therefore cannot retroactively appear in an
+ * already-created Assessment.
+ *
+ * **Duplicates (instructions §10):** no uniqueness constraint exists on
+ * (engagement_id, assessment_type, period_label) anywhere in the schema,
+ * and no product document requires one — duplicate Assessments for the
+ * same Engagement/type/period are permitted, exactly as the existing
+ * model already allows; this function does not add a check the schema
+ * itself doesn't require.
+ *
+ * **Previous Assessment (instructions §20):** `assessments.previous_
+ * assessment_id` exists but is never read or written by any application
+ * code, anywhere in this codebase, before this slice — this function's
+ * own input type carries no such field, and the creation form does not
+ * expose one, per instruction not to invent carry-forward selection
+ * semantics the repository doesn't already define. Every Assessment
+ * this function creates has `previous_assessment_id = NULL`.
+ *
+ * **Authorization (instructions §5/§16):** `assessments_insert`'s own
+ * RLS `WITH CHECK` (migration 0009) is exactly
+ * `can_access_engagement(engagement_id, organisation_id)` — the same
+ * coarse, already-established rule `requireEngagementAccess` already
+ * implements and every other `create*` function in this codebase
+ * already uses (createRisk/createFinding/createRemediationAction/
+ * createValidationRecord). This is not an undefined permission model
+ * requiring a product decision — it is the exact rule the schema
+ * itself already encodes; using anything narrower would be inventing a
+ * role the repository doesn't define.
+ *
+ * **Transactionality (instructions §6/§18):** both inserts below run
+ * inside the SAME `withRequestDb` transaction the caller already
+ * opened — the established pattern every multi-insert domain function
+ * in this codebase uses (mirrors `createRemediationAction`'s own
+ * two-insert shape, and `uploadEvidence`'s own four-insert shape). A
+ * failure in either insert rolls back both; there is no code path that
+ * can leave an Assessment row with a partially-populated (or entirely
+ * unpopulated) AssessmentControl set behind.
+ *
+ * **Performance (instructions §21):** the Control set is read with one
+ * query and inserted with one batched `INSERT ... VALUES (...), (...),
+ * ...` — never one query per Control, regardless of how many Controls
+ * the pinned library version has.
+ */
+export async function createAssessment(
+  db: RequestDb,
+  userId: string,
+  input: CreateAssessmentInput,
+): Promise<{ id: string }> {
+  if (!ASSESSMENT_TYPE_VALUES.includes(input.assessmentType)) {
+    throw new InvalidAssessmentInputError("Invalid assessment type.");
+  }
+  if (!input.periodLabel.trim()) {
+    throw new InvalidAssessmentInputError("Period label is required.");
+  }
+
+  const [engagement] = await db
+    .select({
+      id: engagements.id,
+      tenantId: engagements.tenantId,
+      organisationId: engagements.organisationId,
+      controlLibraryVersionId: engagements.controlLibraryVersionId,
+    })
+    .from(engagements)
+    .where(eq(engagements.id, input.engagementId))
+    .limit(1);
+  if (!engagement) throw new NotFoundOrForbiddenError();
+
+  await requireEngagementAccess(db, userId, engagement.id, engagement.organisationId);
+
+  if (!engagement.controlLibraryVersionId) {
+    throw new NoControlLibraryPinnedError();
+  }
+  const controlLibraryVersionId = engagement.controlLibraryVersionId;
+
+  const assessmentId = randomUUID();
+  await db.insert(assessments).values({
+    id: assessmentId,
+    engagementId: engagement.id,
+    organisationId: engagement.organisationId,
+    tenantId: engagement.tenantId,
+    controlLibraryVersionId,
+    assessmentType: input.assessmentType,
+    periodLabel: input.periodLabel.trim(),
+    createdBy: userId,
+    updatedBy: userId,
+  });
+
+  // One query for the pinned library's entire Control set — every
+  // Control in it becomes an AssessmentControl (see this function's own
+  // docstring for why: no applicability/manual-selection mechanism
+  // exists in the repository to filter this set).
+  const libraryControls = await db
+    .select({ id: controls.id })
+    .from(controls)
+    .where(eq(controls.controlLibraryVersionId, controlLibraryVersionId));
+
+  // A library version with zero Controls is a real, valid state (an
+  // Engagement Manager pinned a version before any Control was
+  // authored into it) — not an error; the Assessment is created with
+  // zero AssessmentControls, matching `getAssessmentDetail`'s already-
+  // honest "0 of 0" progress rendering rather than inventing a
+  // fallback behavior instructions §15 explicitly forbids.
+  if (libraryControls.length > 0) {
+    await db.insert(assessmentControls).values(
+      libraryControls.map((c) => ({
+        assessmentId,
+        controlId: c.id,
+        tenantId: engagement.tenantId,
+        organisationId: engagement.organisationId,
+        engagementId: engagement.id,
+        controlLibraryVersionId,
+        createdBy: userId,
+      })),
+    );
+  }
+
+  return { id: assessmentId };
 }
 
 // --- Assessment list (Slice C1, PHASE C instructions §5) -------------------

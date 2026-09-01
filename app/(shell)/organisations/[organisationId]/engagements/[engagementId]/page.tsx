@@ -65,7 +65,13 @@ export default async function EngagementDetailPage({
         </div>
         {engagement.assessments.length === 0 ? (
           <div className="mt-3 rounded-md border border-dashed border-slate-300 px-6 py-8 text-center text-sm text-slate-500">
-            No assessments yet for this engagement.
+            <p>No assessments yet for this engagement.</p>
+            <Link
+              href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/assessments/new`}
+              className="mt-2 inline-block text-sm font-medium text-slate-900 underline"
+            >
+              Create Assessment
+            </Link>
           </div>
         ) : (
           <p className="mt-3 text-sm text-slate-600">

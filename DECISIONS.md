@@ -3093,3 +3093,54 @@ ValidationRecord URL yet.
 "Validation panel (embedded in Remediation detail, not a top-level
 screen)." Instructions §15 make engagement-level visibility conditional
 on the UX blueprint actually requiring it — it explicitly does not.
+
+### R-113 — Assessment creation: every Control in the pinned library becomes an AssessmentControl; authorization uses the existing coarse engagement-access rule (Slice C7.1)
+
+**Decision:** `createAssessment` (`lib/domain/assessments.ts`), the fix
+for the C7 review's own P0 finding (no function anywhere in the
+codebase could ever create an Assessment), resolves the two open
+questions the C7 review itself flagged as needing an answer before
+implementation, both from direct repository inspection rather than
+invented:
+1. **Population mechanism:** every Control belonging to the Engagement's
+   pinned `ControlLibraryVersion` becomes an `AssessmentControl`, in one
+   batched insert, at Assessment-creation time. No applicability/
+   exclusion mechanism exists anywhere in the schema to filter this set
+   — `ApplicabilityDetermination` (DATA_MODEL.md §4) is `[NOT YET
+   BUILT]` (no migration exists for it at all) and, even if it existed,
+   has no documented relationship to `Control`/`AssessmentControl`
+   anywhere in DATA_MODEL.md — it concerns which `RegulatoryReference`s
+   apply, a different question entirely. No manual-control-selection
+   mechanism is documented either. PRODUCT_UX_BLUEPRINT.md §12 step 4
+   independently confirms this is the intended shape: "Controls are
+   assessed — `AssessmentControl` scoped from the pinned library."
+2. **Who may create an Assessment:** the existing `assessments_insert`
+   RLS policy (migration 0009) already answers this —
+   `WITH CHECK (can_access_engagement(engagement_id, organisation_id))`
+   — the identical coarse rule `requireEngagementAccess` already
+   implements and every other `create*` function in this codebase
+   (Risk/Finding/RemediationAction/ValidationRecord) already uses. This
+   is not an undefined permission model requiring a STOP — the schema
+   itself already encodes the answer, and using anything narrower would
+   be inventing a role the repository doesn't define.
+
+`previous_assessment_id` is left unset by every Assessment this
+function creates (no carry-forward/correction-linking UI is built this
+slice — nothing in the codebase reads or writes this column before this
+slice, so no existing selection semantics exist to preserve); no
+uniqueness constraint on (engagement_id, assessment_type, period_label)
+was added, since duplicates are permitted by the existing schema and no
+product document requires blocking them.
+
+**Rationale:** C7.1 instructions §2B/§5 explicitly require resolving
+both questions from the actual repository before writing code, and
+explicitly forbid inventing an applicability workflow or a new role —
+STOP was the fallback only if the repository genuinely left either
+question open; it does not. Both existing composite FK pairs
+(`assessments_engagement_control_library_version_fk` +
+`assessment_controls_assessment_scope_fk`/`assessment_controls_
+control_library_version_fk`) already make the resulting AssessmentControl
+set's tenant/organisation/engagement/library-version consistency
+database-impossible to violate — re-verified fresh via direct `psql`
+inspection and a dedicated raw-SQL security test this slice, no new
+migration required.

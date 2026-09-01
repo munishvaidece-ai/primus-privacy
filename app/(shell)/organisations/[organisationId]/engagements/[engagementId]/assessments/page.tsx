@@ -10,6 +10,11 @@ import { Badge, statusTone } from "@/components/ui/badge";
 // only, no fake progress values. Progress is the exact read model
 // PRODUCT_UX_BLUEPRINT.md §7 already specifies (see
 // lib/domain/assessments.ts's listAssessmentsForEngagement).
+//
+// Slice C7.1: the "Create Assessment" link below is the fix for the C7
+// review's own P0 finding — before this slice, this page's empty state
+// ("No assessments yet") had no next action of any kind, and no
+// function anywhere in the codebase could create one.
 export default async function AssessmentsListPage({
   params,
 }: {
@@ -28,13 +33,26 @@ export default async function AssessmentsListPage({
 
   if (!assessmentList) notFound();
 
+  const newAssessmentPath = `/organisations/${params.organisationId}/engagements/${params.engagementId}/assessments/new`;
+
   return (
     <div>
-      <h1 className="text-xl font-semibold text-slate-900">Assessments</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-slate-900">Assessments</h1>
+        <Link
+          href={newAssessmentPath}
+          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+        >
+          Create Assessment
+        </Link>
+      </div>
 
       {assessmentList.length === 0 ? (
         <div className="mt-6 rounded-md border border-dashed border-slate-300 px-6 py-10 text-center text-sm text-slate-500">
-          No assessments yet for this engagement.
+          <p>No assessments yet for this engagement.</p>
+          <Link href={newAssessmentPath} className="mt-2 inline-block text-sm font-medium text-slate-900 underline">
+            Create the first assessment
+          </Link>
         </div>
       ) : (
         <ul className="mt-6 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
