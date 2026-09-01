@@ -1,0 +1,33 @@
+-- PRIMUS PRIVACY — Migration 0021: Finding owner tenant scoping.
+--
+-- Hand-written (DECISIONS.md R-02). Slice C4 instructions §10
+-- explicitly direct: "If Finding has an owner: preserve the existing
+-- owner model; use the tenant-safe ownership mechanism established in
+-- C3.1; do not create a new user/membership system; do not allow
+-- cross-tenant ownership." Direct inspection of `findings.owner_id`
+-- (migration 0012) found it in the EXACT same unprotected shape
+-- `risks.owner_id` was in before Slice C3.1: a plain
+-- `findings_owner_id_users_id_fk → users(id)` FK, with no composite
+-- constraint tying the owner's own tenant to the Finding's own
+-- `tenant_id`. This migration applies the identical fix migration 0020
+-- already applied to `risks`, reusing the SAME supporting unique
+-- constraint that migration already added
+-- (`users_id_tenant_id_key` — no need to re-create it here).
+--
+-- Same safety argument as migration 0020, applied to `findings`:
+-- `owner_id` remains nullable, so a multi-column FK with a NULL member
+-- is skipped entirely (Postgres MATCH SIMPLE default) — no existing
+-- NULL-owner Finding row is affected. Every Finding row created by
+-- this slice's own `lib/domain/findings.ts` only ever sets `owner_id`
+-- to the acting user's own id (or clears it), and that user's own
+-- tenant was already proven to match the Finding's tenant by
+-- `requireEngagementAccess` before the write — so no existing non-null-
+-- owner row can violate the new constraint, and no backfill is
+-- required. No RLS policy, GRANT, or audit trigger is touched. No
+-- unrelated table (in particular `remediation_actions`, which has the
+-- identical unprotected `owner_id` shape) is touched here — that table
+-- belongs to a future Remediation slice, explicitly out of C4's scope;
+-- see PROGRESS.md's "Known limitations" for this slice.
+
+ALTER TABLE "findings" DROP CONSTRAINT "findings_owner_id_users_id_fk";
+ALTER TABLE "findings" ADD CONSTRAINT "findings_owner_id_tenant_fk" FOREIGN KEY ("owner_id", "tenant_id") REFERENCES "users"("id", "tenant_id");

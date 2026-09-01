@@ -1,23 +1,450 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C3.1 (Risk Security Hardening) COMPLETE
-(Session 20): closes the one genuine database gap Slice C3's own final
-report found and recorded (DECISIONS.md R-99) — `risks.owner_id` is now
-enforced tenant-scoped at the database level. Migration 0020 adds
-`UNIQUE (id, tenant_id)` on `users` and replaces `risks`' plain
-`owner_id → users(id)` foreign key with a composite
-`(owner_id, tenant_id) → users(id, tenant_id)` — a direct malicious
-INSERT/UPDATE naming a real, cross-tenant user as owner is now
-independently rejected by Postgres itself, not only by the
-application's own self-assignment-only design (unchanged — still the
-only owner-assignment mechanism this application exposes; no user
-directory, owner picker, or membership administration was added).
-Smallest possible additive change: no new table, no new role system, no
-new membership model, no RLS/GRANT/audit-trigger change, no historical
-Risk row affected (every existing non-null `owner_id` was already
-same-tenant by construction). Full details in the "Slice C3.1" section
-below. STOP after C3.1 per explicit instruction — no Findings/
-Remediation/Validation/Maturity/Client Portal/Reporting/AI.
+Status: 2026-09-01 — Slice C4 (Findings Management) COMPLETE (Session
+21): the existing (Milestone 7, database-only) Finding/FindingRisk
+model now has a real, traceable consultant workflow — create a Finding
+from a Risk's own detail page, an engagement-wide Finding list, a
+Finding detail/edit page (title/description/severity/status/owner all
+genuinely editable, unlike Risk's status-only edit), and full Finding →
+Risk → Assessment → Control → AssessmentResponse → Evidence
+traceability composed entirely from EXISTING read functions (`getRiskDetail`,
+`getControlTestsForControl`, `getEvidenceSummaryForControl`) — no
+duplicated data, no new Evidence relationship. One schema change,
+directly instructed and proactively applied: `findings.owner_id` was
+found in the same unprotected shape `risks.owner_id` had before Slice
+C3.1, and migration 0021 closes it the same way (composite FK to
+`users(id, tenant_id)`, reusing C3.1's own supporting unique
+constraint) — see DECISIONS.md R-102. Finding creation/editing is
+explicitly NOT blocked by Assessment finalization, and severity is
+never automatically copied from the source Risk (DECISIONS.md R-103) —
+both directly re-verified against Finding's own actual schema, not
+assumed to carry over from Risk. Full details in the "Slice C4" section
+below. STOP after C4 per explicit instruction — no Remediation/
+Validation/Maturity/Client Portal/Reporting/AI.
+
+## Slice C4 — Findings Management (Session 21, 2026-09-01)
+
+**Scope:** exactly what PHASE C — FINDINGS / Slice C4 instructed — turn
+an existing Risk into a structured, traceable Finding, using the EXACT
+existing Finding/FindingRisk/FindingControl/FindingProcessingActivity
+model built (database-only) in Milestone 7 (migrations 0012/0013). No
+Remediation, Validation, Maturity, Client Portal, Reporting, or AI UI —
+none of those exist anywhere in this slice's changes. No new domain
+table, no junction redesign — the one migration this slice made
+(0021) only hardens an existing column's referential integrity,
+exactly mirroring an already-approved precedent (Slice C3.1); it does
+not add or redesign any relationship.
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, the
+Finding/Risk/Assessment/AssessmentResponse/ControlTest/Evidence/
+EvidenceLink schemas, the existing authorization service, the Risk
+domain (`lib/domain/risks.ts`), the Assessment workspace, existing UI
+components, existing tests, and every relevant migration fresh from
+disk before writing anything, per instruction.
+
+### 1. Existing Finding architecture discovered
+
+`findings` (DATA_MODEL.md §8): `engagement_id`/`organisation_id`/
+`tenant_id` (engagement-scoped, like `Risk`), `title`, `description`,
+`severity` (`finding_severity` enum: low/medium/high/critical — the
+identical four-point scale `risk_rating` uses), `status`
+(`finding_status` enum: open/in_progress/resolved/accepted — a
+DIFFERENT value set from `risk_status`, not to be confused), `owner_id`
+(additive, DECISIONS.md — same established concept as
+`RemediationAction.owner_id`). `finding_risks`/`finding_controls`/
+`finding_processing_activities` are plain insert/delete-only junctions
+(Finding N ←→ N Risk/Control/ProcessingActivity — DATA_MODEL.md §11).
+No `assessment_response_id`-style direct additive FK exists on
+`findings` the way one does on `risks` — the ONLY relationship a
+Finding has to anything is via these three junctions. Two consequential
+architectural facts, not schema discrepancies, shaped the design (no
+STOP was warranted for either — see items 2/13 below): Finding has no
+direct Evidence relationship in the approved schema at all (same
+situation R-96/item-2-of-Slice-C3 already found for Risk), and
+`findings.owner_id` was found unprotected the same way `risks.owner_id`
+was before Slice C3.1 (item 9/DECISIONS.md R-102).
+
+### 2. Finding schema used
+
+Used exactly as built — no field renamed, added, or repurposed beyond
+the migration 0021 hardening (item 9). `evidence_links`' CHECK
+constraint was directly re-confirmed to have no `finding` subject type
+— Finding cannot be, and was not made to be, a direct EvidenceLink
+subject. ARCHITECTURE.md's own looser prose ("findings linking risks,
+controls, processing activities and evidence") is not read as a mandate
+to add one — DATA_MODEL.md §8's own explicit Evidence-attachment
+sentence already excludes both Risk and Finding, the same resolution
+Slice C3 already applied to this identical tension for Risk.
+
+### 3. Risk → Finding relationship
+
+Many-to-many via the EXISTING `finding_risks` junction (DATA_MODEL.md
+§8/§11: "Finding N ←→ N Risk") — one Risk may have many Findings, and
+(structurally, though this slice's own UI only ever creates one link
+per Finding at creation time) one Finding could reference multiple
+Risks. No artificial "one Finding per Risk" rule was imposed
+(instructions §21) — nothing in the schema requires one.
+`finding_risks_risk_scope_fk`/`finding_risks_finding_scope_fk`
+(migration 0012) already structurally prove, by construction, that a
+FindingRisk row's `risk_id` and `finding_id` share the exact same
+tenant/organisation/engagement — a Finding cannot reference a
+cross-tenant/cross-organisation/cross-engagement Risk (instructions
+§12) with no schema change needed for this part; directly re-verified
+via `psql` (item 20) and a dedicated raw-SQL test (item 17, test 11).
+
+### 4. Finding creation workflow
+
+`lib/domain/findings.ts`'s `createFinding`: Browser → Server Action
+(`createFindingAction`, added to the Risk detail page's own
+`actions.ts`) → authenticate → `requireEngagementAccess` → validate →
+`createFinding` → PostgreSQL (one transaction, two inserts: `findings`
+then `finding_risks`) → RLS → audit (existing `findings_audit_log`/
+`finding_risks_audit_log` triggers — no new audit mechanism). Mirrors
+`createRisk`'s (Slice C3) exact shape: only `riskId` identifies the
+source context; tenant/organisation/engagement scope is always
+re-derived server-side from the Risk's own authoritative row, never
+trusted from the caller (instructions §4/§15).
+
+### 5. Source traceability
+
+Finding → Risk → Assessment → Control → Assessment Response is resolved
+by composing EXISTING functions at the page level (never duplicated
+data, instructions §5): `getFindingDetail` returns the Finding's own
+fields plus its linked source Risk(s) (via `finding_risks`); the Finding
+detail PAGE then calls the EXISTING `getRiskDetail` (Slice C3) with the
+primary source Risk's id to get the full Risk → Assessment → Control →
+AssessmentResponse chain, and from THAT result further calls the
+EXISTING `getControlTestsForControl`/`getEvidenceSummaryForControl` —
+the identical composition the Risk detail page itself already performs,
+one layer deeper. No new read path, no copied Risk/Assessment/Evidence
+metadata anywhere on `findings` itself.
+
+### 6. Evidence traceability
+
+Same conclusion as item 2/5: Finding has no direct Evidence relationship
+in the approved schema, so none was invented. Evidence is reached only
+indirectly, through the reused functions in item 5 — a Finding
+"references authoritative Evidence" (instructions §11) by resolving to
+the exact same `EvidenceLink`/`Evidence` rows the Assessment workspace
+and Risk detail page already show, never a copy of `storage_path`,
+document metadata, checksum, or any other Evidence field.
+
+### 7. Finding status
+
+Uses the existing `finding_status` enum exactly (open/in_progress/
+resolved/accepted) — no new state, and deliberately not confused with
+`risk_status`'s different value set (a dedicated `findingStatusTone`
+badge-tone function was added rather than reusing `riskStatusTone`, for
+exactly this reason — see item 15).
+
+### 8. Finding severity
+
+Uses the existing `finding_severity` enum exactly (identical four-point
+scale to `risk_rating` — `riskRatingTone` is reused directly for it, no
+separate tone function needed). Never automatically copied from the
+source Risk's own rating at the domain layer (DECISIONS.md R-103) — the
+Finding creation form's own `<select>` merely *defaults* to the source
+Risk's `inherent_rating` as a UI convenience, explicitly labeled as such
+("Defaults to this risk's inherent rating — not automatically linked;
+change as needed") and never enforced; `createFinding` only ever
+persists whatever the consultant actually submits.
+
+### 9. Finding ownership
+
+Mirrors Risk's self-only design (instructions §10) but, unlike Risk
+(owner fixed at creation only), Finding's owner can also be changed
+post-creation via `updateFinding`'s `ownerAction` (`keep`/`assign_self`/
+`unassign`) — still only ever the caller's own id, or cleared entirely;
+no arbitrary target user, no user-directory, no owner picker, no
+membership-administration UI (instructions §10's own explicit list of
+what NOT to build). A genuine database gap was found and proactively
+closed using the exact mechanism instructions §10 named:
+`findings.owner_id` was a plain `→ users(id)` FK, identical to
+`risks.owner_id`'s pre-C3.1 shape; migration 0021 applies the same
+composite-FK fix (`findings_owner_id_tenant_fk`), reusing C3.1's own
+supporting `users_id_tenant_id_key` unique constraint (DECISIONS.md
+R-102). `remediation_actions.owner_id` has the identical unprotected
+shape and was deliberately left untouched — out of C4's scope,
+recorded as a known limitation for a future Remediation slice.
+
+### 10. Finding list
+
+New route, `/organisations/[organisationId]/engagements/[engagementId]/findings`
+— a real-data table (title, source risk, severity, status, owner), one
+batched query (`listFindingsForEngagement`), no dashboard, no chart, no
+analytics (instructions §6). Linked from the Engagement detail page
+("Findings" section, mirroring the existing "Risks"/"Assessments"
+sections) and from the Risk detail page's own Findings section ("View
+all engagement findings").
+
+### 11. Finding detail
+
+New route, `/organisations/[organisationId]/engagements/[engagementId]/findings/[findingId]`
+— identity, description, a genuine edit form (title/description/
+severity/status/owner, instructions §20/§26), source Risk(s) with
+clickable navigation back to Risk detail, source Assessment/Control
+(via item 5's composition), relevant ControlTests/Evidence, and a
+plain, non-interactive text note that Remediation/Validation are not
+yet part of this application (instructions §22's own explicit "label it
+clearly as unavailable... do not create remediation tasks/owners/
+due-date workflows/validation/closure workflows").
+
+### 12. Assessment workspace integration
+
+Not touched — per instructions §19's own preferred flow ("Assessment →
+Risk → Findings → Create Finding"), the Finding entry point lives on
+the Risk detail page (added in Slice C3), not the Assessment workspace
+itself. The Assessment workspace, Evidence UI, and Risk creation UI
+(Slices C1/C2/C3) are all unmodified by this slice beyond the two-line
+"Findings" section added to the Engagement detail page (item 10),
+matching instructions §19's own "do not redesign existing C1/C2/C3
+screens unnecessarily."
+
+### 13. Authorization
+
+Reuses the existing centralized authorization service exactly —
+`requireEngagementAccess` is the sole primitive this slice needed; no
+new function was added to `lib/authorization/service.ts`. Every
+function in `lib/domain/findings.ts` re-derives tenant/organisation/
+engagement scope from the database itself before any read or write.
+
+### 14. RLS
+
+Unchanged and unweakened on `findings`/`finding_risks` — migration
+0013's existing forced-RLS policies remain exactly as they were;
+directly re-confirmed via `psql \d+` this session (item 20), not only
+read from the migration file.
+
+### 15. Audit
+
+Relies on the existing audit architecture exactly — migration 0013's
+`findings_audit_log` (AFTER INSERT OR UPDATE) and `finding_risks_audit_log`
+(AFTER INSERT OR DELETE) triggers already cover every write this slice
+performs; no new trigger, no second audit log. Directly verified live
+against real `audit_log` rows (item 17, test 14) that both Finding
+creation and Finding update produce a correctly-attributed entry
+(`actor_user_id` = the acting user), with `field_changes` capturing the
+real before/after values for an updated field (e.g. `severity`).
+
+### 16. Finalized-assessment behavior
+
+Deliberately NOT blocked, for the same reason and by the same direct
+verification method as Risk (DECISIONS.md R-98/R-103): no trigger on
+`findings`/`finding_risks` references Assessment finalization at all —
+confirmed both by successfully creating a Finding from an
+already-finalized Assessment's Risk, and by a dedicated test querying
+`information_schema.triggers` directly for `findings`/`finding_risks`
+and asserting no trigger name matches `finaliz`.
+
+### 17. Security tests
+
+`tests/app/findings.test.ts`, 14 numbered database/application security
+scenarios (PHASE C4 instructions §24), all passing, real PostgreSQL, no
+mocked authorization:
+1. Tenant A cannot read Tenant B's Finding.
+2. Organisation A cannot read Organisation A2's Finding (same tenant).
+3. Engagement A cannot read Engagement A3's Finding (same organisation).
+4. A user authorized only for their own tenant cannot create a Finding
+   against another tenant's Risk (the concrete reading of "Risk A
+   cannot create a Finding against Risk B" given `createFinding`'s own
+   single-`riskId` shape).
+5. Unauthorized user (no membership) cannot create a Finding.
+6. Unauthorized user (no membership) cannot update a Finding.
+7. Anonymous access (SELECT and INSERT) is rejected.
+8. Browser-supplied forged organisation/engagement ids cannot cross a
+   boundary even paired with a real Finding id.
+9. Cross-tenant Finding owner is rejected by the database
+   (`findings_owner_id_tenant_fk`, item 9/DECISIONS.md R-102).
+10. A direct, malicious raw INSERT with forged tenant/organisation/
+    engagement is rejected by RLS.
+11. A Finding's source Risk relationship cannot cross a tenant boundary
+    — a raw `finding_risks` INSERT pairing a legitimate Finding with
+    another tenant's Risk is rejected by `finding_risks_risk_scope_fk`.
+12. Cross-tenant Evidence cannot be surfaced through a Finding's
+    traceability read path — RLS-filtered even when the real id is
+    known.
+13. Finalized-assessment behavior matches the approved database rules
+    (item 16).
+14. Audit attribution identifies the acting user for both creation and
+    update (item 15).
+
+### 18. Traceability tests
+
+A dedicated end-to-end test constructs the exact scenario instructions
+§25 describe — Assessment A → Control C1 → Response → Risk R1 → Finding
+F1 → Evidence E1 — and resolves the ENTIRE chain using only the real
+functions the Finding detail page itself calls (`getFindingDetail` →
+`getRiskDetail` → `getControlTestsForControl` →
+`getEvidenceSummaryForControl`), confirming Evidence is reachable at the
+end of the chain; then confirms Tenant B cannot traverse any part of
+that exact chain (both `getFindingDetail` and `getRiskDetail`, using the
+chain's own real ids, correctly reject a Tenant B caller).
+
+### 19. Update tests
+
+`updateFinding`'s title/description/severity/status/owner (assign_self,
+then unassign) are all exercised together in one test and confirmed
+persisted correctly; an empty-title update is rejected
+(`InvalidFindingInputError`); an unauthorized user's update attempt is
+rejected (security test 6); every update produces a correctly-attributed
+audit entry with real before/after `field_changes` (security test 14).
+Only fields the schema actually supports were tested — no `rationale`
+field exists to test (DECISIONS.md R-103).
+
+### 20. Database inspection
+
+Directly queried via `psql` (not only read from the migration file) for
+`findings`/`finding_risks`/`finding_controls`/
+`finding_processing_activities`: forced RLS enabled on all four;
+`_select`/`_insert`(/`_update` on `findings`,/`_delete` on the three
+junctions) policies present, all scoped through `can_access_engagement`;
+`findings_prevent_reparenting`/the `_audit_log` triggers confirmed
+present exactly as migration 0013 defines them; `GRANT`s to
+`authenticated` confirmed as `INSERT, SELECT, UPDATE` on `findings` (no
+`DELETE` — never hard-deleted) and `DELETE, INSERT, SELECT` on all three
+junctions (no `UPDATE` — a link is created or removed, never mutated);
+`findings_owner_id_tenant_fk` confirmed present and the old plain
+`findings_owner_id_users_id_fk` confirmed gone.
+
+### 21. Performance/query approach
+
+`listFindingsForEngagement`/`listFindingsForRisk`/`getFindingDetail` are
+each one to a small, fixed number of batched queries (`LEFT JOIN`s, not
+one query per finding) — no N+1. Traceability resolution reuses the
+Risk/Assessment/Evidence layer's own already-efficient functions rather
+than adding a new, parallel read path. No search engine, cache layer,
+microservice, or separate API backend was introduced — PostgreSQL
+remains the sole read/write store (instructions §29).
+
+### 22. Exact C4 tests
+
+`tests/app/findings.test.ts` (24 tests): Finding creation success (with
+and without self-assignment, against a nonexistent Risk, with an empty
+title, against a finalized Assessment's Risk); `updateFinding` (all
+five supported fields, including both owner actions; empty-title
+rejection); the 14 security scenarios (item 17); the full traceability
+scenario (item 18); and `listFindingsForEngagement`/`listFindingsForRisk`
+read-function scoping.
+
+### 23. Exact full-suite count/results
+
+```
+npm run test:db   # fresh reset + full 8-directory suite incl. tests/app: 552/552 passing
+npm run test:db   # run again for stability: 552/552 passing, identical results
+```
+(528 tests carried forward from Slice C3.1 + 24 new in
+`tests/app/findings.test.ts` = 552.)
+
+### 24. Typecheck/lint/build
+
+```
+npm run typecheck   # clean
+npx eslint .         # clean
+npm run build        # succeeds; both new Findings routes correctly reported
+                      # dynamic (server-rendered on demand), none prerendered
+```
+
+### 25. Files changed
+
+- `drizzle/migrations/0021_finding_owner_tenant_scoping.sql` (new)
+- `db/schema/findings.ts` (`ownerId`'s plain `.references()` removed;
+  composite `ownerTenantFk` added, mirroring `risks.ts`'s Slice C3.1 fix)
+- `lib/domain/findings.ts` (new) — `createFinding`, `updateFinding`,
+  `listFindingsForEngagement`, `listFindingsForRisk`, `getFindingDetail`,
+  `InvalidFindingInputError`
+- `components/ui/badge.tsx` (`findingStatusTone` added; `finding_severity`
+  reuses the existing `riskRatingTone` directly, no new function needed)
+- `app/(shell)/.../engagements/[engagementId]/risks/actions.ts`
+  (extended — `createFindingAction`)
+- `app/(shell)/.../engagements/[engagementId]/risks/[riskId]/page.tsx`
+  (Findings section added: list + create form)
+- `app/(shell)/.../engagements/[engagementId]/page.tsx` ("Findings"
+  section added, mirroring the existing "Risks"/"Assessments" sections)
+- `app/(shell)/.../engagements/[engagementId]/findings/page.tsx` (new —
+  Finding list)
+- `app/(shell)/.../engagements/[engagementId]/findings/actions.ts` (new
+  — `updateFindingAction`)
+- `app/(shell)/.../engagements/[engagementId]/findings/[findingId]/page.tsx`
+  (new — Finding detail/edit)
+- `tests/app/findings.test.ts` (new, 24 tests)
+- `DECISIONS.md` (R-102, R-103)
+- `PROGRESS.md` (this entry)
+
+### 26. Dependencies changed
+
+None.
+
+### 27. Schema changes
+
+One: migration `0021_finding_owner_tenant_scoping.sql` — replaces
+`findings.owner_id`'s plain `→ users(id)` FK with a composite
+`(owner_id, tenant_id) → users(id, tenant_id)` FK, reusing migration
+0020's own `users_id_tenant_id_key` unique constraint (no new unique
+constraint needed). No RLS, GRANT, audit trigger, or unrelated table
+was touched. Explained fully before applying (DECISIONS.md R-102);
+applied to a freshly-reset test database with zero constraint
+violations, then the full pre-existing suite passed unmodified — no
+historical row was affected (every existing non-null-owner Finding was
+already same-tenant by construction, since `createFinding` never sets
+`owner_id` to anything but the acting user's own id).
+
+### 28. Known limitations
+
+1. `remediation_actions.owner_id` has the identical unprotected shape
+   `risks`/`findings`' `owner_id` had before their own fixes — out of
+   C4's own scope (Remediation is explicitly forbidden this slice);
+   deferred to whichever future slice builds Remediation, using this
+   same, now twice-established pattern.
+2. Finding has no direct Evidence relationship in the approved schema —
+   traceability is indirect only, via the reused Risk/Assessment
+   functions (item 5/6); this mirrors Risk's own identical limitation
+   from Slice C3, not a new gap.
+3. `finding_controls`/`finding_processing_activities` junctions are not
+   used by this slice's UI — only `finding_risks` (instructions'
+   own §3 framing: Findings are created FROM a Risk in this slice,
+   never directly from a Control or ProcessingActivity).
+4. No standalone, non-Risk-context Finding creation UI — every Finding
+   this slice's UI can create is driven from a Risk's own detail page,
+   mirroring Slice C3's identical Risk-from-Assessment-context-only
+   limitation.
+5. Carries forward every prior slice's own recorded limitation
+   (DECISIONS.md R-85/D-03, R-95): no real Supabase Auth/Storage
+   backend is reachable from this environment.
+
+### 29. Deferred decisions
+
+- Closing `remediation_actions.owner_id`'s identical tenant-scoping gap
+  (item 28.1) — belongs to a future Remediation slice.
+- Building `FindingControl`/`FindingProcessingActivity` UI (linking a
+  Finding directly to a Control or ProcessingActivity, not only via its
+  source Risk).
+- A standalone, non-Risk-context Finding creation workflow.
+
+### 30. Recommended C5
+
+Per explicit instruction, no recommendation is pressed — the user's own
+brief states "we will review C4 before continuing" and forbids
+proceeding to Remediation/Validation/Maturity/Client Portal/Reporting/AI
+in this session. The natural next candidate, per the brief's own chain
+("Assessment → ... → Risk → Finding → later Remediation → later
+Validation"), is Remediation — the schema and its junctions already
+exist, database-only, from Milestone 7, the same pattern this slice and
+Slice C3 both just followed; it would also be the natural place to close
+`remediation_actions.owner_id`'s identical, already-flagged gap (item
+28.1) in the same pass, if the user directs it. This report does not
+preempt that choice.
+
+### 31. Git status
+
+All Slice C4 work is committed on `claude/primus-privacy-architecture-39p3gh`.
+
+### 32. Remote synchronization
+
+Pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies).
+
+---
 
 ## Slice C3.1 — Risk Security Hardening (Session 20, 2026-09-01)
 

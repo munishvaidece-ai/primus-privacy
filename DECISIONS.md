@@ -2765,3 +2765,71 @@ value (insert or update) via its generic `to_jsonb(NEW)` field_changes
 — confirmed live against real audit_log rows this session, not merely
 inferred — so no new or second audit mechanism was needed (instructions
 §7).
+
+### R-102 — `findings.owner_id` is also now database-enforced tenant-scoped, discovered and closed proactively during Slice C4 (mirrors R-101)
+
+**Decision:** Migration 0021 replaces `findings`' plain `owner_id →
+users(id)` foreign key with a composite `findings_owner_id_tenant_fk
+(owner_id, tenant_id) → users(id, tenant_id)`, reusing the
+`users_id_tenant_id_key` unique constraint migration 0020 already
+added — no second unique constraint was needed.
+**Rationale:** PHASE C4 instructions §10 explicitly direct: "If Finding
+has an owner: ... use the tenant-safe ownership mechanism established in
+C3.1 ... do not allow cross-tenant ownership." Direct inspection of
+`findings.owner_id` (migration 0012) found it in the exact same
+unprotected shape `risks.owner_id` was in before Slice C3.1 — a plain
+single-column FK with no tenant consistency check. Since C4 needed to
+touch `findings.owner_id` anyway (Finding gets a genuine post-creation
+owner edit, unlike Risk's status-only edit — see R-103), applying the
+already-established, already-approved C3.1 fix here was the direct,
+literal instruction, not a new decision requiring separate deliberation
+— the "smallest possible additive migration" (C3.1's own instruction
+language, still the right standard here) was one `DROP CONSTRAINT`/
+`ADD CONSTRAINT` pair, since the supporting `UNIQUE (id, tenant_id)` on
+`users` already exists. `remediation_actions.owner_id` has the
+identical unprotected shape and was deliberately left untouched — it
+belongs to a future Remediation slice, explicitly out of C4's scope
+(instructions' own "DO NOT build Remediation"); recorded in PROGRESS.md
+as a known limitation for whichever slice builds Remediation to
+address using this same, now twice-established pattern.
+
+### R-103 — Finding creation/editing is NOT blocked by Assessment finalization; Finding severity is never automatically copied from its source Risk; "rationale" is again correctly omitted (Slice C4)
+
+**Decision:** Three Risk-slice precedents were re-applied to Finding,
+each re-verified against Finding's own actual schema rather than
+assumed to carry over automatically:
+1. **Finalization:** `createFinding`/`updateFinding` carry no Assessment-
+   finalization check. Direct inspection of migrations 0012/0013
+   confirms no trigger on `findings`/`finding_risks` references
+   Assessment or its `status` at all — the identical absence R-98
+   already found for `risks`/`risk_controls`. `tests/app/findings.test.ts`
+   directly queries `information_schema.triggers` to confirm this, the
+   same verification method R-98/the C3.1 hardening pass established as
+   this project's standard for proving a finalization rule (or its
+   absence) rather than assuming a migration file was read completely.
+2. **Severity:** `findings.severity` is an independently-stored column
+   with no FK, trigger, or generated-column relationship to
+   `risks.inherent_rating`/`risks.residual_rating` — direct inspection
+   of `db/schema/findings.ts` and migrations 0012/0013 confirms nothing
+   copies it. `createFinding` never reads the source Risk's own rating
+   at all; only the Finding creation form's own `<select>` defaults to
+   the source Risk's `inherent_rating` as a UI convenience (instructions
+   §9's own "do not automatically copy... If it is independently
+   stored, respect that" — the form default is not a copy in the
+   domain-layer sense, since the consultant's own submitted value, not
+   the Risk's, is what `createFinding` ever persists).
+3. **"Rationale":** `db/schema/findings.ts`/DATA_MODEL.md §8 name no
+   `rationale`-shaped column on `findings`, mirroring R-100's identical
+   finding for `risks` — omitted from the Finding creation/edit forms
+   for the same reason, not silently invented despite instructions
+   §20's own illustrative list naming it as a possible example field.
+**Rationale:** PHASE C4 instructions §13 require using the existing
+model rather than inventing a finalization rule, and stopping only if
+genuinely ambiguous; §9 require using authoritative domain logic if
+severity is derived, or respecting independent storage if not; §20's
+own final constraint ("DO NOT add fields unless the schema/product
+specification supports them") governs over its own illustrative list,
+exactly as it did for Risk in Slice C3 (R-100). None of these three
+questions was ambiguous once the actual schema was inspected directly
+— each resolves the same way its Slice C3 analogue did, for the same,
+directly-verifiable reasons, so no STOP was warranted for any of them.

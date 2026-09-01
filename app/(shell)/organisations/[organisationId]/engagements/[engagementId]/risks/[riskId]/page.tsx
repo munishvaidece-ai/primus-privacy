@@ -5,12 +5,16 @@ import { withRequestDb } from "@/lib/db/request-client";
 import { getRiskDetail } from "@/lib/domain/risks";
 import { getControlTestsForControl } from "@/lib/domain/assessments";
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
+import { listFindingsForRisk } from "@/lib/domain/findings";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
-import { Badge, riskRatingTone, riskStatusTone, statusTone } from "@/components/ui/badge";
+import { Badge, riskRatingTone, riskStatusTone, findingStatusTone, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { updateRiskStatusAction } from "../actions";
+import { updateRiskStatusAction, createFindingAction } from "../actions";
 
 const STATUS_OPTIONS = ["open", "mitigating", "accepted", "closed"] as const;
+const SEVERITY_OPTIONS = ["low", "medium", "high", "critical"] as const;
+const FORM_INPUT_CLASS =
+  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 // Slice C3 (PHASE C3 instructions §8): Risk detail — identity, source
 // Assessment/Control/AssessmentResponse, scoring, status, owner, and
@@ -51,6 +55,8 @@ export default async function RiskDetailPage({
           return [tests, ev] as const;
         })
       : ([[], []] as const);
+
+  const findingRows = await withRequestDb(user.id, (db) => listFindingsForRisk(db, risk.id));
 
   return (
     <div>
@@ -261,11 +267,84 @@ export default async function RiskDetailPage({
             </ul>
           )}
         </section>
+        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900">Findings</h2>
+            <Link
+              href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/findings`}
+              className="text-xs font-medium text-slate-900 underline"
+            >
+              View all engagement findings
+            </Link>
+          </div>
+          {findingRows.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">No findings recorded from this risk yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {findingRows.map((f) => (
+                <li key={f.id} className="rounded border border-slate-100 p-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <Link
+                      href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/findings/${f.id}`}
+                      className="font-medium text-slate-900 underline"
+                    >
+                      {f.title}
+                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={riskRatingTone(f.severity)}>{f.severity}</Badge>
+                      <Badge tone={findingStatusTone(f.status)}>{f.status}</Badge>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">Owner: {f.ownerEmail ?? "unassigned"}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form action={createFindingAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+            <input type="hidden" name="organisationId" value={params.organisationId} />
+            <input type="hidden" name="engagementId" value={params.engagementId} />
+            <input type="hidden" name="riskId" value={risk.id} />
+
+            <div>
+              <label htmlFor="findingTitle" className="block text-xs font-medium text-slate-700">
+                Finding title
+              </label>
+              <input id="findingTitle" name="title" type="text" required maxLength={200} className={FORM_INPUT_CLASS} />
+            </div>
+            <div>
+              <label htmlFor="findingDescription" className="block text-xs font-medium text-slate-700">
+                Description
+              </label>
+              <textarea id="findingDescription" name="description" rows={2} className={FORM_INPUT_CLASS} />
+            </div>
+            <div>
+              <label htmlFor="findingSeverity" className="block text-xs font-medium text-slate-700">
+                Severity
+              </label>
+              <select id="findingSeverity" name="severity" defaultValue={risk.inherentRating} className={FORM_INPUT_CLASS}>
+                {SEVERITY_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">Defaults to this risk&rsquo;s inherent rating — not automatically linked; change as needed.</p>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-700">
+              <input type="checkbox" name="assignOwnerToSelf" />
+              Assign this finding to me
+            </label>
+            <Button type="submit" variant="secondary" size="sm">
+              Create finding
+            </Button>
+          </form>
+        </section>
       </div>
 
       <p className="mt-6 text-xs text-slate-400">
-        Findings, remediation, and validation for this risk are not yet part of this application — this is the Risk Engine
-        only (Slice C3).
+        Remediation and validation for this finding are not yet part of this application — this is the Risk Engine plus
+        Findings only (Slices C3/C4).
       </p>
     </div>
   );

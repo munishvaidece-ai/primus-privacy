@@ -536,6 +536,13 @@ assigned to; only its referential-integrity guarantee was strengthened
 to match the tenant boundary every other engagement-scoped relationship
 in this document already enforces.
 
+**Implementation clarification (Slice C4, DECISIONS.md R-102):**
+`Finding.owner_id` received the identical tenant-scoping hardening —
+found in the same unprotected shape `Risk.owner_id` had before Slice
+C3.1, and closed the same way, reusing the same `UNIQUE (id, tenant_id)`
+constraint on `users`. No field was renamed, removed, or given
+different application-level semantics.
+
 `ValidationRecord.triggers_control_reassessment_id` is implemented as
 two separate nullable FK columns (`triggers_control_test_id`/
 `triggers_assessment_response_id`), one per target table, mirroring

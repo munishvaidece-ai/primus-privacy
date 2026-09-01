@@ -103,3 +103,23 @@ export function riskStatusTone(status: string): keyof typeof toneClasses {
       return "neutral";
   }
 }
+
+/** Slice C4 — `finding_status` (open/in_progress/resolved/accepted)
+ * tone. `finding_severity` reuses `riskRatingTone` directly above (an
+ * identical low/medium/high/critical scale — no separate function
+ * needed), but `finding_status`'s own value set differs enough from
+ * `risk_status` (in_progress/resolved vs. mitigating/closed) to warrant
+ * its own function rather than an approximate reuse. */
+export function findingStatusTone(status: string): keyof typeof toneClasses {
+  switch (status) {
+    case "open":
+      return "warning";
+    case "in_progress":
+      return "neutral";
+    case "resolved":
+    case "accepted":
+      return "positive";
+    default:
+      return "neutral";
+  }
+}

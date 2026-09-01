@@ -36,7 +36,12 @@ export const findings = pgTable(
     description: text("description"),
     severity: findingSeverityEnum("severity").notNull(),
     status: findingStatusEnum("status").notNull().default("open"),
-    ownerId: uuid("owner_id").references(() => users.id),
+    // Slice C4 (migration 0021, DECISIONS.md R-101/R-102): no plain
+    // `.references(() => users.id)` here — the composite `ownerTenantFk`
+    // below (referencing `users(id, tenant_id)`, not `users(id)` alone)
+    // is the real constraint, mirroring `risks.owner_id`'s identical
+    // Slice C3.1 fix.
+    ownerId: uuid("owner_id"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -48,6 +53,16 @@ export const findings = pgTable(
       columns: [table.engagementId, table.organisationId, table.tenantId],
       foreignColumns: [engagements.id, engagements.organisationId, engagements.tenantId],
       name: "findings_engagement_organisation_tenant_fk",
+    }),
+    // Slice C4 (migration 0021): tenant consistency for the Finding
+    // owner — conditionally active (skipped when owner_id is null),
+    // proves whoever `owner_id` names belongs to this exact Finding's
+    // own tenant. Mirrors `risks`' identical `ownerTenantFk`
+    // (db/schema/risks.ts, Slice C3.1/DECISIONS.md R-101).
+    ownerTenantFk: foreignKey({
+      columns: [table.ownerId, table.tenantId],
+      foreignColumns: [users.id, users.tenantId],
+      name: "findings_owner_id_tenant_fk",
     }),
     // Consumed by the finding-links junctions and by RemediationFinding.
     idScopeUnique: unique("findings_id_scope_key").on(
