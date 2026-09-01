@@ -1,6 +1,9 @@
 # PRIMUS PRIVACY — Architectural Decisions
 
-Status: Draft v0.1. This log records material architectural decisions and
+Status: Draft v0.3 (Session 3, 2026-09-01: added R-16, closing a
+historical-integrity gap found during this session's consistency review;
+D-01/D-02 remain RESOLVED from Session 2). This log records material
+architectural decisions and
 their rationale, in the order they were made. Items requiring a human
 product/business decision that cannot be safely inferred from the brief are
 marked **DECISION REQUIRED** and are not assumed — implementation should
@@ -405,3 +408,29 @@ R-12 generalizes cleanly to these three if a future session decides to
 apply it. Not DECISION REQUIRED: it doesn't block the first migration,
 since these entities' current engagement-scoped shape is unchanged from
 before this session.
+
+### R-16 — `RiskScoringModel` and `MaturityDomainWeight` are append-only / frozen-per-engagement, closing a historical-integrity gap found during this session's consistency review
+
+**Decision:** `RiskScoringModel` changes always create a new row (new
+`version`) rather than editing `matrix_definition` in place on an existing
+row; `MaturityDomainWeight` is never edited for an engagement after that
+engagement's `MaturityScore` rows have been computed from it. `Risk.
+inherent_rating`/`residual_rating` and `MaturityScore.score` remain
+stored, computed-once values (already true of the original design) rather
+than values derived live from the current scoring model/weights at read
+time.
+**Rationale:** while reviewing this session against the explicit
+"historical data cannot be silently rewritten by current-state changes"
+check, it became clear the original design named `RiskScoringModel` as
+"versioned" and `MaturityDomainWeight` as "configurable" without stating
+the same append-only/frozen discipline already applied to
+`ControlLibraryVersion` (§6) and the D-02 master-data mechanism (§5) — an
+in-place edit to either would have silently changed the documented basis
+for every already-scored `Risk` or already-computed `MaturityScore` that
+referenced it, which is exactly the failure mode D-02's mechanism was
+built to rule out elsewhere. This closes that gap by applying the same
+principle already established for methodology (R-04, §6) and master data
+(R-12, §5.1) to these two scoring-configuration entities. Not raised as
+DECISION REQUIRED: it's the same append-only pattern already used
+elsewhere in this schema, applied consistently, not a new product
+decision.

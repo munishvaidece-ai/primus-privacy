@@ -1,6 +1,6 @@
 # PRIMUS PRIVACY — Conceptual Data Model
 
-Status: Draft v0.2 — conceptual model to guide schema design. No migrations
+Status: Draft v0.3 — conceptual model to guide schema design. No migrations
 exist yet. Field lists are conceptual (the fields that matter for
 understanding the model), not final column specs.
 
@@ -11,6 +11,12 @@ substantially rewritten; §2, §7, §11, §12, §13 are updated for
 consistency; a worked example against the product owner's FY2026/FY2027
 test scenario is included at §5.5.
 
+**Session 3 revision (2026-09-01):** consistency review — fixed a stray
+`client_id`/`client_org_id` naming inconsistency in §1; closed a
+historical-integrity gap in §8/§9 (`RiskScoringModel` and
+`MaturityDomainWeight` made explicitly append-only/frozen-per-engagement,
+DECISIONS.md R-16), no other structural changes.
+
 This document expands and, in places, refines the entity list given in the
 product brief — adding junction tables, enums, and a small number of
 supporting entities the relationships require, and explicitly noting where
@@ -20,9 +26,11 @@ DECISIONS.md.
 
 ## 1. Design Conventions Used Throughout
 
-- Every operational table carries `client_id` (directly or transitively via
-  `engagement_id`) — the tenant-scoping column checked by both RLS and the
-  application authorization layer.
+- Every operational table carries `client_org_id` (directly or
+  transitively via `engagement_id`), and every client-owned table
+  ultimately carries `tenant_id` (directly on `User`/`Organisation`,
+  transitively everywhere else) — the two tenant-scoping columns checked
+  by both RLS and the application authorization layer (§2, §12).
 - Every material table carries `created_by`, `created_at`,
   `updated_by`, `updated_at`.
 - Any field that is a **system suggestion** is paired with a **human
@@ -375,6 +383,21 @@ not a bespoke "children module."
 `Evidence` attaches to `RemediationAction` and `ValidationRecord` via the
 same generic `EvidenceLink` used everywhere else.
 
+**`RiskScoringModel` is append-only, like `ControlLibraryVersion` (§6),
+for the same reason:** `Risk.risk_scoring_model_id` pins each risk to the
+specific matrix that produced its `inherent_rating`/`residual_rating`, and
+those rating fields are themselves stored, computed-once values, not
+derived live from the model at read time. Editing an existing
+`RiskScoringModel` row's `matrix_definition` in place would silently
+change the documented basis for every risk already scored against it —
+exactly the kind of retroactive rewrite this architecture is built to
+prevent. A change to the scoring approach creates a **new**
+`RiskScoringModel` row (new `version`); existing `Risk` rows keep pointing
+at the version they were actually scored under until a consultant
+explicitly re-scores them (producing new stored rating values, same
+row or a new one per the engagement's own change-tracking, not a
+silent recalculation).
+
 **Enforced flow (application-layer state machine, not a convention):**
 `RemediationAction.status → EVIDENCE_SUBMITTED` requires linked Evidence to
 exist → a `ValidationRecord` is created by a consultant → *only* a
@@ -395,7 +418,17 @@ effect on maturity.
 `MaturityScore` rows are produced only by the Maturity engine's
 recalculation routine, triggered by an accepted `ValidationRecord` leading
 to a control reassessment, or by a new `Assessment` finalization — never by
-a direct user edit to a score.
+a direct user edit to a score. The same rule as `RiskScoringModel` applies
+to `MaturityDomainWeight`: it is engagement-scoped (one weight per
+engagement+domain) and is never edited after the engagement's
+`MaturityScore` rows have been computed from it — a re-weighting is a
+change for the *next* engagement/period, not a retroactive edit to a prior
+one's already-computed, stored `MaturityScore`. This is what makes
+"maturity calculations are reproducible for a historical assessment" hold:
+`MaturityScore.computed_from_control_test_ids` traces to specific
+`ControlTest` rows, which trace to a specific `Assessment`, which used a
+specific, by-then-frozen `MaturityDomainWeight` set — none of which a later
+engagement's configuration changes can reach back and alter.
 
 ## 10. Audit, Quality Review & Reporting
 

@@ -58,7 +58,8 @@ Builds on a proven MVP, still single-practice:
 - **Email notification delivery**, layered onto the existing Notification
   entity rather than replacing it.
 - **QualityReview workflow UI** for the Auditor role.
-- **MFA** for all users; SSO for PRIMUS-side and larger client tenants.
+- **MFA** for all users; SSO for PRIMUS-side users and larger client
+  organisations.
 - **Malware scanning on evidence upload**, once real client file volume
   justifies the added infrastructure.
 - Hardening of the client-facing experience for the post-engagement
@@ -89,9 +90,10 @@ real client usage:
 - **AI-assisted drafting**, strictly additive and strictly
   suggest/accept/modify/reject — never a source of a final conclusion
   (principle 10/11 continue to apply unchanged).
-- **Advanced analytics/benchmarking** across clients (with the tenant
-  isolation and consent implications that cross-client aggregation raises
-  addressed explicitly before any such feature is built).
+- **Advanced analytics/benchmarking** across clients (with the
+  client-organisation isolation and consent implications that
+  cross-client aggregation raises addressed explicitly before any such
+  feature is built).
 
 ## Explicitly Not Scheduled
 

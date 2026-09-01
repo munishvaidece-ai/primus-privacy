@@ -1,7 +1,9 @@
 # PRIMUS PRIVACY — Product Specification
 
-Status: Draft v0.1 — architecture phase, no application code yet.
-Owner: Principal Architecture session, 2026-09-01.
+Status: Draft v0.2 — architecture phase, no application code yet.
+Owner: Principal Architecture session, 2026-09-01. Session 2 aligns §2 and
+§4–§5 terminology with the `Tenant`/`Organisation` model resolved in
+DECISIONS.md D-01.
 
 ## 1. Product Vision
 
@@ -38,7 +40,7 @@ platform.
 
 | Role | Purpose |
 |---|---|
-| Platform Administrator | Operates the platform itself: tenant provisioning, global role/permission configuration, control library and regulatory content management. Not a participant in client engagement work by default. |
+| Platform Administrator | Operates the platform itself: client organisation provisioning, global role/permission configuration, control library and regulatory content management. Not a participant in client engagement work by default. |
 | Practice Partner | Practice-wide oversight: engagement economics, quality sign-off, cross-engagement visibility within the practice. |
 | Engagement Manager | Owns delivery of one or more engagements: scoping, staffing, timeline, client relationship, final report sign-off. |
 | Consultant | Does the engagement work: discovery, data landscape build-out, assessments, control testing, findings, remediation tracking. |
@@ -77,7 +79,8 @@ engagement and, eventually, continuously after it.
 
 Narrative walk-through:
 
-1. **Client** is onboarded as a tenant organisation.
+1. **Client** is onboarded as a client organisation under PRIMUS's tenant
+   (see ARCHITECTURE.md §5 for the `Tenant`/`Organisation` distinction).
 2. An **Engagement** is opened under the client (e.g. "DPDP Readiness &
    Implementation — FY2026"). All engagement work happens inside this
    boundary.
@@ -115,7 +118,10 @@ These are enforced architecturally, not just as intentions — see
 ARCHITECTURE.md, DATA_MODEL.md and SECURITY.md for how each is implemented:
 
 1. Real relational data; no hard-coded demo data anywhere in shipped code.
-2. Multi-tenant from day one (tenant = client organisation).
+2. Multi-tenant from day one — a `Tenant` (one consulting practice) owns
+   many client `Organisation`s, each isolated from every other client
+   under the same tenant; exactly one `Tenant` exists in MVP (see
+   ARCHITECTURE.md §5, DECISIONS.md D-01).
 3. Server-side authorization on every read and write; UI hiding is cosmetic
    only.
 4. Engagement-level isolation as a first-class boundary, not a filter
@@ -142,7 +148,8 @@ single client and a single engagement — not partial coverage of many
 modules. Concretely:
 
 **In scope for MVP:**
-- Tenant/org model: Practice org (PRIMUS) + one Client org + Business Units.
+- Tenant/organisation model: one `Tenant` (PRIMUS) + one client `Organisation`
+  + Business Units.
 - User accounts, roles, and engagement membership (server-enforced
   authorization).
 - Engagement creation and lifecycle (Draft → Active → Closed).

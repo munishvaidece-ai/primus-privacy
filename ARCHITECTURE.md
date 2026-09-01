@@ -1,7 +1,11 @@
 # PRIMUS PRIVACY — Architecture
 
-Status: Draft v0.1 — no code exists yet; this describes the target
-architecture for controlled implementation.
+Status: Draft v0.3 — no code exists yet; this describes the target
+architecture for controlled implementation. Session 2 (2026-09-01) adds
+the `Tenant` layer (§4, §5) and the Client Master Data / engagement-scoped
+split (§4, §5) resolving DECISIONS.md D-01 and D-02. Session 3 (2026-09-01)
+fixes a stale `EngagementMembership`-only reference in the §3 layers
+diagram, left over from the Session 2 rewrite.
 
 ## 1. Goals and Non-Goals
 
@@ -51,8 +55,8 @@ future one.
 │  └───────────────────────────────────────────────────────┘   │
 │  ┌───────────────────────────────────────────────────────┐   │
 │  │ Authorization / Policy layer                           │   │
-│  │  - resolves user's EngagementMembership + Role +       │   │
-│  │    Permissions for the requested tenant/engagement     │   │
+│  │  - resolves user's Tenant/Organisation/Engagement       │   │
+│  │    Membership(s) + Role + Permissions for the target    │   │
 │  │  - denies by default                                   │   │
 │  └───────────────────────────────────────────────────────┘   │
 │  ┌───────────────────────────────────────────────────────┐   │

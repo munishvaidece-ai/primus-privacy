@@ -23,6 +23,9 @@ see `PROGRESS.md` for exactly what exists and what doesn't.
 | [`DECISIONS.md`](./DECISIONS.md) | Architectural decision log, including open **DECISION REQUIRED** items |
 
 Before writing code against this repository, read `DECISIONS.md` for the
-open items — two of them (multi-practice tenancy, and whether Data
-Landscape objects persist across engagements) directly shape the first
-database migration.
+open items. The two that used to block the first database migration —
+tenancy (D-01) and Data-Landscape persistence across engagements (D-02) —
+are resolved as of Session 2 (see `DECISIONS.md` and `DATA_MODEL.md` §2/§5).
+**D-03 (data residency)** is the item to resolve before provisioning a
+real Supabase project; the remaining open items (D-04–D-06) don't block
+early schema work.

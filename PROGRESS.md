@@ -1,7 +1,56 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Session 2 (architecture validation: D-01/D-02
-resolved; still no application code).
+Status: 2026-09-01 — Session 3 (architecture validation continued: fresh
+consistency pass over the Session 2 resolution; still no application code).
+
+## Session 3 — Continued Architecture Validation (2026-09-01)
+
+**What happened:** resumed from the Session 2 state (working tree clean,
+two commits already on `claude/primus-privacy-architecture-39p3gh`) to
+finish the requested consistency work, rather than redo D-01/D-02 from
+scratch. Re-read all five architecture documents from disk (not from
+memory) and checked them line by line against each other and against the
+FY2026→FY2027 scenario, rather than re-asserting the Session 2 report's
+conclusions unverified. This found and fixed six real inconsistencies:
+
+1. `DATA_MODEL.md` §1 used `client_id` in the general naming convention
+   while every entity table elsewhere used `client_org_id` — fixed to
+   match (and to also name `tenant_id` explicitly as the second
+   tenant-scoping column, per §2/§12).
+2. `ARCHITECTURE.md` §3's layers diagram still described the
+   Authorization/Policy layer as resolving only `EngagementMembership`,
+   left over from before the Session 2 Tenant/Organisation/Engagement
+   membership model — fixed.
+3. `SECURITY.md` §14's threat table named only `EngagementMembership` in
+   the privilege-escalation mitigation row — fixed to name all three
+   membership scopes.
+4. **A genuine, if minor, gap against this session's explicit "historical
+   data cannot be silently rewritten by current-state changes" check:**
+   `RiskScoringModel` and `MaturityDomainWeight` were described as
+   "versioned"/"configurable" without ever stating the append-only /
+   frozen-per-engagement discipline already applied to
+   `ControlLibraryVersion` and the D-02 master-data mechanism. An in-place
+   edit to either would have silently changed the documented basis for
+   already-scored risks or already-computed maturity snapshots. Closed by
+   making both explicitly append-only/frozen (DATA_MODEL.md §8–§9,
+   DECISIONS.md R-16) — `Risk` and `MaturityScore` already stored
+   computed-once values, so no other structural change was needed, only
+   the explicit rule.
+5. `PRODUCT_SPEC.md` (not one of the five named documents, but checked for
+   overall consistency) used "tenant" informally to mean "client" in
+   several places predating the Session 2 `Tenant` entity, which now
+   conflicts with the resolved model — fixed §2/§4/§5 wording.
+6. `README.md` and `ROADMAP.md` (same) still described D-01/D-02 as open
+   items shaping the first migration, and used "tenant" loosely in two
+   more places — fixed.
+
+No new DECISION REQUIRED items were raised — the one gap found (#4) was
+closable by engineering judgment (applying a pattern the schema already
+uses elsewhere, consistently), not a new product/business ambiguity.
+
+No database migrations, application scaffolding, or code were created —
+this session remained architecture validation only, per explicit
+instruction.
 
 ## Session 2 — Architecture Validation (2026-09-01)
 
@@ -93,6 +142,21 @@ to test against; see "What Has Not Been Implemented" below.
   covering the `Tenant` entity, the new membership scopes, the SCD2
   master-data mechanism, `AIUseCase` scoping, `Evidence.engagement_id`
   nullability, and the non-blocking Notice/Retention/Consent question.
+
+**Session 3:**
+- Re-verified (not re-asserted) the Session 2 resolution by re-reading all
+  five architecture documents from disk and cross-checking entity
+  names/relationships line by line, plus `PRODUCT_SPEC.md`, `README.md`,
+  and `ROADMAP.md` for terminology drift against the new `Tenant` model.
+- Found and fixed 6 inconsistencies (listed above under Session 3's own
+  entry) — a naming slip, two stale pre-Session-2 wording leftovers, and
+  one genuine historical-integrity gap (`RiskScoringModel`/
+  `MaturityDomainWeight` now explicitly append-only/frozen-per-engagement).
+- Added `DECISIONS.md` R-16 recording the gap and its fix.
+- Re-confirmed the FY2026→FY2027 worked example (DATA_MODEL.md §5.5)
+  against the exact scenario restated in this session's instructions —
+  unchanged from Session 2's walk-through, still holds.
+- No new DECISION REQUIRED items were needed.
 
 ## What Has Not Been Implemented
 

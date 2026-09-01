@@ -1,9 +1,12 @@
 # PRIMUS PRIVACY — Security Model
 
-Status: Draft v0.2 — target design for controlled implementation. No
+Status: Draft v0.3 — target design for controlled implementation. No
 authentication, authorization, or storage code exists yet. Session 2
 (2026-09-01) adds the `Tenant` isolation layer resolved in DECISIONS.md
-D-01 to §2–§3.
+D-01 to §2–§3. Session 3 (2026-09-01) extends §6's audit-log material-change
+list to explicitly cover `ApplicabilityDetermination`, the methodology
+entities, and the scoring-configuration entities (R-16), and fixes a stale
+`EngagementMembership`-only reference in §14's threat table.
 
 This platform stores client organisations' confidential compliance
 posture, risk data, and evidence documents — treat every design decision
@@ -164,14 +167,19 @@ samples). Concretely:
   on ProcessingActivity and every Data-Landscape object; every new
   master-data version row (a `SystemVersion`, `ProcessorVersion`, etc. —
   DATA_MODEL.md §5.1 — is exactly the kind of client-fact change this
-  principle is meant to catch); Control, Assessment, AssessmentResponse,
-  ControlTest; Risk, Finding, RemediationAction, ValidationRecord; DPIA,
-  SDFScreeningDetail, AIUseCase; Evidence, Notice, RetentionRule,
-  ConsentMechanism, DataFlow; Engagement and Client record changes;
-  Role/Permission grants and Tenant/Organisation/Engagement membership
-  changes. Read-only views, transient UI state, and unsaved drafts are not
-  audited — this line is an engineering judgment, recorded (not "DECISION
-  REQUIRED") in DECISIONS.md.
+  principle is meant to catch); ApplicabilityDetermination; Control,
+  Requirement, RegulatoryReference, ControlLibraryVersion (practice-owned
+  methodology changes are material too — see DATA_MODEL.md §6);
+  Assessment, AssessmentResponse, ControlTest; RiskScoringModel (a new
+  version, per DATA_MODEL.md §8 — never an in-place edit), Risk, Finding,
+  RemediationAction, ValidationRecord; MaturityDomainWeight (per engagement,
+  never edited retroactively — DATA_MODEL.md §9), DPIA, SDFScreeningDetail,
+  AIUseCase; Evidence, Notice, RetentionRule, ConsentMechanism, DataFlow;
+  Engagement and Client record changes; Role/Permission grants and
+  Tenant/Organisation/Engagement membership changes. Read-only views,
+  transient UI state, and unsaved drafts are not audited — this line is an
+  engineering judgment, recorded (not "DECISION REQUIRED") in
+  DECISIONS.md.
 - Entries capture actor, tenant/engagement context, entity, action,
   field-level change where practical, timestamp, and — for any override of
   a system suggestion — the rationale field, since "consultant overrides
@@ -261,7 +269,7 @@ samples). Concretely:
 | Cross-tenant data leakage (app bug) | Two independent scoping layers (app + RLS); every table carries a tenant column. |
 | IDOR on evidence files | No public buckets; signed URLs minted only after authorization check; short TTL. |
 | Consultant-internal note/evidence shown to a client user | Explicit `visibility` field checked server-side on every read, independent of role-based read access to the containing record. |
-| Privilege escalation via role/membership tampering | Role and EngagementMembership changes go through the same authorization checks as any other write, and are themselves audited. |
+| Privilege escalation via role/membership tampering | Role, TenantMembership, OrganisationMembership, and EngagementMembership changes all go through the same authorization checks as any other write, and are themselves audited — granting oneself or another user a broader membership requires a permission of its own, not just write access to the membership table. |
 | A system-suggested value silently treated as a final legal/risk conclusion | Every suggestion field is paired with a required, separately-authored decision field; UI/reporting must always be able to show both. |
 | SQL injection / injection generally | Parameterized queries only (ORM/typed query builder); no string-concatenated SQL. |
 | Stale/guessable signed URLs | Short TTL, scoped to a single object, reissued per request rather than cached long-term. |
