@@ -86,5 +86,14 @@ export const controls = pgTable(
       table.controlLibraryVersionId,
       table.code,
     ),
+    // Milestone 5 addition: lets `assessment_controls` composite-FK
+    // against (control_id, control_library_version_id) →
+    // (id, control_library_version_id) — the other half of the CRITICAL
+    // "AssessmentControl must only reference a Control belonging to the
+    // ControlLibraryVersion used by the Assessment" invariant (Milestone
+    // 5 instructions §6), proven by construction rather than a trigger.
+    idControlLibraryVersionUnique: unique(
+      "controls_id_control_library_version_id_key",
+    ).on(table.id, table.controlLibraryVersionId),
   }),
 );

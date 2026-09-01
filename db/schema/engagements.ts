@@ -91,5 +91,14 @@ export const engagements = pgTable(
       table.organisationId,
       table.tenantId,
     ),
+    // Milestone 5 addition: lets `assessments` composite-FK against
+    // (engagement_id, control_library_version_id) →
+    // (id, control_library_version_id), making "an Assessment's library
+    // version matches its Engagement's pinned one" a database-enforced
+    // impossibility to violate, not an application check (Milestone 5
+    // instructions §3/§6). Purely additive — no column or data change.
+    idControlLibraryVersionUnique: unique(
+      "engagements_id_control_library_version_id_key",
+    ).on(table.id, table.controlLibraryVersionId),
   }),
 );

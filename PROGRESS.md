@@ -1,16 +1,291 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 4 COMPLETE (Session 7): Regulatory
-Content & the Control Library — the practice-owned methodology layer
-(RegulatoryReference, Requirement, ControlLibraryVersion, Control, and
-their junctions), Tenant-scoped and structurally separate from client
-engagement data, with database-enforced published-version immutability
-and historical reproducibility, implemented, migrated, and tested against
-real PostgreSQL 16. `Engagement.control_library_version_id` (deferred in
-Milestone 1 — DECISIONS.md R-23) is wired up. No Assessments, Evidence,
-Risk, Findings, Remediation, DPIA, AI, or reports; no product UI.
-Milestones 1-3 (Sessions 4-6) and the architecture gate (Sessions 1-3)
-passed before this milestone began.
+Status: 2026-09-01 — Milestone 5 COMPLETE (Session 8): Assessment Engine
+— Assessment, AssessmentControl, AssessmentResponse, and ControlTest,
+connecting Engagement → ControlLibraryVersion → Controls → Assessment →
+AssessmentControls → AssessmentResponses → ControlTests, with a
+database-enforced CRITICAL invariant that an AssessmentControl can only
+reference a Control belonging to the exact ControlLibraryVersion its
+Assessment uses, finalized-assessment immutability, and historical
+reproducibility across control-library versions, implemented, migrated,
+and tested against real PostgreSQL 16. No Evidence workflow, Risk,
+Findings, Remediation, Maturity, DPIA, AI, dashboards, or reports; no
+product UI. Milestones 1-4 (Sessions 4-7) and the architecture gate
+(Sessions 1-3) passed before this milestone began.
+
+## Milestone 5 — Assessment Engine (Session 8, 2026-09-01)
+
+**Scope:** exactly what MILESTONE 5 instructed — `Assessment`,
+`AssessmentControl`, `AssessmentResponse`, `ControlTest`, per
+DATA_MODEL.md §6, connecting an Engagement (already pinned to a
+ControlLibraryVersion — Milestone 4) through to individual test results.
+No Risk, Findings, Remediation, Maturity, Evidence management workflow,
+DPIA, AI, dashboards, or reports — none of those tables or workflows
+exist anywhere in this schema. No UI beyond the unchanged placeholder
+page.
+
+Read `DATA_MODEL.md` §6/§11/§12, `db/schema/engagements.ts`,
+`db/schema/control-library.ts`, and migrations 0006-0007 fresh from disk
+before writing anything, per instruction. §6's exact field lists
+(Assessment: `engagement_id, assessment_type, period_label, status,
+previous_assessment_id`; AssessmentResponse: `assessment_control_id,
+effectiveness_rating, system_suggested_rating, decision_rating,
+decision_rationale, respondent_id, submitted_at`; ControlTest:
+`control_id, assessment_id (nullable), methodology, sample_description,
+result, tester_id, tested_at`) were followed exactly; DATA_MODEL.md
+names no `control_library_version_id` column for `Assessment` — its
+addition here is a denormalization for composite-FK proof, the same
+discipline every prior milestone applied to its own scope columns (see
+DECISIONS.md R-49).
+
+### What was implemented
+
+- **Drizzle TS schema** (3 new files: `db/schema/assessments.ts`,
+  `db/schema/assessment-controls.ts` [`AssessmentControl` +
+  `AssessmentResponse`], `db/schema/control-tests.ts`): `assessments`
+  (13 columns: `engagement_id`, denormalized `organisation_id`/
+  `tenant_id`/`control_library_version_id`, `assessment_type`,
+  `period_label`, `status`, `previous_assessment_id`, audit columns),
+  `assessment_controls` (junction: `assessment_id`, `control_id`,
+  denormalized `tenant_id`/`organisation_id`/`engagement_id`/
+  `control_library_version_id`), `assessment_responses` (`assessment_
+  control_id`, `effectiveness_rating`, `system_suggested_rating`,
+  `decision_rating`, `decision_rationale`, `respondent_id`,
+  `submitted_at`, denormalized scope columns), `control_tests`
+  (`control_id`, `tenant_id` always; `assessment_id`, `organisation_id`,
+  `engagement_id` nullable together — DATA_MODEL.md §6's own "a test can
+  also occur outside a formal assessment cycle"; `methodology`,
+  `sample_description`, `result`, `tester_id`, `tested_at`).
+- **Extended two existing schema files** (`engagements.ts`,
+  `control-library.ts`'s `controls`) with new `UNIQUE(id,
+  control_library_version_id)` constraints — additive only, needed so
+  `assessments`/`assessment_controls` can composite-FK against them
+  (DECISIONS.md R-49/R-50).
+- **New enums**: `assessment_status` (`draft`/`finalized` — exactly
+  DATA_MODEL.md §6's two states, not the four-state workflow the
+  milestone brief only conditionally offered — DECISIONS.md R-51),
+  `assessment_type` (the exact five values DATA_MODEL.md §6 names),
+  `control_effectiveness_rating` (the exact five values Milestone 5
+  instructions §7 require — never collapsed to a boolean — shared by
+  `effectiveness_rating`/`system_suggested_rating`/`decision_rating`),
+  `control_test_result` (`pass`/`fail`/`exception_noted`, an engineering
+  judgment call matching Milestone 2/4's posture for undocumented
+  domains).
+- **Migration 0008** (`drizzle-kit` generated, then hand-reordered — see
+  "Known limitations"/DECISIONS.md pattern from Milestone 3/R-39: the new
+  `UNIQUE` constraints on `engagements`/`controls` were emitted after the
+  new-table FKs that depend on them; moved before, caught and fixed
+  before the file was ever applied anywhere): 4 new tables, 4 new enums,
+  and every composite FK described below.
+- **Migration 0009** (hand-written, per DECISIONS.md R-02): audit-column
+  FKs; reparenting guards on `assessments` (blocking changes to
+  `{engagement_id,organisation_id,tenant_id,control_library_version_id}`
+  — the last one specifically so an Assessment's methodology pin can
+  never silently drift), `assessment_responses`, and `control_tests`;
+  finalization-immutability triggers — `assessments` itself (once
+  `finalized`, no further `UPDATE` of any kind succeeds), `assessment_
+  controls` (insert/delete blocked once its Assessment is finalized),
+  `assessment_responses` (the exact "AssessmentResponse rows become
+  read-only" guarantee DATA_MODEL.md §6 names, resolved via a two-level
+  join through `assessment_controls`), and `control_tests` (locked only
+  when `assessment_id IS NOT NULL` and that assessment is finalized —
+  standalone/continuous-monitoring tests are never locked); RLS enabled
+  with `FORCE` on all 4 tables and 13 policies — `assessments`/
+  `assessment_controls`/`assessment_responses` reuse `can_access_
+  engagement(uuid, uuid)` symmetrically (client engagement data, like
+  Milestone 3's ProcessingActivity), while `control_tests` uses a genuine
+  dual-mode policy branching on `assessment_id IS NULL`
+  (`can_access_engagement` when set, `can_access_tenant`/
+  `is_active_tenant_member` when not — DECISIONS.md R-55); `GRANT`/
+  `REVOKE` statements matching; audit triggers reusing Milestone 4's
+  `log_methodology_change()`/`log_methodology_relationship_change()`
+  **unchanged** — no new audit function was needed since every new table
+  already denormalizes `tenant_id` directly (DECISIONS.md R-56).
+- **The CRITICAL invariant** (Milestone 5 instructions §6): proven
+  entirely by two composite FKs, no trigger —
+  `assessment_controls(control_id, control_library_version_id) →
+  controls(id, control_library_version_id)` and
+  `assessment_controls(assessment_id, tenant_id, organisation_id,
+  engagement_id, control_library_version_id) → assessments(id,
+  tenant_id, organisation_id, engagement_id, control_library_version_id)`
+  together make "Assessment A on Library v1.0 cannot attach Control
+  C-100 from Library v2.0" a structural impossibility (DECISIONS.md
+  R-50). Verified via the Vitest suite AND a standalone `psql`
+  transaction outside the test framework (see "Testing performed").
+- **Assessment/Engagement consistency** (instructions §3): `assessments(
+  engagement_id, control_library_version_id) → engagements(id,
+  control_library_version_id)` makes it structurally impossible for an
+  Assessment to disagree with its Engagement's pinned methodology
+  version — combined with Milestone 4's existing immutable-once-set
+  guard on `engagements.control_library_version_id`, this can never drift
+  after the fact either.
+
+### Testing performed (exact commands, run in this order)
+
+1. `npm run typecheck` — clean, before and after the security migration
+   was hand-written.
+2. `npm run db:generate` — generated migration 0008; collided with
+   existing `0007_control_library_security.sql` (drizzle-kit's own
+   numbering, the same recurring issue as Milestones 2-4) — renamed to
+   `0008_assessment_engine.sql`, `meta/0007_snapshot.json` renamed to
+   `meta/0008_snapshot.json`, `meta/_journal.json`'s `idx`/`tag` fixed;
+   re-ran `db:generate`, confirmed "No schema changes, nothing to
+   migrate." Reviewed the generated SQL and found (and fixed, before
+   ever applying it) the same statement-ordering issue Milestone 3's
+   R-39 first found: the new `UNIQUE` constraints on `engagements`/
+   `controls` were emitted after the FKs that depend on them.
+3. `npx tsx scripts/reset-test-db.ts` (fresh database, all 10 migration
+   files applied in order) — succeeded cleanly after the reordering fix.
+4. `npx vitest run tests/rls tests/master-data tests/processing-activity
+   tests/control-library` — all 123 pre-existing tests still passing
+   against the post-Milestone-5 schema (no regressions).
+5. `npx vitest run tests/assessment-engine` — all 52 new tests passing.
+6. `npm run test:db` (fresh reset + full suite: `tests/rls` +
+   `tests/master-data` + `tests/processing-activity` +
+   `tests/control-library` + `tests/assessment-engine`) —
+   **175/175 passing**. Run **twice** in full (fresh `reset-test-db` each
+   time) to prove stability — 175/175 both times, identical results.
+7. `npm run lint` — clean.
+8. `npm run build` (`next build`) — compiles successfully, static pages
+   generated, no type or lint errors.
+9. Direct `psql` inspection of the resulting database: `relrowsecurity`/
+   `relforcerowsecurity` confirmed `t`/`t` on all 4 new tables;
+   `pg_policies` confirmed all 13 new policies with the expected
+   commands; `information_schema.role_table_grants` confirmed
+   `authenticated` has exactly the intended privileges per table and
+   `anon`/`PUBLIC` have none; `pg_constraint` confirmed every FK
+   (including the CRITICAL pair) and `UNIQUE` constraint described above;
+   `information_schema.triggers` confirmed all 20 triggers (reparenting
+   guards, finalization guards, and audit triggers) present with correct
+   timing/events; two standalone `psql` transactions (outside vitest)
+   reproduced (a) the CRITICAL cross-library-version rejection and (b)
+   Milestone 4's own published-immutability rejection, both directly
+   against the database.
+
+### tests/assessment-engine (6 new files, 52 new tests)
+
+- `crud.test.ts` (8 tests): Assessment creation with full scope
+  association; AssessmentControl inclusion; all five
+  `effectiveness_rating` states recorded (never a boolean); reviewer
+  decision fields (`system_suggested_rating`/`decision_rating`/
+  `decision_rationale`) alongside the assessor's own rating; at-most-one-
+  response-per-control uniqueness; assessment-scoped and standalone
+  ControlTest; junction delete-not-update semantics.
+- `consistency.test.ts` (6 tests): an Assessment cannot be created for an
+  unpinned Engagement; cannot reference a ControlLibraryVersion different
+  from its Engagement's; CAN when matched; and the CRITICAL suite —
+  Assessment A (Library v1.0) cannot attach Control C-100 (Library v2.0)
+  even when the row's own `control_library_version_id` column is set to
+  try to make either side look consistent; CAN attach a genuine Library
+  v1.0 control.
+- `finalization.test.ts` (10 tests): draft assessments freely editable;
+  draft→finalized allowed; finalized assessments immutable (including a
+  no-op field UPDATE); AssessmentControl insert/delete blocked once
+  finalized; AssessmentResponse insert/update/delete blocked once
+  finalized (with a persisted-value check proving nothing changed);
+  assessment-scoped ControlTest locked once its assessment is finalized;
+  standalone ControlTest never locked; full draft-state mutability
+  confirmation.
+- `historical-reproducibility.test.ts` (8 tests): the exact instructions
+  §12 scenario — Library v1.0 (C1, C2); Engagement "ABC Financial —
+  FY2026" pinned to v1.0; Assessment A1 with AssessmentControl C1,
+  response "Partially Implemented" + synthetic rationale, and a synthetic
+  ControlTest; Library v2.0 (C1, C2, C3) published afterward. Confirms
+  A1 still resolves to Library v1.0 and its original Control C1 row; A1
+  does NOT acquire C3; A1's response/rationale/test are byte-for-byte
+  unchanged; an explicit attempt to attach v2.0's C3 to A1 is rejected by
+  the database; and a full one-query resolution of A1's result set is
+  unaffected by v2.0's existence.
+- `tenant-isolation.test.ts` (15 tests): the 8 required RLS scenarios —
+  Tenant A own assessment; Tenant A blocked from Tenant B; Organisation
+  A blocked from Organisation B under the same tenant; AssessmentControl
+  blocked cross-tenant (read and forged-insert, including a cross-tenant-
+  control forgery caught by the library-version FK); unauthorized read
+  (unaffiliated user, anonymous request) and write (0-rows-affected +
+  unchanged-data confirmation) blocking; a positive write case proving
+  the blocks are real. A second `describe` block exercises
+  `control_tests`' dual-mode isolation specifically: a TenantMembership
+  holder can read/write standalone tests, an organisation-scoped user
+  cannot write standalone tests but CAN read/write engagement-scoped
+  ones, and Tenant B is blocked from both shapes.
+- `audit.test.ts` (5 tests): Assessment creation + finalization (status
+  transition) audited; AssessmentControl inclusion audited; response and
+  rationale changes audited; ControlTest creation/modification audited;
+  `auth.uid()` attribution confirmed.
+
+### Files changed
+
+- New: `db/schema/assessments.ts`, `db/schema/assessment-controls.ts`,
+  `db/schema/control-tests.ts`,
+  `drizzle/migrations/0008_assessment_engine.sql`,
+  `drizzle/migrations/0009_assessment_engine_security.sql`,
+  `drizzle/migrations/meta/0008_snapshot.json`,
+  `tests/assessment-engine/helpers.ts`,
+  `tests/assessment-engine/crud.test.ts`,
+  `tests/assessment-engine/consistency.test.ts`,
+  `tests/assessment-engine/finalization.test.ts`,
+  `tests/assessment-engine/historical-reproducibility.test.ts`,
+  `tests/assessment-engine/tenant-isolation.test.ts`,
+  `tests/assessment-engine/audit.test.ts`.
+- Modified: `db/schema/enums.ts` (new Milestone 5 enum block),
+  `db/schema/engagements.ts` (new `UNIQUE(id, control_library_version_id)`
+  constraint), `db/schema/control-library.ts` (new `UNIQUE(id,
+  control_library_version_id)` constraint on `controls`),
+  `db/schema/index.ts` (barrel exports), `package.json` (new
+  `test:assessment-engine` script, `test:db` extended),
+  `drizzle/migrations/meta/_journal.json` (renumbering fix),
+  `DATA_MODEL.md` (one additive implementation-clarification paragraph
+  after §6), `DECISIONS.md` (R-49 through R-56), `PROGRESS.md` (this
+  entry).
+- Unchanged: `ARCHITECTURE.md`, `SECURITY.md`, `PRODUCT_SPEC.md`,
+  `ROADMAP.md`, `README.md`, and every migration/schema file from
+  Milestones 1-4 (`0000`-`0007`, and every `db/schema/*.ts` file this
+  milestone didn't touch).
+
+### Known limitations (documented, not silently built around)
+
+- Carried forward from Milestone 4, unaddressed this milestone (out of
+  scope): published `Requirement` content is not independently frozen by
+  a `ControlLibraryVersion`'s publish state — only the library's Control
+  set and mappings are (DECISIONS.md R-43/R-44). This remains a
+  deliberate, documented scope boundary, not an oversight or a change to
+  the approved architecture.
+- No completeness/percentage view or table was built — instructions §13
+  explicitly warn against a simplistic percentage that treats N/A as
+  compliant, and DATA_MODEL.md doesn't specify one; the four completeness
+  buckets are documented as SQL patterns (DECISIONS.md R-54) and
+  exercised by tests, not materialized as a first-class object.
+- `ControlTest`'s "conclusion"/"exceptions" concepts (Milestone 5
+  instructions §9) are captured via the `result` enum's `exception_noted`
+  value plus the free-text `sample_description` field, not as separate
+  columns DATA_MODEL.md doesn't name (DECISIONS.md, enums.ts).
+- No transition-rule workflow beyond the two-state draft/finalized
+  lifecycle exists for `Assessment` (DECISIONS.md R-51, matching the
+  milestone's own conditional instruction and established project
+  posture).
+- No UI of any kind was built (none was requested) — every table above
+  was exercised exclusively through direct SQL/RLS-aware test clients.
+
+### Recommended Milestone 6
+
+Evidence management is the natural next layer: DATA_MODEL.md §4 already
+defines `Document`/`Evidence`/`EvidenceLink` (a polymorphic junction
+naming `ControlTest`, `AssessmentResponse`, `Finding`,
+`RemediationAction`, `DPIA`, `ApplicabilityDetermination`,
+`ProcessingActivity` as subjects), and this milestone's `ControlTest`/
+`AssessmentResponse` are two of `EvidenceLink`'s named subject types —
+the Assessment Engine was built with no evidence columns precisely so
+Evidence can attach onto it cleanly via that existing junction mechanism,
+per Milestone 5 instructions §17's explicit deferral.
+
+### Git status / remote synchronization status
+
+All Milestone 5 work is committed on `claude/primus-privacy-architecture-39p3gh`
+and pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Milestone 4 — Regulatory Content & Control Library (Session 7, 2026-09-01)
 

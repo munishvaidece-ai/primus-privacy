@@ -130,3 +130,65 @@ export const controlTypeEnum = pgEnum("control_type", [
   "detective",
   "corrective",
 ]);
+
+// --- Milestone 5 (Assessment Engine, DATA_MODEL.md §6) ---------------------
+
+// Assessment.status. DATA_MODEL.md §6 names exactly two values —
+// "status (DRAFT|FINALIZED)" — not the four-state draft/in-progress/
+// under-review/finalized set Milestone 5 instructions §4 offer only
+// conditionally ("if the approved model supports states such as...").
+// The approved model (DATA_MODEL.md) supports two; implementing more
+// would be exactly the "invent workflow" this project has consistently
+// avoided since Milestone 3 (DECISIONS.md). "In progress" work is simply
+// an Assessment whose status is still 'draft' — ordinary mutation is
+// allowed for any non-finalized assessment, with no further sub-states
+// tracked. See DECISIONS.md.
+export const assessmentStatusEnum = pgEnum("assessment_status", ["draft", "finalized"]);
+
+// Assessment.assessment_type, per DATA_MODEL.md §6's exact enumeration:
+// "assessment_type covers CONTROL_READINESS, ANNUAL, DPIA, SDF_SCREENING,
+// THIRD_PARTY — DPIA and SDF screening are specializations of Assessment,
+// not disconnected modules." Only `Assessment` itself is built this
+// milestone (§7's DPIA/SDFScreeningDetail 1:1 extension tables are out of
+// scope — Milestone 5 instructions explicitly exclude DPIA/AI); the type
+// value is still recorded so a later milestone's DPIA/SDFScreeningDetail
+// tables can select on `assessment_type` without a migration to this
+// enum.
+export const assessmentTypeEnum = pgEnum("assessment_type", [
+  "control_readiness",
+  "annual",
+  "dpia",
+  "sdf_screening",
+  "third_party",
+]);
+
+// AssessmentResponse.effectiveness_rating / system_suggested_rating /
+// decision_rating all share this domain — the exact five-value vocabulary
+// Milestone 5 instructions §7 require ("Not Assessed, Not Applicable, Not
+// Implemented, Partially Implemented, Implemented... do not collapse
+// these into a simple boolean"), which DATA_MODEL.md §6 names the field
+// (`effectiveness_rating`) for but does not itself fix a value set —
+// exactly the closed-taxonomy judgment-call posture already used for
+// `control_type`/`data_sensitivity` (DECISIONS.md), except this taxonomy
+// is dictated directly by the milestone brief rather than invented here.
+export const controlEffectivenessRatingEnum = pgEnum("control_effectiveness_rating", [
+  "not_assessed",
+  "not_applicable",
+  "not_implemented",
+  "partially_implemented",
+  "implemented",
+]);
+
+// ControlTest.result. DATA_MODEL.md §6 names the field without fixing its
+// values — an engineering judgment call (DECISIONS.md), same posture as
+// `control_type`: a small, closed taxonomy distinguishing a clean pass, a
+// clean fail, and a pass-with-caveats result, rather than free text or a
+// boolean. Milestone 5 instructions §9's "conclusion"/"exceptions"
+// concepts, which DATA_MODEL.md's field list does not name as separate
+// columns, are captured as this enum's third value plus the free-text
+// `sample_description` field DATA_MODEL.md does name — see DECISIONS.md.
+export const controlTestResultEnum = pgEnum("control_test_result", [
+  "pass",
+  "fail",
+  "exception_noted",
+]);

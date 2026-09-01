@@ -1,11 +1,10 @@
 # PRIMUS PRIVACY — Architectural Decisions
 
-Status: Draft v0.7 (Session 7 / Milestone 4, 2026-09-01: added R-40
-through R-47, recording implementation decisions made while building
-Regulatory Content & the Control Library — see PROGRESS.md for the
-milestone report. D-01/D-02 remain RESOLVED from Session 2; R-16 through
-R-39 from Sessions 3-6 stand unchanged). This log records material
-architectural decisions and
+Status: Draft v0.8 (Session 8 / Milestone 5, 2026-09-01: added R-49
+through R-56, recording implementation decisions made while building the
+Assessment Engine — see PROGRESS.md for the milestone report. D-01/D-02
+remain RESOLVED from Session 2; R-16 through R-48 from Sessions 3-7 stand
+unchanged). This log records material architectural decisions and
 their rationale, in the order they were made. Items requiring a human
 product/business decision that cannot be safely inferred from the brief are
 marked **DECISION REQUIRED** and are not assumed — implementation should
@@ -1088,3 +1087,185 @@ historical-reproducibility principle applied to the Engagement side of
 the relationship: an engagement's own record of what it was assessed
 against must not be silently rewritable any more than the library content
 itself is.
+
+---
+
+## Milestone 5 — Assessment Engine (Session 8, 2026-09-01)
+
+### R-49 — `Assessment.control_library_version_id` is a new, denormalized column — not in DATA_MODEL.md §6's literal field list, added for the same reason every prior milestone denormalized a scope/consistency column
+
+**Decision:** `assessments` carries `control_library_version_id` directly
+(NOT NULL), even though DATA_MODEL.md §6's Assessment row lists only
+`engagement_id, assessment_type, period_label, status,
+previous_assessment_id`.
+**Rationale:** Milestone 5 instructions §1/§3 require an Assessment to be
+"permanently associated with... Control Library Version" and require the
+database — not application validation — to prevent an Assessment from
+referencing a ControlLibraryVersion inconsistent with its Engagement
+(§3), and instructions §6 require the same discipline one level deeper
+for AssessmentControl ("CRITICAL... enforce this with database
+constraints"). Both are naturally expressed as composite FKs, which
+requires the value to be a real column on the referencing row — the same
+reasoning `organisation_id`/`tenant_id` denormalization has followed on
+every table since Milestone 1 (they aren't in DATA_MODEL.md's literal
+field lists either, for the same reason). This is additive clarification,
+not an invented feature: an Engagement's `control_library_version_id` (a
+named DATA_MODEL.md field) already fixes what any of its Assessments must
+use; this column just makes that fixed value provable at the database
+layer rather than only inferable by joining through Engagement.
+
+### R-50 — CRITICAL invariant (Milestone 5 instructions §6) proven entirely by two composite FKs, no trigger
+
+**Decision:** `assessment_controls(control_id, control_library_version_id)
+→ controls(id, control_library_version_id)` combined with
+`assessment_controls(assessment_id, tenant_id, organisation_id,
+engagement_id, control_library_version_id) → assessments(id, tenant_id,
+organisation_id, engagement_id, control_library_version_id)` together
+make it structurally impossible for an AssessmentControl's `control_id`
+to belong to a different ControlLibraryVersion than its own Assessment's
+— both FKs constrain the *same* `control_library_version_id` column value
+on the `assessment_controls` row, so a row satisfying both FKs
+simultaneously proves `control.control_library_version_id =
+assessment.control_library_version_id` by construction.
+**Rationale:** instructions §6 explicitly demand this be "database
+constraints, not only application validation," and explicitly name it
+CRITICAL. A trigger (the approach migration 0007 used for
+`ControlRequirement`'s draft-mutable gate, where no such FK pairing was
+available because `Requirement` isn't library-version-scoped — R-43/R-44)
+was considered and rejected here: this invariant is a pure "two foreign
+keys share a column" shape, exactly what composite FKs already exist to
+prove throughout this project (Milestone 2's version-tenant consistency,
+Milestone 3's triple FKs, Milestone 4's `controls_control_library_
+version_tenant_fk`) — a trigger would duplicate logic a constraint
+already expresses declaratively, and constraints are checked by Postgres
+itself, not by application-adjacent PL/pgSQL that could in principle be
+bypassed by a future migration forgetting to reattach it. Verified
+directly (not only through the Vitest suite) via a standalone `psql`
+transaction — see PROGRESS.md.
+
+### R-51 — Assessment status stays exactly DATA_MODEL.md's two states (`draft`/`finalized`) — the milestone brief's four-state suggestion is not implemented
+
+**Decision:** `assessment_status` is `draft`/`finalized` only. "In
+progress" and "under review" work is simply an Assessment that is still
+`draft`; no sub-state is tracked.
+**Rationale:** Milestone 5 instructions §4 open with "Use the
+lifecycle/status defined in DATA_MODEL.md," then only conditionally offer
+a four-state example ("If the approved model supports states such
+as..."). DATA_MODEL.md §6 fixes exactly two: "status (DRAFT|FINALIZED)."
+The approved model does not support four states, so implementing them
+would be exactly the "invent complex workflow" instructions §4's own next
+sentence warns against ("do not invent complex workflow unless
+required... document [a consequential workflow rule] rather than
+silently creating one"). This continues the project's established
+posture (Milestone 3's `lifecycle_status`, Milestone 4's
+draft/published/retired) of implementing precisely what DATA_MODEL.md
+names, adding states only when the milestone brief's own instructions
+unconditionally require more than DATA_MODEL.md gives.
+
+### R-52 — `AssessmentControl` carries no fields of its own beyond the junction — "assessment-specific state" (instructions §5) is `AssessmentResponse`'s job, not a new column here
+
+**Decision:** `assessment_controls` has exactly the FK/scope columns
+needed to identify which Control is in scope for which Assessment, plus
+`created_at`/`created_by`. No status, no notes, no other per-inclusion
+field.
+**Rationale:** DATA_MODEL.md §6 defines `AssessmentControl` as a plain
+junction — "Assessment × Control," no field list — and separately defines
+`AssessmentResponse` with `assessment_control_id` as the entity that
+"carries the system-suggestion/decision pattern." Instructions §5's "an
+AssessmentControl should capture the assessment-specific state" is
+satisfied by that relationship: the state lives one hop away, in the
+entity DATA_MODEL.md already built for exactly this purpose, not
+duplicated onto the junction. Adding state columns directly to
+`AssessmentControl` would also have made the CRITICAL library-version
+consistency FK (R-50) less clean, since `AssessmentResponse` already has
+its own composite FK chain back through `AssessmentControl`.
+
+### R-53 — `AssessmentResponse` is a mutable row (like Milestone 4's `Control` while draft), not an insert/delete-only junction fact
+
+**Decision:** `assessment_responses` supports ordinary `UPDATE` (while
+its Assessment is `draft`) rather than following the junction-table
+insert/delete-only convention (DECISIONS.md R-35) used by every other
+Milestone 3/4/5 junction table, including `AssessmentControl` itself.
+**Rationale:** DATA_MODEL.md §6 gives `AssessmentResponse` substantive,
+evolving content (`effectiveness_rating`, `system_suggested_rating`,
+`decision_rating`, `decision_rationale`, `respondent_id`, `submitted_at`)
+— an assessor working through a control genuinely revises their own
+answer before submitting, and a reviewer subsequently records a decision
+on the *same* row rather than creating a new one (there is no "decision"
+junction entity in DATA_MODEL.md — `decision_rating`/`decision_rationale`
+are columns on `AssessmentResponse` itself). This is the same shape as
+Milestone 4's `Control` (freely editable while its ControlLibraryVersion
+is `draft`, frozen once published) applied to the Assessment axis instead
+— editable while the Assessment is `draft`, frozen once `finalized`
+(migration 0009 §3). A true junction fact (which control is in scope)
+stays insert/delete-only (`AssessmentControl`); a substantive result
+record does not.
+
+### R-54 — "Not yet assessed" is the *absence* of an `AssessmentResponse` row, not a row holding `effectiveness_rating = 'not_assessed'`
+
+**Decision:** `assessment_responses` has `UNIQUE(assessment_control_id)`
+(at most one response per control in scope) and is never auto-created
+when an `AssessmentControl` is inserted. Instructions §13's four
+completeness buckets are computed as: *included* = an `AssessmentControl`
+row exists; *not yet assessed* = an `AssessmentControl` row exists with
+no matching `AssessmentResponse` row (`'not_assessed'` submitted
+explicitly is a deliberate, auditable variant of the same bucket, not a
+different one); *assessed* = a response exists with
+`effectiveness_rating IN ('not_implemented','partially_implemented',
+'implemented')`; *marked N/A* = a response exists with
+`effectiveness_rating = 'not_applicable'`.
+**Rationale:** instructions §13 explicitly warn against "a simplistic
+percentage that calls N/A compliant" and ask to "keep completeness
+calculations at the data level and document any interpretation" when
+DATA_MODEL.md doesn't already specify them (it doesn't). No dedicated
+completeness view/materialized table was built — instructions §19
+prioritize the domain/database/security layer over reporting surfaces,
+and a completeness *calculation* is squarely reporting-shaped; the SQL
+pattern above is documented here and exercised implicitly by
+`tests/assessment-engine`'s tests (an `AssessmentControl` with no
+response vs. one with a `not_applicable` response are both tested as
+distinguishable states) rather than built as a first-class object this
+milestone didn't ask for.
+
+### R-55 — `ControlTest` RLS/write-authorization is dual-mode, branching on `assessment_id IS NULL`
+
+**Decision:** When `assessment_id` is set, `control_tests` uses
+`can_access_engagement`/symmetric read-write, matching
+`Assessment`/`AssessmentResponse`. When `assessment_id` is `NULL`
+(DATA_MODEL.md §6: "a test can also occur outside a formal assessment
+cycle, e.g. continuous monitoring"), it uses `can_access_tenant` for read
+and the narrower `is_active_tenant_member` for write, matching Milestone
+4's `Control` (R-47) — because a standalone test has no client-engagement
+context at all, only a Tenant-owned Control.
+**Rationale:** DATA_MODEL.md's own nullable `assessment_id` already
+establishes that `ControlTest` is genuinely two-shaped, not a single
+client-engagement object like the other three new tables (instructions
+§14's "all assessment objects must respect Tenant → Organisation →
+Engagement boundaries" is satisfied for the assessment-scoped shape; the
+standalone shape has no Organisation/Engagement to bound by, by design).
+A single, uniform policy would have had to either deny standalone tests
+to everyone with only tenant-level access (breaking continuous
+monitoring, which DATA_MODEL.md explicitly wants supported) or grant
+engagement-shaped access to content that has no engagement — neither is
+correct, so the branch is a genuine requirement of the data shape, not
+invented complexity.
+
+### R-56 — Migration 0009 reuses migration 0007's `log_methodology_change()` / `log_methodology_relationship_change()` unchanged — no new audit-trigger function was written this milestone
+
+**Decision:** Every new assessment-engine table (`assessments`,
+`assessment_controls`, `assessment_responses`, `control_tests`)
+denormalizes `tenant_id` directly (R-49 and the composite-FK discipline
+throughout), so migration 0007's Milestone-4 audit functions — which read
+`NEW.tenant_id`/`OLD.tenant_id` directly, with no join — apply unchanged.
+**Rationale:** direct confirmation that Milestone 4's audit-function
+design (R-46, chosen specifically because those tables carry `tenant_id`
+directly rather than `organisation_id`) generalizes to a second, later
+milestone's tables with the same shape — the alternative (migration
+0003/0005's `log_master_data_change()` variant, which resolves tenant via
+an `organisations` join from `NEW.organisation_id`) would also have
+worked here since these tables carry `organisation_id` too, but reusing
+the more precise, join-free function is both more efficient and a closer
+fit, and avoids introducing a third variant when a second one already
+covers this exact row shape. Satisfies instructions §16's "reuse the
+existing audit-log architecture" more specifically than writing new
+functions would have.

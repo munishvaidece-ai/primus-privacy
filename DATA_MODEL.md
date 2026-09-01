@@ -380,6 +380,26 @@ finalization is made by opening a new `Assessment` (linked via
 "compare posture across assessment periods" possible and satisfies
 "historical assessments must remain intact."
 
+**Implementation clarification (Milestone 5, DECISIONS.md R-49/R-50/R-51):**
+`Assessment` additionally denormalizes `organisation_id`, `tenant_id`, and
+`control_library_version_id` (not listed in the field column above, which
+predates this level of cross-table consistency enforcement) — the last of
+these makes "an Assessment uses the same ControlLibraryVersion as its
+Engagement" and "an AssessmentControl only references a Control from that
+same ControlLibraryVersion" both database-enforced composite-FK
+invariants rather than application checks. `Assessment.status` is
+implemented as exactly the two values already named here
+(`DRAFT`/`FINALIZED`); the four-state draft/in-progress/under-review/
+finalized workflow some later planning documents may suggest was not
+built — "in progress" is simply an Assessment that is still `DRAFT`.
+`AssessmentControl` carries no fields beyond the junction itself;
+`AssessmentResponse` (not `AssessmentControl`) is where per-control
+assessment state lives, matching this section's own field list. See
+PROGRESS.md for the full Milestone 5 report, including the still-open
+Milestone 4 limitation that published `Requirement` content is not
+independently frozen by a `ControlLibraryVersion`'s publish state
+(unaddressed this milestone — out of scope).
+
 **Implementation clarification (Milestone 4, DECISIONS.md R-40/R-42/R-43):**
 this milestone implements `RegulatoryReference`, `Requirement`,
 `RequirementRegulatoryReference`, `ControlLibraryVersion`, `Control`, and
