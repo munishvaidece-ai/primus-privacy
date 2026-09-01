@@ -102,5 +102,18 @@ export const controlTests = pgTable(
       table.id,
       table.engagementId,
     ),
+    // Milestone 7 addition: consumed by `validation_records`' single
+    // 4-column scope FK to `control_tests` (a ControlTest reassessment a
+    // ValidationRecord triggers must match all three scope columns at
+    // once — the three separate 2-column uniques above, each proven
+    // independently for `evidence_links`' own dual-shaped FKs, can't
+    // satisfy one combined 4-column foreign key; Postgres requires an
+    // exact matching unique constraint).
+    idScopeUnique: unique("control_tests_id_tenant_id_organisation_id_engagement_id_key").on(
+      table.id,
+      table.tenantId,
+      table.organisationId,
+      table.engagementId,
+    ),
   }),
 );

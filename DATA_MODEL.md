@@ -511,6 +511,55 @@ exist → a `ValidationRecord` is created by a consultant → *only* a
 Maturity engine reads. Marking a `RemediationAction` "closed" has no direct
 effect on maturity.
 
+**Implementation clarification (Milestone 7, DECISIONS.md R-66 through
+R-71):** all entities and junctions in this section's table are now
+implemented. Several additive fields exist beyond the literal field
+lists above, each recorded in DECISIONS.md R-66: `Risk.assessment_
+response_id` (nullable — makes this section's own "Assessment Response
+→ Risk" relationship, named in prose elsewhere in this document, a real
+FK) and `Risk.previous_risk_id` (nullable self-reference, for a
+superseding-record chain when a risk is recalculated); `Finding.owner_
+id`; `RemediationAction.description`, `RemediationAction.priority`
+(nullable), and `RemediationAction.completed_at` (nullable, recording
+*when* completion happened, not only that `status` reached `closed`);
+`ValidationRecord.rationale`. No field already named above was renamed,
+removed, or given different semantics.
+
+`ValidationRecord.triggers_control_reassessment_id` is implemented as
+two separate nullable FK columns (`triggers_control_test_id`/
+`triggers_assessment_response_id`), one per target table, mirroring
+`EvidenceLink`'s own per-subject-type-nullable-column pattern (§4) —
+the same reason applies: a real foreign key can only target one table.
+At most one may be set (CHECK constraint), and only when `outcome =
+ACCEPTED` (CHECK constraint), matching this section's own "Enforced
+flow" paragraph exactly. Both FKs are scoped to `organisation_id` only,
+**not** `engagement_id` — DECISIONS.md R-70 records why: this project's
+own established pattern (§5.5's FY2026/FY2027 worked example) is that
+each assessment cycle is a new Engagement of the same Organisation, so
+the reassessment a `ValidationRecord` points to routinely lives in a
+*later* Engagement than the remediation itself. `EvidenceLink` was
+extended with two more nullable subject-type columns (`remediation_
+action_id`, `validation_record_id`) for this section's own "`Evidence`
+attaches to `RemediationAction` and `ValidationRecord`" sentence.
+
+`ValidationRecord` is mutable in one narrow, deliberate sense: its
+decision fields (`outcome`/`validated_by`/`validated_at`/`rationale`)
+are permanently frozen after creation by a trigger, but the two
+reassessment-trigger columns above may be set exactly once, later, from
+`NULL` — because the reassessment they point to often does not exist
+yet at the moment the validation decision itself is recorded (DECISIONS.md
+R-69). This section's own "Enforced flow" state machine
+(`OPEN → IN_PROGRESS → EVIDENCE_SUBMITTED → VALIDATED → CLOSED`, and
+"EVIDENCE_SUBMITTED requires linked Evidence to exist") is implemented
+exactly as this section frames it — an application-layer concern, not a
+database-enforced precondition (DECISIONS.md R-71); the database does
+enforce, and this milestone's tests directly verify, the one guarantee
+this section states as non-negotiable: `RemediationAction.status`
+changes never themselves alter a Risk, a Finding, an AssessmentResponse,
+or any Maturity signal — only an explicit `ValidationRecord` does that,
+and only by recording that a reassessment happened, never by performing
+one automatically.
+
 ## 9. Maturity
 
 | Entity | Purpose | Key fields |

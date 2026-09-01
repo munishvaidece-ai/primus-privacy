@@ -1,16 +1,362 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 6 COMPLETE (Session 9): Evidence &
-Document Management — Document, DocumentVersion, Evidence, and
-EvidenceLink, connecting the Assessment Engine (AssessmentResponse,
-ControlTest) to documentary proof, with database-enforced organisation
-consistency, polymorphic-subject security (per-type FK columns + CHECK,
-not a bare generic pair), DocumentVersion immutability, and historical
-evidence-version preservation across re-uploads, implemented, migrated,
-and tested against real PostgreSQL 16. No Risk, Findings, Remediation,
-Maturity, DPIA, AI, dashboards, or reports; no product UI. Milestones 1-5
-(Sessions 4-8) and the architecture gate (Sessions 1-3) passed before
-this milestone began.
+Status: 2026-09-01 — Milestone 7 COMPLETE (Session 10): Risk, Findings &
+Remediation — RiskScoringModel, Risk, Finding, RemediationAction, and
+ValidationRecord, the post-assessment action layer built on Milestone
+5/6's AssessmentResponse/Evidence, with configurable/versioned risk
+scoring pinned for historical reproducibility, EvidenceLink extended to
+two more subject types, and the CRITICAL semantic rule that remediation
+completion never itself proves control effectiveness or improves
+maturity — only an explicit ValidationRecord does, and only by recording
+that a reassessment happened — implemented, migrated, and tested against
+real PostgreSQL 16. No Maturity, Dashboards, Reporting, DPIA, AI,
+Continuous Compliance, or polished UI. Milestones 1-6 (Sessions 4-9) and
+the architecture gate (Sessions 1-3) passed before this milestone began.
+
+## Milestone 7 — Risk, Findings & Remediation (Session 10, 2026-09-01)
+
+**Scope:** exactly what MILESTONE 7 instructed — `RiskScoringModel`,
+`Risk`, `Finding`, `RemediationAction`, `ValidationRecord`, and their
+junctions (`RiskControl`, `RiskProcessingActivity`, `FindingRisk`,
+`FindingControl`, `FindingProcessingActivity`, `RemediationFinding`,
+`RemediationRisk`, `RemediationControl`), per DATA_MODEL.md §8. No
+Maturity, dashboards, reporting, DPIA, AI, Continuous Compliance, or
+polished UI — none of those exist anywhere in this milestone's changes.
+The core principle instructions §1 states — Assessment Result / Risk /
+Finding / RemediationAction / ValidationRecord are four distinct object
+kinds, never collapsed into one — governs every schema decision below;
+nothing auto-creates a Finding from a failed control, and nothing
+derives a Risk/Finding/AssessmentResponse change from a RemediationAction's
+`status` column.
+
+Read `DATA_MODEL.md` §8/§12, `DECISIONS.md` R-57 through R-65, and the
+actual Milestone 4/5/6 code (`db/schema/control-library.ts`,
+`db/schema/assessment-controls.ts`, `db/schema/control-tests.ts`,
+`db/schema/evidence-links.ts`, migrations 0006-0011) fresh from disk
+before writing anything, per instruction. Two design bugs were found
+this milestone not by inspection but by the required historical scenario
+(§10) actually failing against a first-draft schema, then correctly
+diagnosed as genuine architecture flaws (not test bugs) and fixed —
+see DECISIONS.md R-69/R-70 and "Testing performed" below.
+
+### What was implemented
+
+- **Drizzle TS schema** (9 new files): `db/schema/risk-scoring-models.ts`
+  (`RiskScoringModel` — Tenant-scoped, append-only, `matrix_definition`
+  jsonb, `is_active`); `db/schema/risks.ts` (`Risk` — `likelihood`/
+  `impact` [CHECK 1-5], `inherent_rating`, nullable `residual_
+  likelihood`/`residual_impact`/`residual_rating`, `risk_scoring_
+  model_id` [NOT NULL, frozen], nullable `assessment_response_id`,
+  nullable self-referencing `previous_risk_id`); `db/schema/risk-
+  links.ts` (`RiskControl`, `RiskProcessingActivity`); `db/schema/
+  findings.ts` (`Finding` — `severity`, `status`, `owner_id`);
+  `db/schema/finding-links.ts` (`FindingRisk`, `FindingControl`,
+  `FindingProcessingActivity`); `db/schema/remediation-actions.ts`
+  (`RemediationAction` — exact DATA_MODEL.md 5-value status set
+  [open/in_progress/evidence_submitted/validated/closed], `due_date`,
+  nullable `priority`/`completed_at`); `db/schema/remediation-links.ts`
+  (`RemediationFinding`, `RemediationRisk`, `RemediationControl`);
+  `db/schema/validation-records.ts` (`ValidationRecord` — `outcome`,
+  `validated_by`/`validated_at`, nullable `triggers_control_test_id`/
+  `triggers_assessment_response_id` with a CHECK that at most one is set
+  and only when `outcome = accepted`).
+- **New enums**: `risk_rating` (low/medium/high/critical), `risk_status`
+  (open/mitigating/accepted/closed), `finding_severity` (low/medium/
+  high/critical), `finding_status` (open/in_progress/resolved/accepted),
+  `remediation_action_status` (the exact DATA_MODEL.md 5-value set),
+  `remediation_priority` (low/medium/high/critical), `validation_
+  outcome` (accepted/rejected). `evidence_link_subject_type` extended
+  with 2 new values (`remediation_action`, `validation_record`).
+- **Extended existing schema files**: `db/schema/evidence-links.ts`
+  (2 new nullable subject columns, `subject_matches_type_check` grown
+  from 2 to 4 branches, 2 new composite FKs, 2 new NO-DUPE uniques —
+  DECISIONS.md R-68); `db/schema/control-tests.ts` (new 4-column
+  `idScopeUnique`); `db/schema/assessment-controls.ts` (new 2-column
+  `idOrganisationUnique` on `assessmentResponses`, consumed by
+  `ValidationRecord`'s reassessment-trigger FK — DECISIONS.md R-70).
+- **Migration 0012** (`drizzle-kit` generated, then hand-fixed twice:
+  the recurring new-UNIQUE-before-dependent-FK statement-ordering issue
+  [Milestones 3/5/6 precedent], and removal of the auto-generated
+  `evidence_links_subject_matches_type_check` CHECK — Postgres forbids
+  using a same-transaction `ALTER TYPE ... ADD VALUE` inside a CHECK
+  expression, so the CHECK was deferred to migration 0013 once the new
+  enum values are safely committed [same restriction Milestone 6 first
+  found]): 13 new tables, 8 enum changes, every composite FK/CHECK
+  described below. Regenerated in full a second time after the R-70 FK
+  redesign.
+- **Migration 0013** (hand-written, per DECISIONS.md R-02): the deferred
+  `evidence_links_subject_matches_type_check` (now 4 branches); audit-
+  column FKs for all new tables; reparenting guards (`Risk`'s covering
+  `engagement_id`/`organisation_id`/`tenant_id`/`risk_scoring_model_id`;
+  `Finding`'s and `RemediationAction`'s covering the scope triple only);
+  `RiskScoringModel`'s append-only close-out trigger (`close_out_
+  previous_active_risk_scoring_model`, BEFORE INSERT, mirrors Milestone
+  4's `ControlLibraryVersion` posture with a simpler single-flag
+  mechanism — DECISIONS.md R-67); `ValidationRecord`'s tampering-guard
+  trigger (`prevent_validation_record_tampering`, BEFORE UPDATE) —
+  freezes every decision field permanently but allows the two
+  reassessment-trigger columns to transition exactly once from NULL,
+  mirroring Milestone 6's `document_versions.scan_status` one-time-
+  transition pattern (DECISIONS.md R-69); RLS enabled with `FORCE` on
+  all 13 new tables and 38 policies — `RiskScoringModel` gets the same
+  `can_access_tenant`(SELECT)/`is_active_tenant_member`(INSERT)
+  asymmetry as `ControlLibraryVersion` (R-47), with no UPDATE/DELETE
+  policy at all; everything else uses symmetric `can_access_engagement`;
+  `GRANT`/`REVOKE` statements — `RiskScoringModel` gets `SELECT,INSERT`
+  only (no UPDATE/DELETE, ever); `ValidationRecord` gets `SELECT,INSERT,
+  UPDATE` (no DELETE); audit triggers reusing Milestone 4's
+  `log_methodology_change()`/`log_methodology_relationship_change()`
+  **unchanged** for a fourth milestone in a row.
+- **The CRITICAL semantic-separation invariant** (instructions §7):
+  nothing in this schema derives a Risk/Finding/AssessmentResponse
+  change from `remediation_actions.status` — the only mechanism that
+  records "a reassessment happened" is a human explicitly creating a
+  `ValidationRecord` and, later, explicitly setting its reassessment-
+  trigger column to a real `ControlTest`/`AssessmentResponse` row it
+  itself does not create. Verified via the Vitest suite AND a standalone
+  `psql` transaction.
+- **Risk scoring versioning** (instructions §4/§11): `Risk.risk_scoring_
+  model_id` is `NOT NULL` and frozen by the reparenting guard;
+  `RiskScoringModel` rows are never edited or deleted once superseded.
+  Verified by `risk-scoring-versioning.test.ts` — a Risk scored under
+  Model v1 resolves to v1's `matrix_definition` unchanged after Model v2
+  is introduced.
+- **EvidenceLink extended to 2 more subject types** (instructions §7/§8):
+  `remediation_action`/`validation_record`, both always fully
+  engagement-scoped (unlike `ControlTest`'s dual shape), so both new
+  FKs are always the standard 4-column composite — DECISIONS.md R-68.
+
+### Testing performed (exact commands, run in this order)
+
+1. `npm run typecheck` — clean, repeated after every schema/migration
+   change.
+2. `npm run db:generate` — generated migration 0012; collided with
+   `0011_evidence_document_management_security.sql`'s numbering (the
+   same recurring drizzle-kit issue as every prior milestone) — renamed
+   to `0012_risk_findings_remediation.sql`, `meta/_journal.json`/
+   `meta/0012_snapshot.json` fixed, re-ran `db:generate` to confirm "No
+   schema changes, nothing to migrate."
+3. First apply attempt against a fresh database **failed**:
+   `error: there is no unique constraint matching given keys for
+   referenced table "control_tests"` — the original 4-column
+   `triggers_control_test_id` FK needed a single 4-column unique
+   `control_tests` didn't yet have (only three separate 2-column
+   uniques existed from Milestone 6). Added a new 4-column `idScopeUnique`
+   to `control_tests`, regenerated.
+4. Reviewed the regenerated SQL and manually fixed the recurring
+   statement-ordering issue (new UNIQUEs on `control_tests`/
+   `assessment_responses` emitted after their dependent FKs) and removed
+   the same-transaction enum-value-in-CHECK statement (deferred to
+   migration 0013, per "What was implemented" above).
+5. `npx tsx scripts/reset-test-db.ts` — succeeded cleanly; 14 migration
+   files applied.
+6. `npx vitest run tests/risk-remediation` — ran the new suite against
+   the required §10 historical scenario. **Failed** on
+   `historical-scenario.test.ts` check #9 ("future assessment can
+   reassess the control"): `insert or update on table
+   "validation_records" violates foreign key constraint
+   "validation_records_triggers_assessment_response_scope_fk"`.
+   Diagnosed as a genuine design bug, not a test bug — the FK required
+   the ValidationRecord's own `engagement_id` to match the reassessment
+   AssessmentResponse's `engagement_id`, but the scenario (correctly,
+   per this project's own FY2026/FY2027-as-separate-Engagements
+   precedent) creates the reassessment in a *new* Engagement. Fixed by
+   redesigning both reassessment-trigger FKs to 2-column
+   (`organisation_id`-only) — DECISIONS.md R-70. Added
+   `assessment_responses_id_organisation_id_key`. Regenerated migration
+   0012 in full, reapplying both prior fixes.
+7. Re-ran `npx tsx scripts/reset-test-db.ts` + `npx vitest run
+   tests/risk-remediation` — the historical scenario passed, but
+   `immutability.test.ts` then surfaced the second design bug: the
+   original `SELECT,INSERT`-only `ValidationRecord` grant made it
+   impossible to ever set the reassessment-trigger columns the
+   historical scenario itself requires setting *after* creation. Fixed
+   by redesigning `ValidationRecord`'s mutability to the narrow
+   one-time-transition pattern described above — DECISIONS.md R-69
+   — adding the UPDATE grant/policy and the tampering-guard trigger.
+8. Fixed two test-file bugs surfaced during this cycle: an `asUser`
+   write-then-`asFixtureSetup`-verify pattern in `immutability.test.ts`
+   that could never persist (`asUser`'s transaction always rolls back —
+   switched the write itself to `asFixtureSetup`, the established
+   mutation convention); a duplicated placeholder test block (copy-paste
+   error), removed. Also cleaned up `tenant-isolation.test.ts`: replaced
+   an inline `.catch()` fallback-creation pattern with a proper
+   `scoringModelB` fixture in `beforeAll`, and a dynamic `await
+   import(...)` with a static import.
+9. `npx vitest run tests/rls tests/master-data tests/processing-activity
+   tests/control-library tests/assessment-engine tests/evidence` — all
+   234 pre-existing tests still passing against the post-Milestone-7
+   schema (no regressions).
+10. `npm run test:db` (fresh reset + full suite) — **298/298 passing**.
+    Run **twice** in full (fresh `reset-test-db` each time) to prove
+    stability — 298/298 both times, identical results.
+11. `npm run lint` — clean.
+12. `npm run build` (`next build`) — compiles successfully, static pages
+    generated, no type or lint errors.
+13. Direct `psql` inspection of the resulting database: `relrowsecurity`/
+    `relforcerowsecurity` confirmed `t`/`t` on all 13 new tables;
+    `pg_policies` confirmed all 38 new policies with the expected
+    commands (including `RiskScoringModel`'s SELECT/INSERT-only
+    asymmetry); `information_schema.role_table_grants` confirmed
+    `authenticated` has exactly the intended privileges per table
+    (`RiskScoringModel`: `INSERT,SELECT` only; `ValidationRecord`:
+    `INSERT,SELECT,UPDATE` only) and `anon`/`PUBLIC` have none;
+    `pg_constraint` confirmed all 68 FK/UNIQUE/CHECK constraints,
+    including the corrected organisation-only reassessment-trigger FKs
+    and both `ValidationRecord` CHECK constraints; `information_schema.
+    triggers` confirmed 30 triggers present with correct timing/events
+    (reparenting guards, `RiskScoringModel`'s close-out trigger,
+    `ValidationRecord`'s tampering-guard trigger, and audit triggers,
+    including `validation_records`'s now correctly showing AFTER
+    INSERT/UPDATE). One standalone `psql` transaction (outside vitest,
+    using `SAVEPOINT`s to isolate each case within a single rolled-back
+    transaction) reproduced, directly against the database: (a) a
+    cross-tenant `ValidationRecord`→`RemediationAction` insert rejected
+    by `validation_records_remediation_action_scope_fk`; (b) a
+    `rejected`-outcome `ValidationRecord` carrying a reassessment
+    trigger rejected by `validation_records_only_accepted_triggers_
+    reassessment_check`; (c) a correctly-scoped, `accepted`, no-trigger
+    insert succeeding as a control case.
+
+### tests/risk-remediation (7 new files, 64 new tests)
+
+- `crud.test.ts` (10 tests): `RiskScoringModel`/`Risk`/`Finding`/
+  `RemediationAction`/`ValidationRecord` creation; all junction links;
+  Evidence linkable to both `RemediationAction` and `ValidationRecord`
+  via the extended `EvidenceLink`.
+- `risk-scoring-versioning.test.ts` (7 tests): the required §11 test —
+  Model v1 created, a Risk scored under it, Model v2 introduced; the
+  historical Risk's `risk_scoring_model_id` and the model it resolves to
+  remain v1, unchanged; v1's `matrix_definition` itself is unreachable
+  by UPDATE/DELETE.
+- `immutability.test.ts` (12 tests, two `describe` blocks):
+  `RiskScoringModel`'s no-UPDATE/no-DELETE grant (tested via `asUser`,
+  not `asFixtureSetup`, so the grant restriction is genuinely exercised);
+  `ValidationRecord`'s decision-field immutability and its one-time
+  reassessment-trigger transition (both the successful once-only set and
+  the rejected second attempt), plus its no-DELETE grant; `Risk`/
+  `Finding`/`RemediationAction` reparenting guards, including
+  confirmation that ordinary fields (title, status, likelihood, owner)
+  remain freely editable.
+- `consistency.test.ts` (7 tests): the §13 referential-integrity suite —
+  a `Finding` referencing a `ProcessingActivity` must belong to the same
+  Engagement as its Assessment context; cross-tenant `RiskControl`
+  rejected; cross-engagement `RiskProcessingActivity` rejected;
+  cross-tenant/cross-organisation remediation relationships rejected;
+  a `ValidationRecord` cannot attach to another tenant's
+  `RemediationAction`.
+- `historical-scenario.test.ts` (9 tests): the exact §10 ABC Financial
+  scenario — FY2026 Control C1 "Partially Implemented", Evidence
+  "Processor register v1", Risk (Likelihood=4, Impact=4, High), Finding
+  "Processor register incomplete", Remediation "Complete processor/
+  subprocessor inventory" (Open → Completed), Evidence "Processor
+  register v2", consultant Validation, all 10 required checks: FY2026
+  AssessmentResponse unchanged; FY2026 Risk historically reproducible;
+  FY2026 Finding historically identifiable; Remediation status/history
+  recorded; Evidence v2 linkable to remediation/validation; Validation
+  is a separate explicit record; no automatic change to the historical
+  AssessmentResponse; no automatic maturity improvement (nothing in this
+  schema even has a maturity field to improve); a future FY2027
+  assessment can reassess the control; that future assessment may
+  produce a different result.
+- `tenant-isolation.test.ts` (12 tests): the §12/§14 RLS suite — Tenant A
+  cannot read Tenant B risks; Organisation A cannot read Organisation B
+  risks; Engagement A cannot read Engagement B findings/remediation;
+  cross-tenant/cross-organisation remediation relationships rejected at
+  the FK level; a `ValidationRecord` cannot attach to another tenant's
+  `RemediationAction`; unauthorized read/write blocking; anonymous
+  requests denied at the grant level.
+- `audit.test.ts` (7 tests): `Risk` creation/scoring/status-change audit;
+  `Finding` creation/severity-status-change audit; `RemediationAction`
+  creation/assignment/status-change/completion audit; `ValidationRecord`
+  creation/decision audit; `RiskControl` relationship audit
+  (insert/delete); `auth.uid()` actor attribution confirmed throughout.
+
+### Files changed
+
+- New: `db/schema/risk-scoring-models.ts`, `db/schema/risks.ts`,
+  `db/schema/risk-links.ts`, `db/schema/findings.ts`,
+  `db/schema/finding-links.ts`, `db/schema/remediation-actions.ts`,
+  `db/schema/remediation-links.ts`, `db/schema/validation-records.ts`,
+  `drizzle/migrations/0012_risk_findings_remediation.sql`,
+  `drizzle/migrations/0013_risk_findings_remediation_security.sql`,
+  `drizzle/migrations/meta/0012_snapshot.json`,
+  `tests/risk-remediation/helpers.ts`,
+  `tests/risk-remediation/crud.test.ts`,
+  `tests/risk-remediation/risk-scoring-versioning.test.ts`,
+  `tests/risk-remediation/immutability.test.ts`,
+  `tests/risk-remediation/consistency.test.ts`,
+  `tests/risk-remediation/historical-scenario.test.ts`,
+  `tests/risk-remediation/tenant-isolation.test.ts`,
+  `tests/risk-remediation/audit.test.ts`.
+- Modified: `db/schema/enums.ts` (new Milestone 7 enum block, plus 2 new
+  `evidence_link_subject_type` values), `db/schema/evidence-links.ts`
+  (2 new subject columns/FKs/uniques, 4-branch CHECK),
+  `db/schema/control-tests.ts` (new 4-column `idScopeUnique`),
+  `db/schema/assessment-controls.ts` (new 2-column `idOrganisationUnique`
+  on `assessmentResponses`), `db/schema/index.ts` (barrel exports),
+  `package.json` (new `test:risk-remediation` script, `test:db`
+  extended, description bumped), `drizzle/migrations/meta/_journal.json`
+  (renumbering fix), `DATA_MODEL.md` (one additive implementation-
+  clarification paragraph after §8), `DECISIONS.md` (R-66 through R-71),
+  `PROGRESS.md` (this entry).
+- Unchanged: `ARCHITECTURE.md`, `SECURITY.md`, `PRODUCT_SPEC.md`,
+  `ROADMAP.md`, `README.md`, and every migration/schema file from
+  Milestones 1-6 (`0000`-`0011`, and every `db/schema/*.ts` file this
+  milestone didn't touch).
+
+### Known limitations (documented, not silently built around)
+
+- `RemediationAction.status = 'evidence_submitted'` is not enforced at
+  the database layer to require a linked Evidence row to exist —
+  DATA_MODEL.md §8 itself frames the remediation lifecycle as an
+  application-layer state machine, not a database-enforced one
+  (DECISIONS.md R-71). The one guarantee the milestone actually requires
+  non-negotiable — that `status` changes never themselves prove control
+  effectiveness or change a Risk/Finding/AssessmentResponse/Maturity
+  signal — is enforced by construction (nothing reads `status` to derive
+  any of those).
+- No Maturity engine or maturity field exists anywhere yet — "no
+  automatic maturity improvement" (§10 check #8) is trivially true
+  because nothing computes maturity at all this milestone, exactly as
+  instructed (§17-19).
+- `Risk.previous_risk_id` and `assessment_response_id` are additive
+  fields (DECISIONS.md R-66) supporting the "risk recalculated if
+  warranted" relationship named in instructions §1/§9 prose; no
+  automatic recalculation trigger exists — a consultant creates a new
+  `Risk` row and links it via `previous_risk_id` explicitly, mirroring
+  every other "supersession is an explicit new row, never an automatic
+  rewrite" pattern in this schema.
+- Carried forward, unaddressed (out of scope this milestone): the
+  Milestone 4/5/6 limitations already on record (published `Requirement`
+  content not independently frozen by publish state; `Assessment`'s
+  two-state status only; the storage-authorization-only testing scope
+  for Evidence/DocumentVersion; the CONSULTANT_INTERNAL/CLIENT_VISIBLE
+  `visibility` column not RLS-enforced).
+- No UI of any kind was built (none was requested) — every table above
+  was exercised exclusively through direct SQL/RLS-aware test clients.
+
+### Recommended Milestone 8
+
+DATA_MODEL.md §9 (Maturity) is the natural next layer: it reads exactly
+the objects this milestone built (finalized `AssessmentResponse`,
+`Risk.residual_rating`, `ValidationRecord.outcome`) without needing any
+new evidence or remediation infrastructure — the CRITICAL rule this
+milestone enforced by construction (no automatic maturity change) means
+Milestone 8's own job is precisely to build the first explicit, reviewed
+computation that *is* allowed to read these signals and produce a
+Maturity score, keeping that computation itself as a versioned,
+reproducible, non-silent artifact (the same discipline as
+`ControlLibraryVersion`/`RiskScoringModel` before it).
+
+### Git status / remote synchronization status
+
+All Milestone 7 work is committed on `claude/primus-privacy-architecture-39p3gh`
+and pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Milestone 6 — Evidence & Document Management (Session 9, 2026-09-01)
 

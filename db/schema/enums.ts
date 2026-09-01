@@ -273,12 +273,85 @@ export const evidenceReviewStatusEnum = pgEnum("evidence_review_status", [
 ]);
 
 // EvidenceLink.subject_type — deliberately a small, closed set covering
-// only the subject types this milestone actually wires up
-// (AssessmentResponse, ControlTest), not an open-ended polymorphic type
-// column. See evidence-links.ts / DECISIONS.md for the "safer/stronger
-// approach" Milestone 6 instructions §7 explicitly ask for in place of a
-// bare, unconstrained (subject_type, subject_id) pair.
+// only the subject types wired up so far, not an open-ended polymorphic
+// type column. See evidence-links.ts / DECISIONS.md for the
+// "safer/stronger approach" Milestone 6 instructions §7 asked for in
+// place of a bare, unconstrained (subject_type, subject_id) pair.
+// `remediation_action`/`validation_record` are Milestone 7 additions —
+// DATA_MODEL.md §8 states directly "Evidence attaches to RemediationAction
+// and ValidationRecord via the same generic EvidenceLink used everywhere
+// else," exactly the extension path Milestone 6's own DECISIONS.md R-60
+// anticipated ("one more nullable column and one more CHECK branch").
 export const evidenceLinkSubjectTypeEnum = pgEnum("evidence_link_subject_type", [
   "assessment_response",
   "control_test",
+  "remediation_action",
+  "validation_record",
 ]);
+
+// --- Milestone 7 (Risk, Findings & Remediation, DATA_MODEL.md §8) ---------
+
+// Risk.inherent_rating / residual_rating. DATA_MODEL.md §8 names both
+// fields without fixing a value set — an engineering judgment call
+// (DECISIONS.md), matching `control_type`'s posture: a small, standard
+// four-point taxonomy rather than an unbounded scale.
+export const riskRatingEnum = pgEnum("risk_rating", ["low", "medium", "high", "critical"]);
+
+// Risk.status. DATA_MODEL.md §8 names the field without fixing values —
+// a simple, ordinary risk-register lifecycle (Milestone 7 instructions
+// §16: "do not invent a complex workflow if the current architecture
+// does not define one"). No transition-rule constraint is enforced, same
+// posture as ProcessingActivity.lifecycle_status (Milestone 3).
+export const riskStatusEnum = pgEnum("risk_status", ["open", "mitigating", "accepted", "closed"]);
+
+// Finding.severity. DATA_MODEL.md §8 names the field without fixing
+// values — same four-point posture as `risk_rating`, for consistency
+// across the two closely-related taxonomies.
+export const findingSeverityEnum = pgEnum("finding_severity", [
+  "low",
+  "medium",
+  "high",
+  "critical",
+]);
+
+// Finding.status. DATA_MODEL.md §8 names the field without fixing
+// values. `accepted` covers a Finding a consultant/client deliberately
+// chooses not to remediate (a legitimate, common GRC outcome), distinct
+// from `resolved` (remediated and validated).
+export const findingStatusEnum = pgEnum("finding_status", [
+  "open",
+  "in_progress",
+  "resolved",
+  "accepted",
+]);
+
+// RemediationAction.status — DATA_MODEL.md §8 fixes this exact five-value
+// set verbatim: "OPEN|IN_PROGRESS|EVIDENCE_SUBMITTED|VALIDATED|CLOSED".
+// Implemented as-is, lowercased to match this project's enum-naming
+// convention throughout.
+export const remediationActionStatusEnum = pgEnum("remediation_action_status", [
+  "open",
+  "in_progress",
+  "evidence_submitted",
+  "validated",
+  "closed",
+]);
+
+// RemediationAction.priority. Milestone 7 instructions §6 name "priority"
+// as an expected field; DATA_MODEL.md's own field list doesn't yet
+// include it (an additive clarification — DECISIONS.md), reusing the
+// same four-point taxonomy as `risk_rating`/`finding_severity` for
+// consistency.
+export const remediationPriorityEnum = pgEnum("remediation_priority", [
+  "low",
+  "medium",
+  "high",
+  "critical",
+]);
+
+// ValidationRecord.outcome. DATA_MODEL.md §8's own prose names exactly
+// one value directly ("only a ValidationRecord with outcome = ACCEPTED
+// may trigger a new ControlTest/AssessmentResponse") — a simple binary
+// decision (accepted/rejected), not an invented multi-state workflow
+// (Milestone 7 instructions §16).
+export const validationOutcomeEnum = pgEnum("validation_outcome", ["accepted", "rejected"]);

@@ -2,9 +2,9 @@
 // + Milestone 2 (Client Master Data) + Milestone 3 (Processing Activity
 // & Version-Pinned Junction Layer) + Milestone 4 (Regulatory Content &
 // Control Library) + Milestone 5 (Assessment Engine) + Milestone 6
-// (Evidence & Document Management). See PROGRESS.md for what's
-// deliberately not here yet (Risk, Findings, Remediation, Maturity,
-// DPIA, AI, and everything downstream of them).
+// (Evidence & Document Management) + Milestone 7 (Risk, Findings &
+// Remediation). See PROGRESS.md for what's deliberately not here yet
+// (Maturity, DPIA, AI, dashboards, reporting, and everything downstream).
 export * from "./enums";
 export * from "./tenants";
 export * from "./organisations";
@@ -32,3 +32,11 @@ export * from "./control-tests";
 export * from "./documents";
 export * from "./evidence";
 export * from "./evidence-links";
+export * from "./risk-scoring-models";
+export * from "./risks";
+export * from "./risk-links";
+export * from "./findings";
+export * from "./finding-links";
+export * from "./remediation-actions";
+export * from "./remediation-links";
+export * from "./validation-records";

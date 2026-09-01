@@ -161,5 +161,14 @@ export const assessmentResponses = pgTable(
       table.organisationId,
       table.engagementId,
     ),
+    // Milestone 7 addition: consumed by `validation_records`' reassessment-
+    // trigger FK (organisation-only, deliberately not engagement-scoped —
+    // a reassessment naturally happens in a *later* Engagement of the
+    // same client, e.g. FY2027 validating FY2026's remediation — see
+    // validation-records.ts / DECISIONS.md).
+    idOrganisationUnique: unique("assessment_responses_id_organisation_id_key").on(
+      table.id,
+      table.organisationId,
+    ),
   }),
 );

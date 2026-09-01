@@ -1461,3 +1461,168 @@ ever written to disk or any storage service in this milestone's tests —
 module the same way a real upload pipeline would hash real bytes,
 discarded after each test. See PROGRESS.md's explicit statement of what
 was and was not tested (instructions §23).
+
+## Milestone 7 — Risk, Findings & Remediation
+
+### R-66 — Additive fields on Risk/Finding/RemediationAction/ValidationRecord not literally named in DATA_MODEL.md §8's own field lists
+
+**Decision:** Several columns were added because the milestone's own
+required scenario (§10) or a stated relationship (§1, §9) cannot be
+built without them, even though DATA_MODEL.md §8's prose doesn't list
+them field-by-field: `risks.assessment_response_id` (nullable — §1's
+"Assessment Response → Risk" relationship needs a real FK, not prose);
+`risks.previous_risk_id` (nullable, self-referential — needed to make a
+Risk "historically reproducible" while still letting a later assessment
+"recalculate" it, §4/§9, mirroring `document_versions.previous_version_
+id`/`assessment_responses`' own precedent for a superseding-record
+chain); `findings.owner_id` (§5 lists "owner" explicitly in prose, absent
+from the literal field list); `remediation_actions.description`,
+`remediation_actions.priority` (nullable), `remediation_actions.
+completed_at` (nullable — §6/§10 require recording *when* a remediation
+was completed, not only that its `status` reached `completed`);
+`validation_records.rationale` (§8 names "rationale/notes" in prose).
+**Rationale:** Milestone 7 instructions §2 say "use the exact approved
+fields where already defined... if implementation reveals a genuine
+schema ambiguity, document it in DECISIONS.md before making a
+consequential choice" — this is that documentation. None of these
+fields contradict an existing DATA_MODEL.md field; each is additive and
+required either by an explicitly named relationship (§1) or by the
+historical scenario itself (§10), the same posture as every additive
+field recorded in prior milestones' own R-entries (e.g. R-51/R-55/R-60).
+
+### R-67 — RiskScoringModel: Tenant-scoped, append-only, frozen-by-reference — mirrors ControlLibraryVersion's shape, not a new mechanism
+
+**Decision:** `risk_scoring_models` is scoped to `tenant_id` only (never
+`organisation_id`/`engagement_id` — it is practice methodology, like
+`Control`/`ControlLibraryVersion`), carries `is_active`
+(default true) rather than a draft/published/retired lifecycle, and is
+closed out by a `BEFORE INSERT` trigger (`close_out_previous_active_
+risk_scoring_model`) that flips the prior active row's `is_active` to
+false for that tenant — no `UPDATE`/`DELETE` grant exists at all, so an
+existing row's `matrix_definition` can never be edited or removed.
+`risks.risk_scoring_model_id` is `NOT NULL` and frozen by the reparenting
+guard, so a Risk's scoring model can never be silently swapped after
+creation.
+**Rationale:** Milestone 7 instructions §4 require the scoring
+configuration to be "frozen/pinned for historical reproducibility (per
+M4/M5 precedent)" and explicitly names the reproducibility test (§11).
+`ControlLibraryVersion`'s draft/published/retired states exist because a
+*library* has an authoring phase before it's usable; a scoring *model*
+has no equivalent authoring workflow named anywhere in DATA_MODEL.md or
+this milestone's instructions, so inventing one would violate
+instructions §16 ("do not invent complex workflow if architecture
+doesn't define one"). The simpler single-flag close-out — new version
+in, old version's mutability window closes immediately, matching
+`ProcessingActivityVersion`'s and `assessment_controls`' own append-only/
+insert-only posture — achieves the identical guarantee (an existing
+`RiskScoringModel` row's content never changes once superseded) with
+less machinery. Read/write asymmetry (`can_access_tenant` SELECT /
+`is_active_tenant_member` INSERT) is the same Tenant-content pattern
+established for `Control`/`ControlLibraryVersion` in R-47 — reused
+unchanged, not reinvented.
+
+### R-68 — EvidenceLink extended to two more subject types via two more nullable FK columns, not a schema change to the pattern itself
+
+**Decision:** `evidence_links` gained `remediation_action_id` and
+`validation_record_id` (both nullable), each with its own conditionally-
+active composite FK and NO-DUPE unique constraint, and the CHECK
+constraint `subject_matches_type_check` was extended from 2 branches to
+4. Both new subject types are always fully engagement-scoped (unlike
+`ControlTest`'s dual shape), so both new FKs are always 4-column
+(tenant+organisation+engagement+id), with no conditional-shape branching
+needed.
+**Rationale:** Milestone 6 established this exact per-subject-type-
+nullable-column shape (R-60) specifically because a real foreign key can
+only target one table; Milestone 7 instructions §7 explicitly require
+"Remediation completed → Evidence submitted" and §8 requires evidence
+linkage on `ValidationRecord` itself ("evidence linkage" is named in the
+required field list) — both are new evidence-attachment points the same
+mechanism already handles by construction. Extending the existing enum/
+CHECK/FK triple is the minimal change; building a second, more generic
+polymorphic mechanism for just these two new cases would be exactly the
+"unrestricted polymorphic relationship" instructions §13 forbids where
+explicit FKs remain practical, which they do here.
+
+### R-69 — ValidationRecord's mutability was corrected mid-milestone: decision fields are permanently frozen, but the reassessment-trigger columns may be set exactly once, later
+
+**Decision:** `validation_records` grants `SELECT, INSERT, UPDATE` (not
+`SELECT, INSERT` only). A `BEFORE UPDATE` trigger,
+`prevent_validation_record_tampering()`, unconditionally blocks any
+change to `remediation_action_id`/`tenant_id`/`organisation_id`/
+`engagement_id`/`validated_by`/`validated_at`/`outcome`/`rationale` —
+the actual validation decision, which is corrected only by creating a
+*new* ValidationRecord, never edited in place — but allows
+`triggers_control_test_id`/`triggers_assessment_response_id` to
+transition exactly once, from `NULL` to a non-null value.
+**Rationale:** The first draft of this milestone modeled
+`ValidationRecord` as fully immutable end-to-end (matching `audit_log`'s
+own posture), reasoning that "an explicit event/record" (§8) should
+never be updated at all. That directly contradicted the realistic
+workflow the milestone's own required historical scenario describes
+(§10): a consultant records the accept/reject decision *first*, and only
+*later* performs and links the actual reassessment — the reassessment
+target cannot be known at the moment the validation decision is made,
+because the new ControlTest/AssessmentResponse it points to may not
+exist yet. Discovered via `tests/risk-remediation/historical-scenario.
+test.ts` actually failing against a fully-immutable design, not by
+inspection. The fix mirrors Milestone 6's own precedent exactly:
+`document_versions.scan_status` is frozen except one narrow pending→
+terminal transition (R-59-adjacent); here, two columns are frozen except
+one narrow NULL→value transition each. Every other field — the actual
+decision being validated — remains permanently frozen, preserving §16's
+finalized-record protection for the part of the record instructions §9
+actually calls immutable ("never mutate historical finalized
+AssessmentResponses"); the trigger columns are not that historical
+record, they are a forward-pointing cross-reference to one.
+
+### R-70 — Reassessment-trigger FKs on ValidationRecord are scoped to `organisation_id` only, deliberately not `engagement_id`
+
+**Decision:** `validation_records_triggers_control_test_scope_fk` and
+`validation_records_triggers_assessment_response_scope_fk` are 2-column
+FKs (`(triggers_*_id, organisation_id)`), not 4-column
+(`tenant_id`+`organisation_id`+`engagement_id`+id) FKs like every other
+composite FK in this schema.
+**Rationale:** Discovered as a genuine design bug via `historical-
+scenario.test.ts` (§10) actually failing, not a test bug: the project's
+own established pattern since Milestone 2 (the FY2026/FY2027 worked
+example named explicitly in this milestone's own §10 scenario) is that
+each annual assessment cycle is a *separate Engagement* of the same
+Organisation. A `ValidationRecord` created in the FY2026 Engagement
+(where the remediation was raised) routinely points to a reassessment
+that happens in the *FY2027* Engagement — the two rows can never share
+an `engagement_id` by the architecture's own design, so a 4-column
+engagement-scoped FK would make the required scenario permanently
+unsatisfiable, not merely awkward. Organisation-scoping still proves
+tenant consistency transitively (an Organisation belongs to exactly one
+Tenant), so cross-tenant reference remains impossible — the FK still
+enforces everything instructions §12/§14 actually require ("cross-tenant
+remediation relationships rejected... cross-organisation remediation
+relationships rejected"), just not a same-engagement constraint nothing
+in the architecture asks for. Required a new `assessment_responses_id_
+organisation_id_key` unique constraint (`control_tests` already had the
+equivalent 2-column unique from Milestone 6).
+
+### R-71 — `RemediationAction.status = 'evidence_submitted'` is NOT enforced at the database layer to require a linked Evidence row to exist
+
+**Decision:** No CHECK constraint, trigger, or FK requires an
+`evidence_links` row referencing a `RemediationAction` before that
+RemediationAction's `status` column can be set to `'evidence_submitted'`
+(or any other status). The status column is a plain enum; any value can
+be set at any time by an authorized writer, subject only to the ordinary
+RLS/reparenting-guard rules every other mutable field on this table
+follows.
+**Rationale:** DATA_MODEL.md §8 itself frames the Remediation lifecycle
+("Open → In Progress → Evidence Submitted → Validated → Closed") as an
+application-layer state machine, not a database-enforced one — no
+milestone instruction (§6/§7) asks for a trigger enforcing status-
+transition preconditions, and inventing one now would be exactly the
+"elaborate project management" instructions §6 explicitly warns against
+building. The milestone's real, non-negotiable guarantee — §7's CRITICAL
+SEMANTIC RULE that `status = completed` is never treated as proof of
+control effectiveness — is preserved by construction: nothing in this
+schema derives a Risk/Finding/AssessmentResponse change from
+`remediation_actions.status` at all; that determination remains a
+separate, explicit `ValidationRecord` created by a human, exactly as
+required. Enforcing "evidence must exist first" at the DB layer would
+add a workflow constraint the architecture never asked for without
+strengthening that actual guarantee.
