@@ -2464,3 +2464,121 @@ weakening relative to what PRODUCT_UX_BLUEPRINT.md's own design
 intends. Deferred, not silently decided: a future slice adding real
 finalization needs a genuine "who may finalize" authorization answer
 first, which is a decision this slice's own scope does not ask for.
+
+### R-94 — Evidence file limits, allow-list, signed-URL lifetime, and object-key convention (Slice C2)
+
+**Decision:** `lib/storage/evidence-storage.ts` fixes four concrete,
+product-level values: a 25MB maximum file size; a closed MIME
+allow-list covering PDF, PNG, JPEG, DOC/DOCX, XLS/XLSX, and plain text
+(each mapped to its own required extension, so a mismatched
+extension/MIME pair is rejected even for an otherwise-allowed type); a
+300-second (5-minute) signed-URL lifetime; and the object-key path
+`tenants/{tenantId}/organisations/{organisationId}/documents/{documentId}/{documentVersionId}`
+— identifiers only, never a filename, person's name, email, or
+free-form client name.
+**Rationale:** PHASE C2 instructions §6/§9/§10/§17 each explicitly ask
+for these to be documented as consequential choices, not silently
+picked. 25MB is a deliberate MVP ceiling (instructions §9: "reasonable
+MVP max size, not enterprise-scale") sized for real compliance
+documents — policy PDFs, signed agreements, configuration exports,
+screenshots — without inviting unbounded uploads;
+`next.config.mjs`'s `experimental.serverActions.bodySizeLimit` was
+raised from Next.js's 1MB default to `26mb` specifically to
+accommodate it. The MIME allow-list is the realistic, closed set of
+document types this product actually handles, not a general-purpose
+file host, and is never trusted from the browser alone — extension
+must independently match. 300 seconds follows SECURITY.md §5's own
+already-approved requirement ("The only way to read a file is a
+short-lived signed URL") — long enough for a browser to actually
+fetch the file once issued, short enough that a leaked URL (browser
+history, a proxy log) is not a durable access grant; never persisted
+to PostgreSQL (instructions §17), only ever held in memory for the
+single response returning it. The object-key convention refines
+Milestone 6's own illustrative example (DECISIONS.md R-65:
+`tenants/<id>/documents/<id>/<hash-prefix>`), which used a truncated
+content hash as the leaf segment — replaced here with the
+`documentVersionId` itself (deterministic and collision-proof by
+construction, since it's already the version row's own primary key,
+with no dependency on file content) and `organisationId` inserted into
+the path so a real production Storage policy can scope access by
+organisation-level path prefix, mirroring the same Tenant →
+Organisation nesting every RLS policy in this project already
+enforces at the database layer.
+
+### R-95 — Storage-adapter selection (real vs. local) mirrors D-03/R-85's precedent; `supabase/storage-policies.sql` is written but not applied or independently verified
+
+**Decision:** `getEvidenceStorageAdapter()` selects
+`SupabaseEvidenceStorageAdapter` (using the existing, session-bound
+`createSupabaseServerClient()` — never a service-role client, never a
+second Supabase SDK instantiation) when
+`NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` are real
+values, and `LocalEvidenceStorageAdapter` (real file I/O against a
+git-ignored `.local-storage/evidence/` directory, real SHA-256
+checksums, a deliberately fake `local-evidence-storage://` "signed
+URL" scheme) otherwise. `supabase/storage-policies.sql` — the private
+`evidence` bucket definition and its RLS-style Storage policies,
+scoping object access by the `organisationId` path segment via the
+existing `public.can_access_organisation()` function — is written and
+committed, but is **not applied to any real Supabase project** and has
+**not been verified against real Supabase Storage**.
+**Rationale:** Mirrors `lib/db/request-client.ts`'s already-established
+"real once configured, local/test until then" shape for the database
+connection (D-03/R-85), applied here to Storage now that D-03 itself
+picked a region but before any production project is provisioned.
+Instructions §34 explicitly forbid provisioning a production Supabase
+project or creating a real bucket without explicit approval, and §25
+requires clearly distinguishing database tests, storage integration
+tests, and production Supabase validation rather than substituting a
+false claim — this environment's own network egress to `supabase.co`
+remains blocked (confirmed in Slice A1), so no real Supabase Storage
+call of any kind has been exercised this slice. `supabase/
+storage-policies.sql` is deliberately narrow (per instructions §20:
+"no broad 'authenticated can read everything'"), but its correctness
+against a real bucket is unverified — recorded here, and in
+PROGRESS.md's "Known limitations," as an honest gap rather than an
+implicit claim of readiness.
+
+### Evidence review is not blocked by assessment finalization; only EvidenceLink insert/delete is locked (Slice C2)
+
+`reviewEvidence` (accept/reject a piece of Evidence) is deliberately
+**not** given an application-level check against its subject's
+Assessment finalization status, and no such check exists anywhere in
+this slice's code. Direct inspection of migration 0011 confirms this
+matches the database's own existing behavior exactly:
+`evidence_links_enforce_draft_mutable` only fires on `evidence_links`
+INSERT/DELETE (blocking new links to, or removal of links from, a
+finalized subject), and neither `evidence`'s own
+`prevent_evidence_reparenting` trigger nor any other trigger touches
+`review_status`/`reviewed_by`/`reviewed_at`/`review_rationale`. A
+reviewer may therefore still accept or reject Evidence already linked
+to a finalized Assessment's response — reviewing evidence quality is a
+distinct activity from mutating which subject an Evidence record is
+attached to, and the schema this slice must respect (instructions §15:
+"never bypass via Storage APIs," not "invent a new lock the database
+doesn't have") was built with that same distinction already in place.
+No DECISIONS.md change to the trigger itself was made or considered —
+this entry only records the deliberate absence of an *additional,
+invented* application-level lock beyond what the schema already
+enforces.
+
+### Compensating cleanup after a genuine mid-transaction database failure is not independently exercised by an automated test (Slice C2)
+
+`uploadEvidence`'s and `addDocumentVersion`'s `catch` blocks (storage
+object removal after a Storage upload succeeds but a subsequent
+database write fails) are exercised for two of their three real
+components — the removal primitive itself is directly tested
+(`tests/app/evidence-storage.test.ts`: upload, then `remove`, then
+confirm the object is genuinely gone), and the one path proven never
+to reach a Storage write at all is tested end-to-end
+(`tests/app/evidence.test.ts`'s finalized-assessment-upload-rejected
+case, which fails at authorization/link-resolution before
+`storage.upload()` is ever called) — but the full "successful Storage
+upload → a genuine mid-transaction Postgres failure on one of the
+subsequent inserts → confirmed compensating cleanup" integration is
+not exercised together, end-to-end, by any automated test. This
+mirrors R-92's identical, already-documented conclusion for Slice B2's
+two-insert onboarding operations: engineering a safe, deterministic
+mid-transaction database failure without corrupting shared,
+cross-test-file fixture data was judged impractical for the same
+reasons R-92 gives, not attempted, and recorded here rather than
+silently left untested.

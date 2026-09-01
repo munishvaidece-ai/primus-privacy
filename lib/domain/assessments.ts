@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
 import {
   assessments,
@@ -12,8 +12,6 @@ import {
   requirements,
   regulatoryReferences,
   controlTests,
-  evidence,
-  evidenceLinks,
   users,
 } from "@/db/schema";
 import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
@@ -329,57 +327,10 @@ export async function getControlTestsForControl(
   return rows;
 }
 
-export interface EvidenceSummaryRow {
-  id: string;
-  title: string;
-  evidenceType: string;
-  reviewStatus: string;
-  qualityRating: string | null;
-  linkedVia: "assessment_response" | "control_test";
-}
-
-/**
- * The read-only Evidence summary for one Control (PHASE C instructions
- * §14) — only existing `EvidenceLink` relationships (to this control's
- * own AssessmentResponse and/or any of its ControlTests) are exposed,
- * never a storage path or signed URL (`evidence`/`documents`/
- * `document_versions`' own `storage_path` column is never selected
- * anywhere in this module). No upload/link-management UI — display
- * only, per instructions §27.
- */
-export async function getEvidenceSummaryForControl(
-  db: RequestDb,
-  assessmentResponseId: string | null,
-  controlTestIds: string[],
-): Promise<EvidenceSummaryRow[]> {
-  if (!assessmentResponseId && controlTestIds.length === 0) return [];
-
-  const conditions = [];
-  if (assessmentResponseId) conditions.push(eq(evidenceLinks.assessmentResponseId, assessmentResponseId));
-  if (controlTestIds.length > 0) conditions.push(inArray(evidenceLinks.controlTestId, controlTestIds));
-
-  const rows = await db
-    .select({
-      id: evidence.id,
-      title: evidence.title,
-      evidenceType: evidence.evidenceType,
-      reviewStatus: evidence.reviewStatus,
-      qualityRating: evidence.qualityRating,
-      linkedVia: evidenceLinks.subjectType,
-    })
-    .from(evidenceLinks)
-    .innerJoin(evidence, eq(evidence.id, evidenceLinks.evidenceId))
-    .where(or(...conditions))
-    .orderBy(desc(evidence.collectedAt));
-
-  // The WHERE clause above only ever matches assessment_response/
-  // control_test links (the two conditions built above) — the other two
-  // EvidenceLink subject types (remediation_action/validation_record)
-  // are structurally unreachable here, but the column's own DB type
-  // covers all four; narrowed explicitly rather than widening this
-  // function's own return type to subject types it can never produce.
-  return rows as EvidenceSummaryRow[];
-}
+// getEvidenceSummaryForControl moved to lib/domain/evidence.ts in
+// Slice C2 — the whole Evidence domain (upload, review, linking, the
+// summary read) now lives in one module. Re-exported below for
+// backward-compatible imports.
 
 export interface UpdateAssessmentResponseInput {
   assessmentControlId: string;

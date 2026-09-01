@@ -6,13 +6,19 @@ import {
   getAssessmentDetail,
   getControlRequirements,
   getControlTestsForControl,
-  getEvidenceSummaryForControl,
 } from "@/lib/domain/assessments";
+import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { updateAssessmentResponseAction, createControlTestAction } from "./actions";
+import {
+  updateAssessmentResponseAction,
+  createControlTestAction,
+  uploadEvidenceAction,
+  reviewEvidenceAction,
+  unlinkEvidenceAction,
+} from "./actions";
 
 const EFFECTIVENESS_OPTIONS = [
   { value: "not_assessed", label: "Not Assessed" },
@@ -88,6 +94,24 @@ export default async function AssessmentWorkspacePage({
 
   const basePath = `/organisations/${params.organisationId}/engagements/${params.engagementId}/assessments/${params.assessmentId}`;
   const pct = assessment.progress.total > 0 ? Math.round((assessment.progress.completed / assessment.progress.total) * 100) : 0;
+
+  // What a new piece of Evidence for this control can be linked to
+  // (PHASE C2 instructions §13) — the control's own AssessmentResponse,
+  // if one has been recorded, plus each of its own ControlTests. If
+  // neither exists yet, there is nothing a new EvidenceLink could
+  // legitimately point at, so the upload form itself is withheld rather
+  // than offered and then rejected server-side.
+  const linkTargetOptions = selected
+    ? [
+        ...(selected.response
+          ? [{ value: `assessment_response:${selected.response.id}`, label: "This control's assessment response" }]
+          : []),
+        ...controlTestRows.map((t, i) => ({
+          value: `control_test:${t.id}`,
+          label: `Control test #${controlTestRows.length - i} (${t.result}, ${new Date(t.createdAt).toLocaleDateString()})`,
+        })),
+      ]
+    : [];
 
   function controlHref(controlId: string): string {
     const sp = new URLSearchParams();
@@ -404,18 +428,154 @@ export default async function AssessmentWorkspacePage({
                   {evidenceRows.length === 0 ? (
                     <p className="mt-2 text-sm text-slate-500">No evidence linked yet.</p>
                   ) : (
-                    <ul className="mt-2 space-y-1">
+                    <ul className="mt-2 space-y-3">
                       {evidenceRows.map((e) => (
-                        <li key={e.id} className="flex items-center justify-between text-sm">
-                          <span className="text-slate-900">{e.title}</span>
-                          <span className="flex items-center gap-2">
-                            <span className="text-xs text-slate-500">{e.evidenceType}</span>
+                        <li key={e.evidenceLinkId} className="rounded border border-slate-100 p-2 text-sm">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium text-slate-900">{e.title}</p>
+                              <p className="text-xs text-slate-500">
+                                {e.evidenceType} · {e.originalFilename}
+                                {e.qualityRating ? <> · quality: {e.qualityRating}</> : null}
+                              </p>
+                            </div>
                             <Badge tone={statusTone(e.reviewStatus)}>{e.reviewStatus}</Badge>
-                          </span>
+                          </div>
+
+                          {e.reviewStatus !== "pending_review" ? (
+                            <p className="mt-1 text-xs text-slate-500">
+                              Reviewed by {e.reviewedByEmail ?? "—"}
+                              {e.reviewedAt ? <> on {new Date(e.reviewedAt).toLocaleDateString()}</> : null}
+                              {e.reviewRationale ? <>: {e.reviewRationale}</> : null}
+                            </p>
+                          ) : null}
+                          {e.validUntil ? (
+                            <p className="mt-0.5 text-xs text-slate-500">Valid until {new Date(e.validUntil).toLocaleDateString()}</p>
+                          ) : null}
+
+                          <div className="mt-2 flex flex-wrap items-center gap-3">
+                            <a
+                              href={`${basePath}/evidence/${e.id}/download`}
+                              className="text-xs font-medium text-slate-900 underline"
+                            >
+                              View / download
+                            </a>
+
+                            {!finalized && e.reviewStatus === "pending_review" ? (
+                              <>
+                                <form action={reviewEvidenceAction}>
+                                  <input type="hidden" name="organisationId" value={params.organisationId} />
+                                  <input type="hidden" name="engagementId" value={params.engagementId} />
+                                  <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                                  <input type="hidden" name="evidenceId" value={e.id} />
+                                  <input type="hidden" name="reviewStatus" value="accepted" />
+                                  <input type="hidden" name="returnTo" value={controlHref(selected.assessmentControlId)} />
+                                  <Button type="submit" variant="secondary" size="sm">
+                                    Accept
+                                  </Button>
+                                </form>
+                                <details className="inline-block">
+                                  <summary className="cursor-pointer text-xs font-medium text-red-700">Reject…</summary>
+                                  <form action={reviewEvidenceAction} className="mt-2 space-y-2">
+                                    <input type="hidden" name="organisationId" value={params.organisationId} />
+                                    <input type="hidden" name="engagementId" value={params.engagementId} />
+                                    <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                                    <input type="hidden" name="evidenceId" value={e.id} />
+                                    <input type="hidden" name="reviewStatus" value="rejected" />
+                                    <input type="hidden" name="returnTo" value={controlHref(selected.assessmentControlId)} />
+                                    <label htmlFor={`reject-rationale-${e.id}`} className="block text-xs font-medium text-slate-700">
+                                      Reason for rejection
+                                    </label>
+                                    <textarea
+                                      id={`reject-rationale-${e.id}`}
+                                      name="reviewRationale"
+                                      required
+                                      rows={2}
+                                      className={INPUT_CLASS}
+                                    />
+                                    <Button type="submit" variant="destructive" size="sm">
+                                      Reject
+                                    </Button>
+                                  </form>
+                                </details>
+                              </>
+                            ) : null}
+
+                            {!finalized ? (
+                              <form action={unlinkEvidenceAction}>
+                                <input type="hidden" name="organisationId" value={params.organisationId} />
+                                <input type="hidden" name="engagementId" value={params.engagementId} />
+                                <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                                <input type="hidden" name="evidenceLinkId" value={e.evidenceLinkId} />
+                                <input type="hidden" name="returnTo" value={controlHref(selected.assessmentControlId)} />
+                                <Button type="submit" variant="ghost" size="sm">
+                                  Unlink
+                                </Button>
+                              </form>
+                            ) : null}
+                          </div>
                         </li>
                       ))}
                     </ul>
                   )}
+
+                  {!finalized ? (
+                    linkTargetOptions.length === 0 ? (
+                      <p className="mt-4 border-t border-slate-100 pt-4 text-sm text-slate-500">
+                        Record a response or control test for this control before attaching evidence.
+                      </p>
+                    ) : (
+                      <form action={uploadEvidenceAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4" encType="multipart/form-data">
+                        <input type="hidden" name="organisationId" value={params.organisationId} />
+                        <input type="hidden" name="engagementId" value={params.engagementId} />
+                        <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                        <input type="hidden" name="returnTo" value={controlHref(selected.assessmentControlId)} />
+
+                        <div>
+                          <label htmlFor="evidenceTitle" className="block text-xs font-medium text-slate-700">
+                            Title
+                          </label>
+                          <input id="evidenceTitle" name="title" type="text" required maxLength={200} className={INPUT_CLASS} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label htmlFor="evidenceType" className="block text-xs font-medium text-slate-700">
+                              Evidence type
+                            </label>
+                            <select id="evidenceType" name="evidenceType" defaultValue="policy_document" className={INPUT_CLASS}>
+                              <option value="policy_document">Policy document</option>
+                              <option value="screenshot">Screenshot</option>
+                              <option value="system_configuration_export">System configuration export</option>
+                              <option value="signed_agreement">Signed agreement</option>
+                              <option value="certificate">Certificate</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label htmlFor="linkTarget" className="block text-xs font-medium text-slate-700">
+                              Supports
+                            </label>
+                            <select id="linkTarget" name="linkTarget" defaultValue={linkTargetOptions[0]?.value} className={INPUT_CLASS}>
+                              {linkTargetOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label htmlFor="evidenceFile" className="block text-xs font-medium text-slate-700">
+                            File (PDF, image, Office document, or text — 25MB max)
+                          </label>
+                          <input id="evidenceFile" name="file" type="file" required className={INPUT_CLASS} />
+                        </div>
+                        <Button type="submit" size="sm">
+                          Upload evidence
+                        </Button>
+                      </form>
+                    )
+                  ) : null}
                 </section>
               </div>
             )}

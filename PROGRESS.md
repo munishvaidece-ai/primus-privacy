@@ -1,23 +1,499 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — D-03 (Data Residency) RESOLVED (Session 17):
-production infrastructure will use Supabase, AWS Mumbai region
-(`ap-south-1`) — PostgreSQL, Storage, and Auth all in the same
-production project, decided by the product owner as PRIMUS's own
-product/security/contractual posture (not a claim that the DPDP Act
-itself mandates India-only hosting — see DECISIONS.md D-03 for the
-full clarification). Documentation-only session: no code, schema,
-migration, or infrastructure change — the production Supabase project
-is **not** provisioned, Storage is **not** implemented, and C2 was
-**not** started, all per explicit instruction. Region selection is a
-data-location control only; production readiness still requires
-private storage, signed URLs, RLS (already built, enforcement pending
-a real project), authentication, audit (already built), encryption,
-malware scanning (D-05, still open), retention/deletion,
-processor contractual controls, backup/recovery, monitoring, and
-incident response — none of which this decision addresses. Slice C1
-(Session 16) remains the most recent functional build state, entirely
-unaffected by this decision.
+Status: 2026-09-01 — Slice C2 (Secure Evidence Storage + Evidence
+Review) COMPLETE (Session 18): real, secure, file-based evidence
+upload/versioning/review is built on the existing Document/
+DocumentVersion/Evidence/EvidenceLink model — a storage-adapter
+abstraction (real Supabase Storage once a production project exists;
+a real-file-I/O local/test stand-in until then, mirroring D-03/R-85's
+own precedent), server-side file validation, SHA-256 checksums,
+compensating cleanup on failed uploads, short-lived signed URLs
+(never persisted, never a public URL), and the Assessment workspace
+extended with an Evidence upload/review/version UI. No production
+Supabase project is provisioned and no real Supabase Storage call has
+been exercised (network egress to `supabase.co` remains blocked in
+this environment, confirmed since Slice A1) — this is reported
+explicitly, not glossed over. Malware scanning (D-05) remains
+unresolved by design: every new `DocumentVersion.scan_status` stays at
+its column default (`pending`); nothing in this slice claims scanning
+exists or marks an upload "clean." Full details in the "Slice C2"
+section below. STOP after C2 per explicit instruction — no C3/Risk/
+Findings/Remediation/Maturity/Client Portal/Reporting/AI.
+
+## Slice C2 — Secure Evidence Storage + Evidence Review (Session 18, 2026-09-01)
+
+**Scope:** exactly what PHASE C / Slice C2 instructed — turn the
+existing Evidence/Document/DocumentVersion/EvidenceLink data model into
+a real, secure, file-based evidence workflow: private Supabase Storage
+(abstracted behind a real/local adapter, since no production project
+exists), server-side upload validation and SHA-256 checksums, the
+existing Document/DocumentVersion versioning model (new upload = new
+version, never an overwrite), Evidence pinned to a specific
+DocumentVersion, EvidenceLink to AssessmentResponse/ControlTest, the
+existing four-state review lifecycle, short-lived signed-URL
+download/view, and an Evidence area added to the existing Assessment
+workspace. No Risk, Findings, Remediation, Maturity, Client Portal,
+Reporting, AI UI, and no C3 — none of those exist anywhere in this
+slice's changes. No new domain table, no new migration (migration 0011
+already carried every INSERT/UPDATE policy, GRANT, and audit trigger
+this slice's writes needed — confirmed by direct inspection, matching
+Slice C1's identical finding for the assessment-engine tables).
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, the
+Evidence/EvidenceLink/Document/DocumentVersion/Assessment/
+AssessmentControl/ControlTest schemas, the existing authorization
+service, the existing Assessment workspace, the existing Evidence
+summary implementation, existing tests, `package.json`, environment
+configuration, and the existing Supabase integration code fresh from
+disk before writing anything, per instruction.
+
+### 1. Storage architecture
+
+`lib/storage/evidence-storage.ts` is the single storage abstraction
+point. It reuses the EXISTING server-side Supabase integration
+(`lib/supabase/server.ts`'s `createSupabaseServerClient`, built in
+Slice A1 for Auth) rather than a second Supabase client architecture —
+Storage calls run through the SAME authenticated-user session, never a
+service-role client. An `EvidenceStorageAdapter` interface
+(`upload`/`createSignedUrl`/`remove`) has two implementations, selected
+by `getEvidenceStorageAdapter()` using the exact same
+`NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` presence
+check `lib/supabase/server.ts` already uses:
+`SupabaseEvidenceStorageAdapter` (real, production-shaped) once those
+env vars are real values, and `LocalEvidenceStorageAdapter` (real file
+I/O against a git-ignored `.local-storage/evidence/` directory, real
+SHA-256 checksums, a deliberately fake `local-evidence-storage://`
+"signed URL" scheme) otherwise — the same "real once configured,
+local/test until then" shape `lib/db/request-client.ts` already
+established for the database connection (DECISIONS.md D-03/R-85).
+
+### 2. Environment separation
+
+Local dev/testing uses the local adapter automatically (no env vars
+set). Production, once a real Supabase project exists, uses the real
+adapter automatically the moment `NEXT_PUBLIC_SUPABASE_URL`/
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` are set to that project's real values —
+no code branch, no separate deployment path. No credential (service
+role key, DB password, storage secret) is hard-coded anywhere in this
+slice's code; `.env.example`'s existing placeholder entries
+(`SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`) already document what production needs
+and required no changes.
+
+### 3. Mumbai residency implementation
+
+Not re-implemented here — D-03 (resolved Session 17) already commits
+to Supabase, AWS Mumbai (`ap-south-1`), for PostgreSQL, Storage, and
+Auth in the same production project. This slice's storage code makes
+no region-specific choice of its own: whichever Supabase project the
+production env vars point to (Mumbai, per D-03) is what
+`SupabaseEvidenceStorageAdapter` uses. Not a claim that the DPDP Act
+itself requires India-only hosting — PRIMUS's own stronger-than-required
+posture, per D-03's own text.
+
+### 4. Bucket configuration
+
+`supabase/storage-policies.sql` (new, written but explicitly **not
+applied** to any project — instructions §34 forbid provisioning
+production or creating a real bucket without approval): defines a
+single, private `evidence` bucket (`public = false`) plus narrow
+RLS-style Storage policies restricting `SELECT`/`INSERT` to
+`authenticated` users whose claimed `organisationId` path segment
+(extracted via `storage.foldername(name)[4]`) passes the existing
+`public.can_access_organisation()` function — never a broad
+"authenticated can read everything" policy (instructions §20). No
+anonymous `SELECT`/`INSERT`, no public bucket, no service-role use in
+browser code.
+
+### 5. Object-key convention
+
+`tenants/{tenantId}/organisations/{organisationId}/documents/{documentId}/{documentVersionId}`
+— identifiers only, never a filename, person's name, email, or
+free-form client name (the original filename stays in PostgreSQL, on
+`document_versions.original_filename`, metadata only). A refinement
+over Milestone 6's own illustrative example (DECISIONS.md R-65:
+`tenants/<id>/documents/<id>/<hash-prefix>`) — see DECISIONS.md R-94
+for the full reasoning.
+
+### 6. Upload architecture
+
+`lib/domain/evidence.ts`'s `uploadEvidence` (PHASE C2 instructions
+§7): authenticate → `requireEngagementAccess` → validate the file
+server-side → resolve and validate the EvidenceLink target (rejecting
+a finalized Assessment's subject BEFORE any storage write, so no
+orphan is even possible for that path) → upload the object to Storage
+FIRST (with an application-generated id, avoiding an RLS/RETURNING
+race, the same pattern every domain function since Slice B1 uses) →
+only then insert Document/DocumentVersion/Evidence/EvidenceLink, all
+within the SAME `withRequestDb` transaction the caller already opened.
+Storage and Postgres are two different systems, so a true
+cross-system transaction is impossible (instructions §7); the
+`catch` block's explicit compensating cleanup (`storage.remove()`)
+prevents a rolled-back database write from leaving a permanently
+orphaned Storage object behind. `addDocumentVersion` (new version on
+an existing Document) follows the identical upload-then-insert-then-
+compensate shape.
+
+### 7. File validation
+
+`validateEvidenceFile` (server-side, in `lib/domain/evidence.ts`):
+presence, non-empty size, a 25MB maximum, MIME type checked against a
+closed allow-list (PDF/PNG/JPEG/DOC/DOCX/XLS/XLSX/plain text), and the
+filename's own extension checked against that specific MIME type's
+required extension(s) — never trusting a browser-supplied MIME type
+alone (instructions §8). No elaborate content-inspection engine
+(instructions §8's own explicit exclusion).
+
+### 8. Checksum implementation
+
+`sha256Buffer()` computes a real SHA-256 over the actual uploaded
+bytes, server-side, both for the value stored on
+`document_versions.checksum_sha256` and as the return value both
+storage adapters produce from the same bytes they just wrote — never
+trusting a browser-supplied checksum (instructions §10).
+
+### 9. Document/version behavior
+
+Every upload creates a brand-new `DocumentVersion` row; no code path
+anywhere in this slice ever `UPDATE`s an existing version's file
+metadata, and migration 0011's `document_versions_prevent_tampering`
+trigger is the real, unconditional backstop regardless. `addDocumentVersion`
+adds v2/v3/... to an existing logical `Document` without touching any
+prior version or any Evidence row already pinned to it.
+
+### 10. Evidence creation
+
+Evidence is always created with an explicit `document_version_id` —
+either the version just uploaded (`uploadEvidence`) or an
+already-existing one (`createEvidenceForVersion`, for attaching a
+version created moments earlier via `addDocumentVersion` without
+re-uploading). No code path lets Evidence "float" to a document's
+latest version; it is pinned to the exact version at creation and
+stays there.
+
+### 11. EvidenceLink behavior
+
+Uses the existing `EvidenceLink` model exactly as it is — no new
+generic polymorphic system. `resolveLinkSubject` supports linking to
+either an `AssessmentResponse` or a `ControlTest`, re-deriving the
+subject's own tenant/organisation/engagement and Assessment
+finalization status from the database on every call (never trusting
+the caller's own ids as proof of relationship). `unlinkEvidence`
+removes an `EvidenceLink` row without touching the underlying Evidence
+or DocumentVersion.
+
+### 12. Evidence review lifecycle
+
+`reviewEvidence` writes only the two existing consultant-decision
+states (`accepted`/`rejected`) — `pending_review` is the row's own
+default at creation, and `expired` is a separate, time-based state
+this slice builds no transition for (no expiry-sweep job exists
+anywhere in this project). Rejecting without a rationale is refused
+server-side, not merely required on the form. Reviewer id
+(`reviewed_by`) and timestamp (`reviewed_at`) are populated
+server-side from the authenticated session, never trusted from the
+caller. See DECISIONS.md's new entry: review is deliberately **not**
+blocked by Assessment finalization, matching the database's own
+existing behavior exactly (only `EvidenceLink` insert/delete is
+locked).
+
+### 13. Signed URL architecture
+
+`getEvidenceDownloadUrl` (PHASE C2 instructions §17): authenticate →
+`requireEngagementAccess` → re-derive the Evidence row and its
+DocumentVersion's `storage_path` server-side (never accepting a
+browser-supplied path) → issue a short-lived (300-second) signed URL →
+return it directly, never persisted to PostgreSQL. Exposed to the
+browser only via a plain GET Route Handler
+(`.../evidence/[evidenceId]/download/route.ts`) that immediately
+redirects to the signed URL — never returned as JSON for a client to
+store, never exposes `storage_path` itself.
+
+### 14. Authorization
+
+Reuses the existing centralized authorization service exactly —
+`requireEngagementAccess` is the sole authorization primitive this
+slice needed (every evidence operation in this slice's UI is
+engagement-scoped); no new function was added to
+`lib/authorization/service.ts`. Every write/read function in
+`lib/domain/evidence.ts` re-derives tenant/organisation/engagement
+scope from the database itself (`resolveEngagementScope`,
+`resolveLinkSubject`, and inline row lookups before every mutation) —
+a browser-supplied `organisationId`/`engagementId`/`documentId`/
+`documentVersionId`/`evidenceId` that does not match what the database
+independently confirms is always rejected with
+`NotFoundOrForbiddenError`, regardless of the caller's legitimate
+access elsewhere.
+
+### 15. RLS
+
+Unchanged and unweakened — migration 0011's existing forced-RLS
+policies on `documents`/`document_versions`/`evidence`/
+`evidence_links` (`can_access_engagement`/`can_access_organisation`,
+scoped by `engagement_id`/`organisation_id`) remain exactly as they
+were; directly re-confirmed via `psql \d+` this session (see "Exact
+database inspection" below) rather than only read from the migration
+file.
+
+### 16. Storage policies
+
+`supabase/storage-policies.sql` (see item 4) — written, narrowly
+scoped, **not applied to any real project**, and consequently **not
+independently verified against real Supabase Storage** (DECISIONS.md
+R-95). Storage authorization is documented as an ADDITIONAL layer on
+top of, never a replacement for, database RLS and application
+authorization.
+
+### 17. Audit
+
+Evidence write paths rely on the existing audit architecture exactly —
+migration 0011's `documents_audit_log`/`document_versions_audit_log`/
+`evidence_audit_log`/`evidence_links_audit_log` triggers already cover
+Document/DocumentVersion/Evidence creation and EvidenceLink creation/
+removal; no second audit log, no new trigger. One addition:
+`getEvidenceDownloadUrl` writes a direct `audit_log` row
+(`entity_type: 'evidence'`, `action: 'insert'`,
+`reason: 'evidence_signed_url_issued'`) for every signed-URL issuance —
+satisfying SECURITY.md §5's own already-approved requirement ("Every
+signed-URL issuance is itself an auditable event"), the one place in
+this project's history a Server Action/domain function writes directly
+to `audit_log` rather than relying on a trigger, because issuing a URL
+is not itself a row mutation any trigger could observe. Documented
+here rather than silently expanded, per instructions §21.
+
+### 18. Finalized-assessment behavior
+
+New Evidence upload/creation against a finalized Assessment's subject
+is rejected before any storage write (`resolveLinkSubject`'s
+`assessmentStatus === "finalized"` check, backed by the database's own
+`evidence_links_enforce_draft_mutable` trigger as the real,
+unconditional enforcement). `unlinkEvidence` against a finalized
+subject is rejected by the same database trigger. Evidence *review*
+(accept/reject) is deliberately not blocked by finalization — see item
+12 and the new DECISIONS.md entry for the full reasoning.
+
+### 19. Malware-scanning limitation
+
+D-05 remains explicitly unresolved. Every new `DocumentVersion` row's
+`scan_status` is left at its column default (`'pending'`) — no code in
+this slice ever transitions it to `'clean'` or any other value. No
+scanner, real or fake, exists anywhere in this codebase. This is a
+documented, known limitation, not silently glossed over.
+
+### 20. Historical versioning test
+
+`tests/app/evidence.test.ts`'s "Historical versioning" test exercises
+the exact scenario instructions §27 specifies: Document D1/V1 →
+Evidence E1 (linked to a ControlTest) is created; DocumentVersion V2 is
+then added to D1; the test then confirms — all via the real, running
+functions, not a hand-rolled query — that E1's own
+`document_version_id` still points at V1 (never silently moved to
+V2), V1's own row (checksum, filename, storage bytes on disk) is
+byte-for-byte unchanged, V2 has its own independent identity/checksum/
+storage object, V2 can be used to create an entirely new, independent
+Evidence record (E2) without disturbing E1, and a Document-level
+metadata change does not alter E1's pinned version.
+
+### 21. Storage security tests
+
+`tests/app/evidence-storage.test.ts` (8 tests, all passing) exercises
+the `LocalEvidenceStorageAdapter` directly: object-key shape (no PII,
+no filename), a real upload writing real bytes with a real matching
+SHA-256, a signed-URL request for a never-uploaded key failing (mirrors
+a real 404), signed-URL expiry encoding (not-yet-expired vs. already-
+expired), `remove` genuinely deleting the object (a subsequent
+signed-URL request then fails), idempotent `remove` on a
+never-uploaded key, and adapter-instance caching. Instructions §26
+items 18-22 (real Supabase bucket privacy, real public-URL rejection,
+a real signed URL working, real signed-URL expiry against Supabase's
+own infrastructure, revoked access not remaining available) are
+**explicitly not executable in this environment** — no production (or
+any real) Supabase project exists and this environment's own network
+egress to `supabase.co` is blocked (confirmed since Slice A1). Reported
+here per instructions §26's own "explicitly report that instead of
+substituting a false claim," not silently skipped.
+
+### 22. Database security tests
+
+`tests/app/evidence.test.ts`, tests 1-10 (all passing, real PostgreSQL,
+no mocked authorization): Tenant A cannot read Tenant B's Document/
+DocumentVersion (1/2) or Evidence (3); Tenant A cannot create Evidence
+or EvidenceLink under Tenant B (4/5); Organisation A cannot access
+Organisation A2's Evidence, same tenant (6); Engagement A cannot access
+Engagement A2's Evidence, same organisation (7); Evidence belonging to
+another organisation cannot be linked to Assessment A's subject (8); a
+historical DocumentVersion cannot be modified via a direct, raw UPDATE
+(9); a finalized Assessment's EvidenceLink relationships respect
+database locking via a direct, raw INSERT attempt (10).
+
+### 23. Application tests
+
+`tests/app/evidence.test.ts`, tests 11-16 (all passing): anonymous
+upload rejected via a raw INSERT as `anon` (11); anonymous download/
+read rejected (12); a user with no membership at all cannot upload
+evidence (13); an unauthorized user cannot obtain a signed URL (14);
+a browser-supplied `organisationId` claiming a different real
+organisation than the engagement's own is rejected, not silently
+trusted (15); there is no code path anywhere that accepts a
+browser-supplied storage path/object key — every read resolves it
+server-side from the authorized Evidence row (16). Item 17 (service-
+role credentials never reach the browser bundle) is a build-inspection
+check, not a vitest test — see item "Files changed"/build inspection
+below.
+
+Also covered in the same file, beyond the required security list:
+upload success (Document + DocumentVersion v1, pending scan status,
+Evidence + EvidenceLink, real file on disk with matching checksum);
+`addDocumentVersion`; `createEvidenceForVersion`; review accept (with
+reviewer/timestamp attribution) and reject (rationale required and
+stored); `unlinkEvidence`; `getEvidenceDownloadUrl` (signed URL +
+expiry + the audit_log row it writes); summary/version-list reads; and
+the failure/cleanup scenarios in instructions §29 — invalid file (no
+filename), oversized file, unsupported MIME type, MIME/extension
+mismatch, duplicate upload (two independent Documents, never
+deduplicated), and the finalized-assessment-upload-rejected-before-any-
+storage-write case.
+
+### 24. Exact full-suite count/results
+
+```
+npm run test:db   # fresh reset + full 8-directory suite incl. tests/app: 493/493 passing
+npm run test:db   # run again for stability: 493/493 passing, identical results
+```
+(456 tests carried forward from Slice C1 + 8 new in
+`tests/app/evidence-storage.test.ts` + 29 new in
+`tests/app/evidence.test.ts` = 493.)
+
+### 25. Typecheck/lint/build
+
+```
+npm run typecheck   # clean
+npx eslint .         # clean
+npm run build        # succeeds; the new download Route Handler correctly reported dynamic (0 B, server-rendered on demand)
+```
+
+### 26. Exact database inspection
+
+Directly queried via `psql` (not only read from the migration file)
+for `documents`/`document_versions`/`evidence`/`evidence_links`:
+forced RLS enabled on all four; `_select`/`_insert`/`_update` (and
+`evidence_links`' additional `_delete`) policies present, all scoped
+through `can_access_engagement`/`can_access_organisation`; the exact
+immutability/audit triggers confirmed present
+(`documents_prevent_reparenting`, `document_versions_assign_version_number`,
+`document_versions_prevent_tampering`,
+`evidence_prevent_reparenting`,
+`evidence_links_enforce_draft_mutable`, and an `_audit_log` trigger on
+each table); `GRANT`s to the `authenticated` role confirmed as
+`INSERT, SELECT, UPDATE` on `documents`/`document_versions`/`evidence`
+(deliberately no `DELETE` — matching their own never-hard-deleted
+posture) and `DELETE, INSERT, SELECT` on `evidence_links` (deliberately
+no `UPDATE` — a link is created or removed, never mutated in place).
+
+### 27. Browser-bundle credential inspection
+
+`.next/static` (the production build's client bundle) was directly
+searched for `SUPABASE_SERVICE_ROLE_KEY`, `service_role`,
+`DATABASE_URL`, and `DB_PASSWORD` — no occurrences. `lib/` and `app/`
+were also searched directly for any reference to
+`SUPABASE_SERVICE_ROLE_KEY` — none exist anywhere in this project's own
+code (the service-role credential is not used by anything this slice,
+or any prior slice, built).
+
+### 28. Files changed
+
+- `lib/storage/evidence-storage.ts` (new) — the storage adapter module
+- `lib/domain/evidence.ts` (new) — the Evidence domain module
+  (`uploadEvidence`, `addDocumentVersion`, `createEvidenceForVersion`,
+  `unlinkEvidence`, `reviewEvidence`, `getEvidenceDownloadUrl`,
+  `getEvidenceSummaryForControl` moved and enhanced from
+  `lib/domain/assessments.ts`, `listDocumentVersionsForDocument`)
+- `lib/domain/assessments.ts` (`getEvidenceSummaryForControl` and its
+  now-unused imports removed, replaced with a comment pointing to the
+  new location)
+- `supabase/storage-policies.sql` (new, unapplied — see items 4/16)
+- `app/(shell)/.../assessments/[assessmentId]/evidence/[evidenceId]/download/route.ts`
+  (new — the signed-URL-redirect Route Handler)
+- `app/(shell)/.../assessments/[assessmentId]/actions.ts` (extended —
+  `uploadEvidenceAction`, `reviewEvidenceAction`, `unlinkEvidenceAction`)
+- `app/(shell)/.../assessments/[assessmentId]/page.tsx` (Evidence
+  section rewritten: upload form, review Accept/Reject UI, Unlink
+  button, view/download link)
+- `next.config.mjs` (`experimental.serverActions.bodySizeLimit: "26mb"`)
+- `.gitignore` (`.local-storage/` added, git-ignored local storage root)
+- `tests/app/evidence-storage.test.ts` (new, 8 tests)
+- `tests/app/evidence.test.ts` (new, 29 tests)
+- `tests/app/assessment-workspace.test.ts` (import path updated for the
+  moved `getEvidenceSummaryForControl`; no behavior change, all 24
+  tests still pass)
+- `DECISIONS.md` (R-94, R-95, and two further entries — see item 26
+  below)
+- `PROGRESS.md` (this entry)
+
+No `drizzle/migrations/*` change — confirmed unnecessary after direct
+inspection (item 26 above / item "Storage architecture"). No
+`DATA_MODEL.md` change — no new field or entity.
+
+### 29. Dependencies changed
+
+None. `@supabase/supabase-js`/`@supabase/ssr` were already present
+(Slice A1); no `package.json` change this slice.
+
+### 30. Known limitations
+
+1. No production Supabase project is provisioned; no real Supabase
+   Storage call (upload, signed URL, bucket privacy, public-URL
+   rejection) has been exercised anywhere in this project
+   (DECISIONS.md R-95).
+2. `supabase/storage-policies.sql` is written but unapplied and
+   unverified against a real bucket (DECISIONS.md R-95).
+3. Malware scanning (D-05) remains unresolved; every upload's
+   `scan_status` stays `'pending'`.
+4. The full "successful Storage upload → a genuine mid-transaction
+   database failure → confirmed compensating cleanup" path is not
+   independently exercised end-to-end by an automated test — mirrors
+   R-92's identical, already-documented conclusion (new DECISIONS.md
+   entry this slice).
+5. Evidence review is not blocked by Assessment finalization, by
+   design, matching the database's own existing trigger behavior (new
+   DECISIONS.md entry this slice) — only `EvidenceLink` insert/delete
+   is locked.
+6. No standalone, organisation-level (non-engagement-scoped) Evidence
+   upload UI — this slice's UI is driven entirely from the Assessment
+   workspace, matching Slice C1's own engagement-scoped framing;
+   `engagement_id IS NULL` Evidence remains reachable only via direct
+   database action, same as before this slice.
+7. `expired` review status has no automated transition (no expiry-sweep
+   job) — carried as a known, unbuilt state, matching instructions §14's
+   own "no approvals workflow beyond this."
+8. Carries forward Slice A1/B1/B2/C1's own recorded limitation
+   (DECISIONS.md R-85/D-03): no real Supabase Auth backend is reachable
+   from this environment.
+
+### 31. Recommended C3
+
+Per explicit instruction, no recommendation for what C3 should contain
+is being pressed — the user's own brief already states "we will review
+C2 before continuing" and forbids proceeding to C3 in this session. The
+natural candidates left open by this slice's own known limitations are:
+(a) a genuine Supabase project provisioning step (outside this
+session's own bounds), after which the real storage adapter and
+`supabase/storage-policies.sql` can finally be verified against real
+infrastructure; (b) D-05 (malware scanning) resolution; (c) whichever
+Phase C slice the user's own roadmap names next. This report does not
+preempt that choice.
+
+### 32. Git status
+
+All Slice C2 work is committed on `claude/primus-privacy-architecture-39p3gh`.
+
+### 33. Remote synchronization
+
+Pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies).
+
+---
 
 ## D-03 Resolution — Data Residency (Session 17, 2026-09-01)
 

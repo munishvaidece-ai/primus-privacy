@@ -10,6 +10,13 @@ import {
   createControlTest,
   AssessmentFinalizedError,
 } from "@/lib/domain/assessments";
+import {
+  uploadEvidence,
+  reviewEvidence,
+  unlinkEvidence,
+  InvalidFileError,
+  ReviewRationaleRequiredError,
+} from "@/lib/domain/evidence";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 
 function basePathFor(organisationId: string, engagementId: string, assessmentId: string): string {
@@ -186,6 +193,240 @@ export async function createControlTestAction(formData: FormData): Promise<void>
     } else {
       console.error("createControlTestAction failed", err);
       errorMessage = "Something went wrong recording this control test. Please try again.";
+    }
+  }
+
+  if (errorMessage) {
+    redirect(withQueryFlag(returnTo, "error", errorMessage));
+  }
+
+  revalidatePath(basePath);
+  redirect(withQueryFlag(returnTo, "saved", "1"));
+}
+
+const uploadEvidenceSchema = z.object({
+  organisationId: z.string().uuid(),
+  engagementId: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+  title: z.string().trim().min(2, "Title must be at least 2 characters.").max(200, "Title must be 200 characters or fewer."),
+  evidenceType: z.enum([
+    "policy_document",
+    "screenshot",
+    "system_configuration_export",
+    "signed_agreement",
+    "certificate",
+    "other",
+  ]),
+  documentType: z
+    .enum(["policy", "contract", "screenshot", "certificate", "report", "system_configuration", "other"])
+    .optional(),
+  linkTarget: z.string().min(1, "Select what this evidence supports."),
+});
+
+/**
+ * Slice C2 (PHASE C2 instructions §7/§17): Browser → Server Action →
+ * authenticate → authorize → validate metadata → create Document/
+ * DocumentVersion → upload private object → verify checksum → create
+ * Evidence/EvidenceLink → audit → return a safe result. The actual file
+ * bytes never touch this function's own validation logic beyond size/
+ * presence — `uploadEvidence` (lib/domain/evidence.ts) does the real
+ * MIME/extension validation and is the only place the file's content
+ * type is trusted server-side, never the browser's own claim alone.
+ * `linkTarget` is a compact `"assessment_response:<id>"` /
+ * `"control_test:<id>"` encoding from the workspace form's own select —
+ * still only an identifier the domain function re-validates against the
+ * database, never trusted as proof of scope by itself.
+ */
+export async function uploadEvidenceAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+
+  const raw = {
+    organisationId: formData.get("organisationId"),
+    engagementId: formData.get("engagementId"),
+    assessmentId: formData.get("assessmentId"),
+    title: formData.get("title"),
+    evidenceType: formData.get("evidenceType"),
+    documentType: formData.get("documentType") || undefined,
+    linkTarget: formData.get("linkTarget"),
+  };
+  const basePath =
+    typeof raw.organisationId === "string" && typeof raw.engagementId === "string" && typeof raw.assessmentId === "string"
+      ? basePathFor(raw.organisationId, raw.engagementId, raw.assessmentId)
+      : "/organisations";
+  const returnTo = safeReturnTo(formData.get("returnTo"), basePath);
+
+  const parsed = uploadEvidenceSchema.safeParse(raw);
+  if (!parsed.success) {
+    redirect(withQueryFlag(returnTo, "error", parsed.error.issues[0]?.message ?? "Invalid input."));
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    redirect(withQueryFlag(returnTo, "error", "A file is required."));
+  }
+
+  const [subjectType, subjectId] = parsed.data.linkTarget.split(":");
+  let linkTo: { type: "assessment_response"; assessmentResponseId: string } | { type: "control_test"; controlTestId: string };
+  if (subjectType === "assessment_response" && subjectId) {
+    linkTo = { type: "assessment_response", assessmentResponseId: subjectId };
+  } else if (subjectType === "control_test" && subjectId) {
+    linkTo = { type: "control_test", controlTestId: subjectId };
+  } else {
+    redirect(withQueryFlag(returnTo, "error", "Select what this evidence supports."));
+  }
+
+  let errorMessage: string | null = null;
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    await withRequestDb(user.id, (db) =>
+      uploadEvidence(db, user.id, {
+        organisationId: parsed.data.organisationId,
+        engagementId: parsed.data.engagementId,
+        title: parsed.data.title,
+        evidenceType: parsed.data.evidenceType,
+        documentType: parsed.data.documentType,
+        linkTo,
+        file: { buffer, filename: file.name, mimeType: file.type || "application/octet-stream" },
+      }),
+    );
+  } catch (err) {
+    if (err instanceof InvalidFileError || err instanceof AssessmentFinalizedError) {
+      errorMessage = err.message;
+    } else if (err instanceof NotFoundOrForbiddenError) {
+      errorMessage = "You do not have access to upload evidence here.";
+    } else {
+      console.error("uploadEvidenceAction failed", err);
+      errorMessage = "Something went wrong uploading this evidence. Please try again.";
+    }
+  }
+
+  if (errorMessage) {
+    redirect(withQueryFlag(returnTo, "error", errorMessage));
+  }
+
+  revalidatePath(basePath);
+  redirect(withQueryFlag(returnTo, "saved", "1"));
+}
+
+const reviewEvidenceSchema = z.object({
+  organisationId: z.string().uuid(),
+  engagementId: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+  evidenceId: z.string().uuid(),
+  reviewStatus: z.enum(["accepted", "rejected"]),
+  reviewRationale: z.string().trim().max(4000).optional(),
+});
+
+/**
+ * Slice C2 (PHASE C2 instructions §14/§24): accept/reject an Evidence
+ * item. Rejecting without a rationale is refused server-side by
+ * `reviewEvidence` itself (never merely a `required` HTML attribute) —
+ * `ReviewRationaleRequiredError` is caught here and surfaced as a clean
+ * message, the same pattern every other domain error in this file
+ * already uses.
+ */
+export async function reviewEvidenceAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+
+  const raw = {
+    organisationId: formData.get("organisationId"),
+    engagementId: formData.get("engagementId"),
+    assessmentId: formData.get("assessmentId"),
+    evidenceId: formData.get("evidenceId"),
+    reviewStatus: formData.get("reviewStatus"),
+    reviewRationale: formData.get("reviewRationale") ?? undefined,
+  };
+  const basePath =
+    typeof raw.organisationId === "string" && typeof raw.engagementId === "string" && typeof raw.assessmentId === "string"
+      ? basePathFor(raw.organisationId, raw.engagementId, raw.assessmentId)
+      : "/organisations";
+  const returnTo = safeReturnTo(formData.get("returnTo"), basePath);
+
+  const parsed = reviewEvidenceSchema.safeParse(raw);
+  if (!parsed.success) {
+    redirect(withQueryFlag(returnTo, "error", parsed.error.issues[0]?.message ?? "Invalid input."));
+  }
+
+  let errorMessage: string | null = null;
+  try {
+    await withRequestDb(user.id, (db) =>
+      reviewEvidence(db, user.id, {
+        organisationId: parsed.data.organisationId,
+        engagementId: parsed.data.engagementId,
+        evidenceId: parsed.data.evidenceId,
+        reviewStatus: parsed.data.reviewStatus,
+        reviewRationale: parsed.data.reviewRationale?.length ? parsed.data.reviewRationale : null,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof ReviewRationaleRequiredError) {
+      errorMessage = err.message;
+    } else if (err instanceof NotFoundOrForbiddenError) {
+      errorMessage = "You do not have access to review this evidence.";
+    } else {
+      console.error("reviewEvidenceAction failed", err);
+      errorMessage = "Something went wrong saving this review. Please try again.";
+    }
+  }
+
+  if (errorMessage) {
+    redirect(withQueryFlag(returnTo, "error", errorMessage));
+  }
+
+  revalidatePath(basePath);
+  redirect(withQueryFlag(returnTo, "saved", "1"));
+}
+
+const unlinkEvidenceSchema = z.object({
+  organisationId: z.string().uuid(),
+  engagementId: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+  evidenceLinkId: z.string().uuid(),
+});
+
+/**
+ * Slice C2 (PHASE C2 instructions §22): remove one EvidenceLink. Never
+ * deletes the underlying Evidence/DocumentVersion row (see
+ * `unlinkEvidence`'s own docstring) — only the relationship to this one
+ * subject.
+ */
+export async function unlinkEvidenceAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+
+  const raw = {
+    organisationId: formData.get("organisationId"),
+    engagementId: formData.get("engagementId"),
+    assessmentId: formData.get("assessmentId"),
+    evidenceLinkId: formData.get("evidenceLinkId"),
+  };
+  const basePath =
+    typeof raw.organisationId === "string" && typeof raw.engagementId === "string" && typeof raw.assessmentId === "string"
+      ? basePathFor(raw.organisationId, raw.engagementId, raw.assessmentId)
+      : "/organisations";
+  const returnTo = safeReturnTo(formData.get("returnTo"), basePath);
+
+  const parsed = unlinkEvidenceSchema.safeParse(raw);
+  if (!parsed.success) {
+    redirect(withQueryFlag(returnTo, "error", parsed.error.issues[0]?.message ?? "Invalid input."));
+  }
+
+  let errorMessage: string | null = null;
+  try {
+    await withRequestDb(user.id, (db) =>
+      unlinkEvidence(db, user.id, {
+        organisationId: parsed.data.organisationId,
+        engagementId: parsed.data.engagementId,
+        evidenceLinkId: parsed.data.evidenceLinkId,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof AssessmentFinalizedError) {
+      errorMessage = err.message;
+    } else if (err instanceof NotFoundOrForbiddenError) {
+      errorMessage = "You do not have access to unlink this evidence.";
+    } else {
+      console.error("unlinkEvidenceAction failed", err);
+      errorMessage = "Something went wrong unlinking this evidence. Please try again.";
     }
   }
 

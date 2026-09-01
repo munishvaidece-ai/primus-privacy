@@ -9,3 +9,11 @@ next-env.d.ts
 npm-debug.log*
 .DS_Store
 coverage/
+
+# Slice C2 — local/test-only stand-in for Supabase Storage
+# (lib/storage/evidence-storage.ts). Never a real production concern:
+# real Supabase Storage is what production actually uses once the
+# Mumbai project (DECISIONS.md D-03) is provisioned. Files here are
+# ordinary local dev/test artifacts, not committed, not real client
+# documents.
+.local-storage/

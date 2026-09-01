@@ -11,11 +11,11 @@ import {
   getAssessmentDetail,
   getControlRequirements,
   getControlTestsForControl,
-  getEvidenceSummaryForControl,
   updateAssessmentResponse,
   createControlTest,
   AssessmentFinalizedError,
 } from "@/lib/domain/assessments";
+import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 import {
   asAnon,
