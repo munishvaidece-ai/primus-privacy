@@ -74,9 +74,13 @@ real client usage:
   billing/subscription entity exists in the current model — this needs its
   own design pass and a DECISION on the billing model before schema work
   starts).
-- **Multi-practice / white-label** support, if confirmed as a real
-  requirement (see DECISIONS.md §D-01 — this changes the tenancy model
-  materially and should not be speculatively built).
+- **Multi-practice / white-label** support: the `Tenant` isolation
+  mechanism is already in place from MVP (DECISIONS.md D-01, resolved
+  Session 2), so onboarding a second practice is data provisioning, not a
+  schema change — but the white-label-specific functionality itself
+  (branding, custom domains, a multi-practice admin UI, per-tenant
+  billing) is deliberately unbuilt until there's a real second practice to
+  build it for.
 - **Additional regulatory frameworks** beyond DPDP (the RegulatoryReference/
   Requirement model is already framework-agnostic; this phase is primarily
   content, not architecture).

@@ -1,7 +1,9 @@
 # PRIMUS PRIVACY — Security Model
 
-Status: Draft v0.1 — target design for controlled implementation. No
-authentication, authorization, or storage code exists yet.
+Status: Draft v0.2 — target design for controlled implementation. No
+authentication, authorization, or storage code exists yet. Session 2
+(2026-09-01) adds the `Tenant` isolation layer resolved in DECISIONS.md
+D-01 to §2–§3.
 
 This platform stores client organisations' confidential compliance
 posture, risk data, and evidence documents — treat every design decision
@@ -25,38 +27,55 @@ here as if a breach would mean real client harm, because it would.
 
 ## 2. Authorization Model
 
-Authorization is enforced **server-side, on every read and write**, never
-by omitting a button in the UI. Two layers, deliberately redundant:
+**Revised in Session 2** to add the `Tenant` layer resolved in DECISIONS.md
+D-01. Authorization is enforced **server-side, on every read and write**,
+never by omitting a button in the UI. Two layers, deliberately redundant:
 
 1. **Application-layer policy check** — before any domain service touches
-   data, it resolves the caller's `EngagementMembership` → `Role` →
-   `Permission`s for the specific engagement being accessed, plus any
+   data, it resolves and unions whichever of the caller's
+   `TenantMembership`, `OrganisationMembership`, and `EngagementMembership`
+   rows apply to the request → `Role` → `Permission`s, plus any
    object-level exception (chiefly the `visibility` attribute on
    Evidence/Notes). This is where the *business* authorization rules live —
    e.g. "only a role with `assessment_response.write` may edit a response,
-   and only while `Assessment.status = DRAFT`." Deny by default: no
-   permission match ⇒ no access, not "no restriction found ⇒ allow."
+   and only while `Assessment.status = DRAFT`," or "only a role with
+   `master_data.system.write` may create a new `SystemVersion` for this
+   client." Deny by default: no permission match ⇒ no access, not "no
+   restriction found ⇒ allow."
 2. **Database-layer RLS (Row-Level Security)** — every tenant-scoped table
-   has an RLS policy keyed on the caller's organisation/engagement
+   has an RLS policy keyed on the caller's tenant/organisation/engagement
    membership, enforced by Postgres itself. This exists specifically so a
-   bug in the application layer (a missing `WHERE engagement_id = ?`, a
-   forgotten check) cannot leak data across tenants — RLS is the backstop,
-   not the primary control, because RLS policies are a poor fit for the
-   more dynamic parts of the model (role/permission matrices, the
-   consultant-internal/client-visible split) but are an excellent fit for
-   the one rule that must never fail: *this row belongs to that tenant*.
+   bug in the application layer (a missing `WHERE tenant_id = ?` or
+   `WHERE engagement_id = ?`, a forgotten check) cannot leak data across
+   tenants — RLS is the backstop, not the primary control, because RLS
+   policies are a poor fit for the more dynamic parts of the model
+   (role/permission matrices, the consultant-internal/client-visible
+   split) but are an excellent fit for the one rule that must never fail:
+   *this row belongs to that tenant (and, within it, that client
+   organisation)*.
 
 Both layers must independently deny access to another tenant's data; if
 they ever disagree, that disagreement is itself a bug to fix immediately,
 not a signal to relax either layer.
 
-Permissions are **role + engagement + optionally object-level**, per the
-product brief:
-- Role determines the default permission set for a user within an
-  engagement they're a member of.
-- Engagement membership is the access boundary — a PRIMUS consultant with
-  no membership on Client X's engagement has no access to it, regardless
-  of seniority.
+Permissions are **role + scope (tenant, organisation, or engagement) +
+optionally object-level**, per the product brief:
+- Role determines the default permission set for a user within whichever
+  scope they hold membership in — most commonly an engagement, but
+  practice-wide roles (Platform Administrator, Practice Partner) hold
+  tenant-scoped membership, and Client Administrator typically holds
+  organisation-scoped membership (DATA_MODEL.md §2, DECISIONS.md R-11).
+- Engagement membership remains the primary, most granular access
+  boundary for day-to-day compliance-content work — a PRIMUS consultant
+  with no membership on Client X's engagement has no access to it,
+  regardless of seniority or tenant-wide standing.
+- Client master data (Business Units, Systems, Processors, etc. —
+  DATA_MODEL.md §5.1) is client-scoped, not engagement-scoped, so its
+  read/write permissions are checked against the caller's
+  `OrganisationMembership` or **any** currently-active
+  `EngagementMembership` for that client, whichever grants the relevant
+  permission — there is no single "master data engagement" to require
+  membership on.
 - Object-level exceptions handle the cases role-level permission can't:
   most importantly, `visibility = CONSULTANT_INTERNAL` on a Note or piece
   of Evidence is checked on every read regardless of the reader's role —
@@ -65,19 +84,38 @@ product brief:
 
 ## 3. Tenant Isolation
 
-- Every operational table carries `client_org_id` (directly, or
-  transitively via `engagement_id`), which is the column both RLS
-  policies and the application layer scope every query on.
-- The Practice organisation (PRIMUS) is itself a tenant row; practice
-  staff do not get implicit cross-tenant access — they get it only through
-  an explicit `EngagementMembership` on a specific client engagement, which
-  is itself an auditable, revocable grant.
-- Engagement-level isolation is a second, narrower boundary inside a
-  client tenant: a consultant staffed on Engagement A for Client X has no
-  access to Engagement B for the same Client X unless separately granted
-  membership — engagements are not automatically visible to each other,
-  which is also what keeps a closed/historical engagement from being
-  casually altered by unrelated staff.
+Three nested isolation boundaries now exist (Tenant → Organisation →
+Engagement), all enforced at both layers described in §2:
+
+- **Tenant** — the outermost boundary. Every `User` and every
+  `Organisation` carries `tenant_id`; every table beneath them inherits it
+  transitively. RLS policies and the authorization layer both scope every
+  query on `tenant_id` first. The MVP deployment provisions exactly one
+  `Tenant` row (DECISIONS.md D-01); this boundary exists and is enforced
+  from the first migration regardless, so that admitting a second practice
+  in a future phase is a data-provisioning exercise, not a security-model
+  change.
+- **Client organisation, within a tenant** — every operational table
+  carries `client_org_id` (directly, or transitively via `engagement_id`),
+  the column both RLS policies and the application layer scope every query
+  on next. Practice staff do not get implicit cross-client access within
+  their own tenant — they get it only through an explicit
+  `EngagementMembership` (or, for the narrow set of org-wide roles,
+  `OrganisationMembership`) on a specific client, which is itself an
+  auditable, revocable grant.
+- **Engagement, within a client** — the narrowest boundary: a consultant
+  staffed on Engagement A for Client X has no access to Engagement B for
+  the same Client X unless separately granted membership — engagements are
+  not automatically visible to each other, which is also what keeps a
+  closed/historical engagement from being casually altered by unrelated
+  staff. Client master data (§2, DATA_MODEL.md §5.1) sits at the
+  client-organisation level rather than nested inside any one engagement's
+  isolation boundary — by design, since it is meant to be visible
+  consistently across a client's engagements, not siloed per engagement;
+  what *is* protected per engagement is each engagement's own
+  point-in-time record of which master-data version it relied on
+  (DATA_MODEL.md §5.3), which is never altered by another engagement or by
+  a later master-data edit.
 
 ## 4. Data Access Patterns
 
@@ -123,14 +161,17 @@ samples). Concretely:
   `INSERT` but not `UPDATE`/`DELETE` on the table; no application code
   path exposes a way to alter or remove an entry.
 - **Material changes** that generate an audit entry: create/update/delete
-  on ProcessingActivity and every Data-Landscape object; Control,
-  Assessment, AssessmentResponse, ControlTest; Risk, Finding,
-  RemediationAction, ValidationRecord; DPIA, SDFScreeningDetail, AIUseCase;
-  Evidence, Notice, RetentionRule, ConsentMechanism, DataFlow; Engagement
-  and Client record changes; Role/Permission grants and
-  EngagementMembership changes. Read-only views, transient UI state, and
-  unsaved drafts are not audited — this line is an engineering judgment,
-  recorded (not "DECISION REQUIRED") in DECISIONS.md.
+  on ProcessingActivity and every Data-Landscape object; every new
+  master-data version row (a `SystemVersion`, `ProcessorVersion`, etc. —
+  DATA_MODEL.md §5.1 — is exactly the kind of client-fact change this
+  principle is meant to catch); Control, Assessment, AssessmentResponse,
+  ControlTest; Risk, Finding, RemediationAction, ValidationRecord; DPIA,
+  SDFScreeningDetail, AIUseCase; Evidence, Notice, RetentionRule,
+  ConsentMechanism, DataFlow; Engagement and Client record changes;
+  Role/Permission grants and Tenant/Organisation/Engagement membership
+  changes. Read-only views, transient UI state, and unsaved drafts are not
+  audited — this line is an engineering judgment, recorded (not "DECISION
+  REQUIRED") in DECISIONS.md.
 - Entries capture actor, tenant/engagement context, entity, action,
   field-level change where practical, timestamp, and — for any override of
   a system suggestion — the rationale field, since "consultant overrides

@@ -1,9 +1,57 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Session 1 (architecture & repository preparation).
+Status: 2026-09-01 — Session 2 (architecture validation: D-01/D-02
+resolved; still no application code).
+
+## Session 2 — Architecture Validation (2026-09-01)
+
+**What happened:** the product owner reviewed the Session 1 report and
+issued explicit direction resolving both blocking decisions:
+
+- **D-01 (tenancy):** multi-tenant from Day 1 via a new `Tenant` entity;
+  exactly one `Tenant` row in the MVP deployment; no white-label,
+  multi-practice admin UI, billing, or branding functionality built now.
+- **D-02 (data-landscape persistence):** a client-level master-data tier
+  (Business Units, Data Principal Categories, Personal Data Elements,
+  Purposes, Systems, Data Stores, Processors) versioned via
+  Slowly-Changing-Dimension Type 2, referenced by version-pinned junctions
+  from engagement-scoped assessment objects (Processing Activity, Data
+  Flow, Assessment, Evidence, Risk, Finding, Remediation, DPIA, AI Use
+  Case, Maturity Assessment, Quality Review).
+
+Both are now marked **RESOLVED** in `DECISIONS.md` (with the original
+framing kept for record), and `DATA_MODEL.md`, `ARCHITECTURE.md`, and
+`SECURITY.md` were updated to reflect the resulting model. No database
+migrations, application scaffolding, or code were created — this session
+remained architecture validation only, per explicit instruction.
+
+**Architecture consistency review** — performed against the updated
+model, as required before this session could report the architecture
+ready for implementation:
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Every entity relationship still makes sense | Pass — `Tenant` added as a clean new outer layer; `Organisation` simplified to client-only; master/engagement split is a clarification of §5, not a contradiction of §2–§4 or §6–§10, which are unchanged. |
+| 2 | Tenant isolation works with the new Practice/Tenant layer | Pass — `tenant_id` on `User`/`Organisation`, checked at both RLS and application layers, as the outermost of three nested boundaries (SECURITY.md §3). |
+| 3 | Engagement isolation works | Pass — unchanged from Session 1: `EngagementMembership` remains the primary content-access boundary; engagements do not see each other. |
+| 4 | Historical assessment state is preserved | Pass — confirmed by the FY2026/FY2027 worked example (DATA_MODEL.md §5.5): FY2026's `ProcessingActivity` row and its version-pinned junctions are untouched by FY2027's carry-forward, master-data edits, or the processor swap. |
+| 5 | Processing Activity remains the central privacy object | Pass — unchanged; still the hub every Data-Landscape junction connects through, now engagement-scoped with a `carried_forward_from_id` chain rather than a mutable cross-engagement row. |
+| 6 | ROPA remains a view/workflow over Processing Activities, not a duplicated dataset | Pass — an engagement's ROPA is a query over that engagement's `ProcessingActivity` rows and their (now version-pinned) junctions; no new ROPA-specific table was introduced. |
+| 7 | Data Inventory remains a view over the underlying Personal Data model | Pass, with a documented nuance (DATA_MODEL.md §5.5): "current" Data Inventory can be read two ways — the client-wide `PersonalDataElement` master taxonomy (engagement-independent), or the latest engagement's actual in-use elements (via its junctions) — both are queries, neither is a new duplicated table. |
+| 8 | Processor Register remains a view over Processor objects and their engagement relationships | Pass — current register = `Processor` identity + current `ProcessorVersion`, joined to whichever engagements currently reference it via `ProcessingActivityProcessor`; history per engagement is the version-pinned junction, not a duplicated register. |
+| 9 | Risk, Finding, and Remediation remain independently identifiable objects | Pass — unchanged; still engagement-scoped, first-class tables with their own junctions (§8 of DATA_MODEL.md untouched by this session). |
+| 10 | Assessment results are versioned/historically preserved | Pass — unchanged mechanism (`Assessment.previous_assessment_id`, finalize-then-immutable `AssessmentResponse`); unaffected by the master-data change since Assessment was already engagement-scoped. |
+| 11 | Maturity calculations are reproducible for a historical assessment | Pass — `MaturityScore` was already an immutable, timestamped snapshot with `computed_from_control_test_ids`; those control tests trace to a specific `Assessment`, which traces to specific version-pinned Data-Landscape facts as of that engagement — the full chain is now reproducible end-to-end, including the client-fact layer that was previously unaddressed. |
+| 12 | Evidence remains securely scoped to the appropriate tenant/client/engagement | Pass, with one deliberate, documented change: `Evidence.engagement_id` is now nullable (`client_org_id` is the always-required scope) so evidence can attach to a master-data version directly (DECISIONS.md R-14) — tenant/client scoping is never optional, only the engagement association is. |
+| 13 | Client-visible and consultant-internal information remains appropriately separated | Pass — the `visibility` mechanism (Notes, Evidence) is untouched by this session; it applies identically regardless of whether the subject is engagement-scoped or master data. |
+
+All 13 checks pass against the model as written. This is a documentation-level
+consistency review, not a runtime test — there is no running system yet
+to test against; see "What Has Not Been Implemented" below.
 
 ## What Has Been Completed
 
+**Session 1:**
 - Repository inspected: confirmed genuinely empty at session start (no
   commits, no branches other than the working branch, no files besides
   `.git/`). Nothing pre-existing was at risk of being overwritten.
@@ -25,6 +73,26 @@ Status: 2026-09-01 — Session 1 (architecture & repository preparation).
     residency, individual data-principal PII/DSR scope, malware scanning,
     billing model), plus 9 recorded implementation decisions with
     rationale.
+
+**Session 2:**
+- D-01 and D-02 resolved per explicit product-owner direction and recorded
+  in `DECISIONS.md`.
+- `DATA_MODEL.md` §2 (Identity & Tenancy) and §5 (Data Landscape) rewritten
+  to the two-tier (Tenant→Organisation→Engagement; client master data vs.
+  engagement-scoped assessment objects) model, plus a worked example
+  (§5.5) proving the mechanism against the product owner's FY2026/FY2027
+  test scenario; §7, §11, §12, §13 updated for consistency.
+- `ARCHITECTURE.md` §4 (Major Components) and §5 (Tenancy Model) rewritten;
+  §6–§7, §10 updated for consistency.
+- `SECURITY.md` §2 (Authorization) and §3 (Tenant Isolation) rewritten for
+  the three-scope membership model (Tenant/Organisation/Engagement); §6
+  updated.
+- 13-point architecture consistency review performed and recorded above —
+  all 13 pass against the documented model.
+- 6 new recorded decisions added to `DECISIONS.md` (R-10 through R-15)
+  covering the `Tenant` entity, the new membership scopes, the SCD2
+  master-data mechanism, `AIUseCase` scoping, `Evidence.engagement_id`
+  nullability, and the non-blocking Notice/Retention/Consent question.
 
 ## What Has Not Been Implemented
 
@@ -48,35 +116,50 @@ sound and open decisions are resolved.
 
 - Conceptual data model is complete and internally consistent across the
   six documents (entity names and relationships match between
-  `DATA_MODEL.md`, `ARCHITECTURE.md`, and `SECURITY.md`).
+  `DATA_MODEL.md`, `ARCHITECTURE.md`, and `SECURITY.md`), now including the
+  `Tenant` layer and the master/engagement-scoped data-landscape split.
 - Technology stack is selected and justified (`ARCHITECTURE.md` §2):
   Next.js + TypeScript + PostgreSQL + Supabase + Tailwind + shadcn/ui +
   Vercel, with Drizzle proposed (not yet adopted/installed) for
   schema-as-code.
-- Two DECISION REQUIRED items are load-bearing for the very first schema
-  migration and should be resolved before that migration is written:
-  **D-02** (do Data-Landscape objects persist across engagements or get
-  re-created per engagement) and **D-01** (single-practice vs.
-  multi-practice tenancy) — both change the shape of the
-  `Organisation`/`Engagement`/`ProcessingActivity` tables directly. The
-  other four DECISION REQUIRED items (D-03 data residency, D-04
-  individual-PII/DSR scope, D-05 malware scanning, D-06 billing) do not
-  block early schema work but should be resolved before the areas they
-  touch are built.
+- **D-01 and D-02 are resolved** (Session 2) — the two items that were
+  previously load-bearing for the first schema migration no longer block
+  it.
+- Four DECISION REQUIRED items remain open (`DECISIONS.md`): **D-03**
+  (data residency) blocks provisioning the first real Supabase project but
+  not further documentation/design work; **D-04** (individual
+  data-principal PII/DSR scope) does not block the first migration (the
+  master-data tier is category-level only, as already assumed) but should
+  be resolved before any DSR-adjacent feature is designed; **D-05**
+  (malware scanning) and **D-06** (billing model) are Phase 2/3 items,
+  correctly deferred.
+- The architecture is now considered **ready for the first migration**,
+  covering `Tenant`, `Organisation`, `User`, `Role`/`Permission`,
+  `TenantMembership`/`OrganisationMembership`/`EngagementMembership`, and
+  `Engagement` — conditional on D-03 (data residency) being resolved
+  before a real Supabase project is provisioned, since that decision picks
+  the project's region, not its schema.
 
 ## Next Approved Implementation Step
 
-None yet. Per the brief, this session ends at architecture and repository
-preparation. The recommended next step, pending explicit go-ahead and
-resolution of D-01/D-02 above, is:
+None yet — this session remained architecture validation only, per
+explicit instruction ("do not implement yet"). The recommended next step,
+pending explicit go-ahead from the product owner, is:
 
-1. Resolve D-01 and D-02 in `DECISIONS.md`.
+1. Resolve D-03 (data residency) — required before provisioning a real
+   Supabase project, not before further schema design.
 2. Scaffold the Next.js + TypeScript project (no business logic yet).
-3. Provision a Supabase project (region decided per D-03) for local/staging
-   development.
-4. Write the first migration covering §2–§3 of `DATA_MODEL.md` only
-   (Identity & Tenancy, Engagement Structure) with RLS policies, and prove
-   tenant isolation with a test before building anything on top of it.
+3. Provision a Supabase project (region per the D-03 resolution) for
+   local/staging development.
+4. Write the first migration covering `DATA_MODEL.md` §2–§3 (Tenant
+   through Engagement Structure) with RLS policies for the new
+   Tenant→Organisation→Engagement layering, and prove tenant isolation
+   *and* organisation isolation *and* engagement isolation with tests
+   before building anything on top of it.
+5. As a second migration (not the first, to keep each migration
+   reviewable): the client master-data tier (§5.1) and its version-pinned
+   junction pattern, proven against a scenario mirroring the FY2026/FY2027
+   worked example (§5.5) before any UI is built on top of it.
 
-No further work should proceed past step 1 without confirmation from the
-product owner.
+No further work should proceed without confirmation from the product
+owner.

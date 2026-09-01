@@ -98,19 +98,32 @@ mediated by server code that has already resolved *who* is asking and
   happens server-side against the database, not by trusting claims baked
   into the JWT beyond identity.
 - **Authorization / Policy engine** — a server-only module that, given
-  (user, engagement, action, object), resolves the user's
-  `EngagementMembership` → `Role` → `Permission`s, plus any object-level
-  exception (e.g. visibility = consultant-internal), and returns
-  allow/deny. Every domain service call passes through this before touching
-  data. RLS policies in Postgres provide a second, coarser layer (tenant/
-  engagement scoping) so a bug in the application layer cannot leak data
-  across tenants — see SECURITY.md for the layering rationale.
+  (user, target tenant/organisation/engagement, action, object), resolves
+  and unions whichever of the user's `TenantMembership`,
+  `OrganisationMembership`, and `EngagementMembership` rows apply → `Role`
+  → `Permission`s, plus any object-level exception (e.g. visibility =
+  consultant-internal), and returns allow/deny. Every domain service call
+  passes through this before touching data. RLS policies in Postgres
+  provide a second, coarser layer (tenant/organisation/engagement scoping)
+  so a bug in the application layer cannot leak data across tenants — see
+  SECURITY.md for the layering rationale.
 - **Engagement workspace** — engagement lifecycle, membership, business
   unit scoping.
-- **Data Landscape service** — Processing Activities and everything that
-  connects to them (data principals, personal data elements, purposes,
-  systems, data stores, processors/subprocessors, data flows, retention,
-  notices, consent mechanism).
+- **Client Master Data service** — the client's persistent organisational
+  facts: Business Units, Data Principal Categories, Personal Data
+  Elements, Purposes, Systems, Data Stores, Processors/Subprocessors. Owns
+  the identity+version (SCD2) mechanism described in DATA_MODEL.md §5.1 —
+  every edit to a master record's compliance-meaningful fields inserts a
+  new version row rather than mutating the current one. This service is
+  the only place that resolves "what is the client's current state,"
+  independent of any engagement.
+- **Data Landscape (engagement) service** — Processing Activities, Data
+  Flows, Retention Rules, Notices, and Consent Mechanisms for one
+  engagement — connects to Client Master Data through version-pinned
+  junctions (DATA_MODEL.md §5.3) rather than owning a copy of that data.
+  Owns the "carry forward from prior engagement" action (§5.4) that starts
+  a new engagement's Processing Activities from the prior engagement's,
+  re-resolved against current master-data versions.
 - **Assessment engine** — regulatory reference/requirement/control library
   (versioned, separate from client data), assessments, assessment
   responses, control tests, and the DPIA/SDF-screening specializations of
@@ -139,27 +152,69 @@ mediated by server code that has already resolved *who* is asking and
 
 ## 5. Tenancy Model
 
-- **Practice organisation** — PRIMUS itself, represented as a single
-  `Organisation` row of type `PRACTICE`. Practice-side users
-  (Administrator, Partner, Engagement Manager, Consultant, Auditor) belong
-  to it as their home organisation, and gain access to a given client's
-  engagement only through an explicit `EngagementMembership`, never
-  implicitly.
-- **Client organisation** — each client is an `Organisation` row of type
-  `CLIENT`; this is the primary tenant boundary for data ownership. Client
-  users belong to their own client organisation and cannot see another
-  client's data under any role.
-- **Business Unit** — an optional subdivision of a Client organisation,
-  used to scope engagements or memberships to part of the client.
-- **Engagement** — the working boundary within a client: almost every
-  operational entity (Processing Activity, Assessment, Risk, Finding,
-  Evidence, …) is scoped to an engagement, and engagements are scoped to a
-  client. See DATA_MODEL.md §12 for the specific decision on whether
-  Data-Landscape objects persist across engagements or are engagement-local
-  (flagged DECISION REQUIRED).
-- Whether the platform will ever host more than one consulting practice
-  (white-label) is an open, materially architecture-affecting question —
-  see DECISIONS.md.
+**Revised in Session 2 to resolve DECISIONS.md D-01**, per explicit
+product-owner direction: multi-tenant from Day 1, single tenant in MVP.
+
+- **Tenant** — the outermost isolation boundary, representing one
+  consulting practice's entire deployment. A new `Tenant` table sits above
+  `Organisation` (which now represents client organisations exclusively —
+  it no longer doubles as "the practice's own record," see DATA_MODEL.md
+  §2/DECISIONS.md R-10). **The MVP deployment contains exactly one Tenant
+  row (PRIMUS).** Practice-side users (Platform Administrator, Practice
+  Partner, Engagement Manager, Consultant, Auditor) belong to this tenant
+  directly (`User.tenant_id`, `User.client_org_id = NULL`); the small
+  number of genuinely practice-wide roles (Platform Administrator,
+  Practice Partner) hold a `TenantMembership`, while the rest gain access
+  to a given client's engagement only through an explicit
+  `EngagementMembership`, never implicitly — this is unchanged from the
+  original design, just now nested one level deeper.
+  - **Deliberately not built in MVP**, per direction: white-label
+    functionality (custom branding/theming per tenant), a multi-practice
+    administration UI, tenant billing/subscription functionality, and
+    tenant branding/custom domains. The `Tenant` table itself carries only
+    the minimal columns needed for isolation (`id`, `name`, `status`,
+    `created_at`) — nothing SaaS-specific is added ahead of a real Phase 3
+    requirement for it.
+  - **Why introduce the mechanism now if only one row exists:** RLS
+    policies and the authorization layer are written against `tenant_id`
+    from the first migration onward, so admitting a second practice later
+    is a data-provisioning exercise (create a second `Tenant` row, onboard
+    its users and clients under it), not a schema or security-model
+    redesign. This is the concrete, minimal way to satisfy "must be
+    possible to support additional practices... without redesigning the
+    fundamental tenancy/security model" without building any Phase-3-only
+    feature now.
+- **Client organisation** — each client is an `Organisation` row, owned by
+  exactly one `Tenant` (`Organisation.tenant_id`); this remains the
+  primary tenant-scoped boundary for client data ownership within a
+  practice. Client users belong to their own client organisation
+  (`User.client_org_id`) and cannot see another client's data under any
+  role, regardless of practice. The Client Administrator role's org-wide
+  standing access (managing the client's own users) is granted via
+  `OrganisationMembership` rather than requiring per-engagement grants
+  (DATA_MODEL.md §2, DECISIONS.md R-11).
+- **Business Unit** — a subdivision of a Client organisation, used to
+  scope engagements or memberships to part of the client; also promoted
+  to client-level master data (DATA_MODEL.md §5.1) so its own attributes
+  can be tracked historically, while its use as a scope reference stays
+  identity-based (DATA_MODEL.md §5.3).
+- **Engagement** — the working boundary within a client for
+  engagement-scoped assessment objects (Processing Activity, Data Flow,
+  Assessment, Evidence, Risk, Finding, Remediation, DPIA, AI Use Case,
+  Maturity Assessment, Quality Review — DATA_MODEL.md §5.2). Engagements
+  are scoped to a client, which is scoped to a tenant — three nested
+  isolation boundaries, all enforced at both the application and RLS
+  layers (SECURITY.md §2–§3).
+- **Client master data** — Business Units, Data Principal Categories,
+  Personal Data Elements, Purposes, Systems, Data Stores, and Processors
+  are scoped to the **client organisation**, not to any one engagement
+  (DECISIONS.md D-02) — they sit at the same tenancy level as `Engagement`
+  itself (both are direct children of `Organisation`), not nested inside
+  it. See DATA_MODEL.md §5 for the full mechanism (identity + SCD2 version
+  rows, version-pinned junctions from engagement-scoped objects) and §5.5
+  for a worked example proving the mechanism answers both "current state"
+  and "state as of a specific historical engagement" without overwriting
+  history or duplicating the client's landscape per engagement.
 
 ## 6. Security Boundaries
 
@@ -175,10 +230,16 @@ are:
 3. Next.js server ↔ Supabase Storage — evidence files are never
    public-bucket; access is always mediated by a signed URL minted after
    an authorization check, with a short TTL.
-4. Client tenant ↔ client tenant — enforced by `Organisation`/`Engagement`
-   scoping present on essentially every table, checked in both RLS and the
-   application authorization layer.
-5. Consultant-internal ↔ client-visible — enforced by an explicit
+4. Practice tenant ↔ practice tenant — enforced by `Tenant` scoping
+   (`tenant_id`, present directly on `User`/`Organisation` and
+   transitively on everything beneath them), the outermost boundary,
+   checked in both RLS and the application authorization layer. Exactly
+   one tenant exists in MVP, but the boundary is live from the first
+   migration.
+5. Client organisation ↔ client organisation (within a tenant) — enforced
+   by `Organisation`/`Engagement` scoping present on essentially every
+   table, checked in both RLS and the application authorization layer.
+6. Consultant-internal ↔ client-visible — enforced by an explicit
    `visibility` attribute on notes/evidence/comments, checked server-side
    on every read, not filtered client-side.
 
@@ -186,8 +247,9 @@ are:
 
 1. Browser calls a Server Action (e.g. "submit assessment response").
 2. Next.js resolves the authenticated user from the Supabase session.
-3. Authorization layer resolves the user's membership/role/permissions for
-   the target engagement; denies if absent.
+3. Authorization layer resolves the user's applicable Tenant/Organisation/
+   Engagement membership(s), role(s), and permissions for the target
+   request; denies if none grant it.
 4. Domain service validates input (Zod), applies business rules (e.g.
    "cannot edit a finalized assessment"), executes the write inside a
    transaction.
@@ -236,3 +298,13 @@ are:
 - No custom-built authentication system.
 - No premature multi-region or multi-database sharding.
 - No AI infrastructure until a specific, scoped feature calls for it.
+- Per DECISIONS.md D-01: the `Tenant` isolation mechanism is built now,
+  but nothing else SaaS-shaped is — no white-label/custom-branding
+  functionality, no multi-practice administration UI, no tenant
+  billing/subscription functionality, no custom domains. These stay
+  Phase 3 (ROADMAP.md) and are only built if and when a second practice is
+  actually being onboarded.
+- Per DECISIONS.md D-02: client master data is versioned in place (§5.1's
+  identity+version pattern) rather than by duplicating the client's entire
+  data landscape into a fresh copy every engagement — the cheaper
+  mechanism that still preserves history.
