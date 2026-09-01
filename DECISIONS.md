@@ -1,10 +1,11 @@
 # PRIMUS PRIVACY — Architectural Decisions
 
-Status: Draft v0.8 (Session 8 / Milestone 5, 2026-09-01: added R-49
-through R-56, recording implementation decisions made while building the
-Assessment Engine — see PROGRESS.md for the milestone report. D-01/D-02
-remain RESOLVED from Session 2; R-16 through R-48 from Sessions 3-7 stand
-unchanged). This log records material architectural decisions and
+Status: Draft v0.9 (Session 9 / Milestone 6, 2026-09-01: added R-57
+through R-65, recording implementation decisions made while building
+Evidence & Document Management — see PROGRESS.md for the milestone
+report. D-01/D-02 remain RESOLVED from Session 2; D-03/D-05 remain open
+per Sessions 2/3; R-16 through R-56 from Sessions 3-8 stand unchanged).
+This log records material architectural decisions and
 their rationale, in the order they were made. Items requiring a human
 product/business decision that cannot be safely inferred from the brief are
 marked **DECISION REQUIRED** and are not assumed — implementation should
@@ -1269,3 +1270,194 @@ fit, and avoids introducing a third variant when a second one already
 covers this exact row shape. Satisfies instructions §16's "reuse the
 existing audit-log architecture" more specifically than writing new
 functions would have.
+
+---
+
+## Milestone 6 — Evidence & Document Management (Session 9, 2026-09-01)
+
+### R-57 — `Document` is split into `Document` (logical identity) + `DocumentVersion` (immutable per-upload record) — DATA_MODEL.md's existing `Document` field list becomes `DocumentVersion`'s
+
+**Decision:** DATA_MODEL.md §4 defines a single `Document` entity —
+"storage_path, filename, mime_type, size, uploaded_by" — with no separate
+version concept. This milestone introduces `documents` (a new,
+identity-shaped table carrying `tenant_id`/`organisation_id`/
+`engagement_id`/`title`/`document_type`/`owner_user_id`/`status`, none of
+which DATA_MODEL.md's current entry names) and `document_versions`
+(carrying DATA_MODEL.md's original five fields verbatim, plus
+`version_number`, `checksum_sha256`, `uploaded_at`, `scan_status`).
+**Rationale:** read literally, DATA_MODEL.md's `Document` field list
+describes exactly one uploaded file, not a re-uploadable logical
+document — there was no prior milestone that needed the distinction, so
+none was built. Milestone 6's own CORE PRINCIPLE requires it outright
+("Document → Document Version... A new file upload must create a new
+version, never overwrite an existing one") and instructions §2 give the
+explicit escape valve for exactly this situation: "If the architecture
+uses slightly different names or a different approved structure, follow
+the current repository documentation rather than inventing a competing
+model." This is that — DATA_MODEL.md's existing field list is preserved
+verbatim, just relocated to the table that structurally matches what it
+was always describing, not replaced with a different, invented shape.
+
+### R-58 — `Evidence.document_id` is implemented as `documentVersionId`, referencing `document_versions`, not `documents`
+
+**Decision:** Evidence pins to one specific, immutable `DocumentVersion`
+— not "whichever version of this Document is current."
+**Rationale:** direct consequence of R-57 plus instructions §5/§8's own
+historical-immutability requirement: "the system must preserve FY2026 →
+Version 1 while allowing FY2027 → Version 2... uploading Version 2 must
+never overwrite Version 1" only holds if Evidence points at a specific
+version, not the logical Document (which would silently resolve to
+whatever is newest). DATA_MODEL.md's field name `document_id` is kept in
+spirit (a required reference to "the document this evidence is") but
+implemented against the table that now actually carries that immutable
+identity, per R-57.
+
+### R-59 — Evidence review lifecycle fields (`review_status`, `reviewed_by`, `reviewed_at`, `review_rationale`, `valid_until`, `description`) are additive — DATA_MODEL.md's current Evidence field list does not yet name them
+
+**Decision:** `evidence` carries all six fields beyond DATA_MODEL.md
+§4's exact list (`client_org_id`→`organisationId`, `engagement_id`,
+`document_id`→`documentVersionId`, `title`, `evidence_type`,
+`quality_rating`, `visibility`, `collected_at`).
+**Rationale:** Milestone 6 instructions §5/§13 require an evidence review
+workflow unconditionally ("It should be possible to capture... review
+status, reviewer, review date... reviewer notes"; "the evidence layer
+should record who reviewed it, when, what decision was made, and any
+required rationale") — DATA_MODEL.md's field list simply predates this
+requirement, the same underspecification pattern R-57 already resolved
+for `Document`. `review_status` uses exactly instructions §13's four
+named states (pending_review/accepted/rejected/expired), not an invented
+workflow. `valid_until` is a single nullable expiry timestamp (§5's
+"validity/expiry information where defined"), not a renewal mechanism.
+
+### R-60 — `EvidenceLink` uses per-subject-type nullable FK columns + a CHECK constraint, not DATA_MODEL.md's literal `(subject_type, subject_id)` polymorphic pair
+
+**Decision:** `evidence_links` has `assessment_response_id` and
+`control_test_id` (each nullable, each a real, independently-FK'd
+column), a `subject_type` enum recording which is populated, and a CHECK
+constraint (`evidence_links_subject_matches_type_check`) enforcing
+exactly one is set consistent with `subject_type`. No bare
+`subject_id uuid` column exists.
+**Rationale:** Postgres foreign keys target one specific table; a literal
+`(text, uuid)` pair can never carry a real FK, so it could never prove
+tenant/organisation/engagement consistency at the database layer.
+Milestone 6 instructions §7 explicitly require exactly this trade-off:
+"do NOT rely on the application layer alone to enforce the subject's
+tenant/organisation/engagement boundary... do not create a completely
+generic polymorphic relationship if the approved model provides a
+safer/stronger approach... this is a security-critical area." This
+milestone implements only the two subject types the brief itself asks
+for (instructions §6: AssessmentResponse, ControlTest); DATA_MODEL.md
+§4's other named subject types (Finding, RemediationAction, DPIA,
+ApplicabilityDetermination, ProcessingActivity) don't have tables yet
+(instructions §19) and would each add one more nullable column + one more
+CHECK branch when they do — the same pattern, not a rewrite.
+
+### R-61 — The CRITICAL EvidenceLink subject-consistency invariant is proven by composite FKs (2-3 per subject type), mirroring R-50's approach for AssessmentControl, not a trigger
+
+**Decision:** For `assessment_response_id`: one 4-column FK
+`(assessment_response_id, tenant_id, organisation_id, engagement_id) →
+assessment_responses(...)`, always active because a CHECK constraint
+(`evidence_links_assessment_response_requires_engagement_check`)
+guarantees `engagement_id` is never null when this subject type is used
+(AssessmentResponse is always engagement-scoped — Milestone 5). For
+`control_test_id`: three FKs mirroring `ControlTest`'s own dual-shaped
+scoping (tenant always active; organisation and engagement each active
+whenever this link's own values are set).
+**Rationale:** same reasoning as R-50 (Milestone 5) — this is a "two (or
+three) foreign keys share a column" shape Postgres constraints already
+express declaratively; a trigger would duplicate what a constraint
+proves more simply and unconditionally. The three-FK split for
+`control_test_id` (rather than one combined FK, which is what
+`assessment_response_id` gets) exists because `ControlTest`'s own
+`organisation_id`/`engagement_id` are nullable (the "continuous
+monitoring" shape — DECISIONS.md R-55), so a single always-active
+combined FK isn't available the way it is for the always-fully-scoped
+`AssessmentResponse`. Verified directly via a standalone `psql`
+transaction in addition to the Vitest suite — see PROGRESS.md.
+
+### R-62 — Evidence can never be linked to a fully standalone (no-organisation) ControlTest — an accepted, documented consequence, not a gap
+
+**Decision:** No corrective constraint was added to loosen this;
+`evidence_links.organisation_id` is `NOT NULL` and `evidence_links_
+control_test_organisation_fk` requires it to match `control_tests.
+organisation_id` exactly, which a fully standalone ControlTest
+(Milestone 5's Tenant-only "continuous monitoring" shape) never has.
+**Rationale:** DATA_MODEL.md §4 states Evidence's `client_org_id` is
+"always required" — Evidence is definitionally client-scoped, so it
+cannot evidence a purely practice-level activity with no client context
+at all. This was verified as an intentional consequence of R-61's FK
+design (not stumbled into) and is exercised directly by a test
+(`consistency.test.ts`). A `ControlTest` that has no `assessment_id` but
+does carry a real `organisation_id`/`engagement_id` (client-side
+continuous monitoring) remains linkable — only the fully standalone,
+Tenant-only shape is excluded.
+
+### R-63 — `EvidenceLink` insert/delete is locked once its subject's Assessment is finalized — a new trigger, extending Milestone 5's finalization guarantee one hop further than DATA_MODEL.md names explicitly
+
+**Decision:** `enforce_evidence_link_draft_mutable()` (migration 0011
+§5) blocks creating or removing an `EvidenceLink` whose subject
+(`AssessmentResponse`, or a `ControlTest` with a non-null
+`assessment_id`) belongs to a `finalized` Assessment. A `ControlTest`
+with no `assessment_id` is never locked, matching Milestone 5's own
+posture for it.
+**Rationale:** Milestone 6 instructions §8 state "changing... must not
+silently rewrite the historical evidence relationship" — the
+*relationship* (which Evidence supports which finalized result) is what
+must stay historically stable, not only the underlying file content
+(R-57's `DocumentVersion` immutability) or the `AssessmentResponse` row
+itself (Milestone 5's own lock). Without this trigger, someone could add
+or remove what evidence a finalized assessment result is attributed to
+after the fact — a real historical-integrity gap the milestone's own
+scenario (§8) implies must not exist, even though DATA_MODEL.md doesn't
+spell out `EvidenceLink`'s own lifecycle explicitly. This is the same
+`enforce_X_draft_mutable` trigger pattern used throughout (Milestone
+4/5), applied to a new table, not a new mechanism.
+
+### R-64 — Evidence's CONSULTANT_INTERNAL/CLIENT_VISIBLE `visibility` column is stored but deliberately NOT an RLS condition
+
+**Decision:** `evidence.visibility` exists and defaults to the more
+restrictive `consultant_internal`; no RLS policy in this migration reads
+it. Enforcement of "a client-side role can never see CONSULTANT_INTERNAL
+evidence" remains at the application/permission layer.
+**Rationale:** SECURITY.md §2 already states this explicitly and
+predates this milestone: "RLS policies are a poor fit for... the
+consultant-internal/client-visible split" — object-level visibility is
+named there as a permission-layer concern, checked "on every read
+regardless of the reader's role," distinct from RLS's job (the Tenant/
+Organisation/Engagement boundary, which milestone instructions §16's own
+10-item test list is entirely about — visibility enforcement is notably
+absent from that list). Milestone 6 instructions §12 ask to "preserve the
+existing visibility model," not build a second one; SECURITY.md never
+describes a `client_org_id IS NULL` / `users.client_org_id` RLS check for
+this purpose, and inventing one now — however feasible — would be
+exactly the "second competing authorization mechanism" every milestone
+since Milestone 1 has been told not to build. The column's presence
+satisfies instructions §12's "the database should support the visibility
+distinction... security must not depend merely on hiding a UI field" —
+support, not enforce.
+
+### R-65 — Storage architecture actually exercised this milestone: DB-layer object-key/hash metadata only, no real Supabase Storage integration, no signed-URL code
+
+**Decision:** `document_versions.storage_path` is a plain object-key
+string (e.g. `tenants/<id>/documents/<id>/<hash-prefix>`), never a public
+URL; no file bytes are ever stored in Postgres or written to any
+filesystem/bucket; no signed-URL-minting code, no Storage SDK calls, no
+new API route exists anywhere in this milestone's changes. "Testing the
+authorization model" (instructions §9) means proving that unauthorized
+callers cannot even `SELECT` the row carrying a `storage_path` — the
+gate that would sit in front of any future signed-URL-minting code —
+which `tests/evidence/tenant-isolation.test.ts` exercises directly (RLS
+blocks reading `document_versions` cross-tenant; the actual signed-URL
+issuance step SECURITY.md §5 describes is UI/API-layer work this
+milestone doesn't build, per instructions §20's "no polished UI").
+**Rationale:** D-03 (data residency) remains unresolved (DECISIONS.md),
+so no real Supabase Storage project exists to provision against —
+instructions §9's own fallback ("implement the database/storage
+abstraction and test the authorization model using a local/test-
+compatible private storage mechanism... do not upload real client
+documents") is followed exactly. No synthetic or real file content is
+ever written to disk or any storage service in this milestone's tests —
+"file content" is a short in-memory string, hashed with Node's `crypto`
+module the same way a real upload pipeline would hash real bytes,
+discarded after each test. See PROGRESS.md's explicit statement of what
+was and was not tested (instructions §23).

@@ -192,3 +192,93 @@ export const controlTestResultEnum = pgEnum("control_test_result", [
   "fail",
   "exception_noted",
 ]);
+
+// --- Milestone 6 (Evidence & Document Management, DATA_MODEL.md §4) -------
+
+// Document.status. A simple lifecycle — active (in use) / archived (no
+// longer current, but its DocumentVersions remain forever, per Milestone
+// 6 instructions §14's immutability requirement). Not part of
+// DATA_MODEL.md's current Document field list — see DECISIONS.md for why
+// `Document` was split into `Document`/`DocumentVersion` this milestone.
+export const documentStatusEnum = pgEnum("document_status", ["active", "archived"]);
+
+// Document.document_type. DATA_MODEL.md §4's own prose gives one worked
+// example ("a client policy upload is simply a Document of document_type
+// = POLICY") without fixing the full value set — an engineering judgment
+// call, same posture as `control_type`/`data_sensitivity` (DECISIONS.md).
+export const documentTypeEnum = pgEnum("document_type", [
+  "policy",
+  "contract",
+  "screenshot",
+  "certificate",
+  "report",
+  "system_configuration",
+  "other",
+]);
+
+// DocumentVersion.scan_status. DATA_MODEL.md §4 names "scan status" as
+// part of a Document's technical metadata. Malware scanning itself is
+// explicitly deferred (DECISIONS.md D-05, SECURITY.md §5) — this column
+// exists so a future scanning integration has somewhere to write its
+// result; nothing in this milestone runs a scanner, so every row stays
+// 'pending' in practice. See documents.ts for the one narrow exception
+// to DocumentVersion's otherwise-total immutability this column gets.
+export const documentVersionScanStatusEnum = pgEnum("document_version_scan_status", [
+  "pending",
+  "clean",
+  "flagged",
+]);
+
+// Evidence.evidence_type. DATA_MODEL.md §4 names the field without fixing
+// values — an engineering judgment call matching `control_type`'s posture.
+export const evidenceTypeEnum = pgEnum("evidence_type", [
+  "policy_document",
+  "screenshot",
+  "system_configuration_export",
+  "signed_agreement",
+  "certificate",
+  "other",
+]);
+
+// Evidence.quality_rating. DATA_MODEL.md §4 names the field without
+// fixing values — same posture.
+export const evidenceQualityRatingEnum = pgEnum("evidence_quality_rating", [
+  "strong",
+  "adequate",
+  "weak",
+]);
+
+// Evidence.visibility — the CONSULTANT_INTERNAL/CLIENT_VISIBLE distinction
+// SECURITY.md §2/§5 already name explicitly (unchanged by this
+// milestone: "Preserve the existing visibility model" — Milestone 6
+// instructions §12). Stored so the application layer can enforce it on
+// every read, exactly as SECURITY.md's existing two-layer model already
+// specifies — RLS deliberately does not encode this distinction (see
+// DECISIONS.md).
+export const evidenceVisibilityEnum = pgEnum("evidence_visibility", [
+  "client_visible",
+  "consultant_internal",
+]);
+
+// Evidence.review_status — Milestone 6 instructions §13's exact four
+// states. DATA_MODEL.md's current Evidence field list does not yet name a
+// review workflow at all; this is a genuine additive clarification (see
+// DECISIONS.md), not an invented complex workflow — exactly the four
+// states instructed, no more.
+export const evidenceReviewStatusEnum = pgEnum("evidence_review_status", [
+  "pending_review",
+  "accepted",
+  "rejected",
+  "expired",
+]);
+
+// EvidenceLink.subject_type — deliberately a small, closed set covering
+// only the subject types this milestone actually wires up
+// (AssessmentResponse, ControlTest), not an open-ended polymorphic type
+// column. See evidence-links.ts / DECISIONS.md for the "safer/stronger
+// approach" Milestone 6 instructions §7 explicitly ask for in place of a
+// bare, unconstrained (subject_type, subject_id) pair.
+export const evidenceLinkSubjectTypeEnum = pgEnum("evidence_link_subject_type", [
+  "assessment_response",
+  "control_test",
+]);

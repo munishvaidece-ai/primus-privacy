@@ -113,6 +113,32 @@ visibility). A client policy upload is simply a `Document` of
 supports. This avoids a duplicated "policy library" existing alongside the
 evidence store.
 
+**Implementation clarification (Milestone 6, DECISIONS.md R-57 through
+R-63):** `Document` above is implemented as two tables — `Document` (a
+new, mutable logical identity carrying `tenant_id`/`organisation_id`/
+`engagement_id`/`title`/`document_type`/`owner_user_id`/`status`, none of
+which this section's own field list names) and `DocumentVersion` (an
+immutable per-upload record carrying this section's original five fields
+— `storage_path, filename, mime_type, size, uploaded_by` — plus
+`version_number`, `checksum_sha256`, `uploaded_at`, `scan_status`).
+`Evidence.document_id` is implemented as `document_version_id`,
+referencing `DocumentVersion` specifically (not `Document`), so a
+historical Evidence record stays pinned to the exact file it was
+collected against even as later versions of the same logical Document
+are uploaded. `Evidence` additionally carries `description`,
+`review_status`, `reviewed_by`, `reviewed_at`, `review_rationale`, and
+`valid_until` — an evidence review lifecycle this section's field list
+doesn't yet name, using exactly the four states (pending_review/
+accepted/rejected/expired) required by implementation. `EvidenceLink`'s
+polymorphic `subject_type`/`subject_id` pair is implemented as a
+`subject_type` enum plus one nullable, genuinely-FK'd column per
+supported subject type (`assessment_response_id`, `control_test_id` —
+the only two subject types built so far), not a bare untyped pair — a
+security-critical requirement (a bare `uuid` column cannot carry a real
+foreign key, so it could never prove tenant/organisation/engagement
+consistency at the database layer). See PROGRESS.md for the full
+Milestone 6 report.
+
 ## 5. Data Landscape (Processing Activities and what connects to them)
 
 **Rewritten in Session 2 to implement DECISION D-02** (DECISIONS.md).

@@ -1,9 +1,10 @@
 // Barrel export. Milestone 1 (Identity + Tenancy + Engagement Structure)
 // + Milestone 2 (Client Master Data) + Milestone 3 (Processing Activity
 // & Version-Pinned Junction Layer) + Milestone 4 (Regulatory Content &
-// Control Library) + Milestone 5 (Assessment Engine). See PROGRESS.md for
-// what's deliberately not here yet (Evidence, Risk, Findings,
-// Remediation, Maturity, DPIA, AI, and everything downstream of them).
+// Control Library) + Milestone 5 (Assessment Engine) + Milestone 6
+// (Evidence & Document Management). See PROGRESS.md for what's
+// deliberately not here yet (Risk, Findings, Remediation, Maturity,
+// DPIA, AI, and everything downstream of them).
 export * from "./enums";
 export * from "./tenants";
 export * from "./organisations";
@@ -28,3 +29,6 @@ export * from "./control-library-links";
 export * from "./assessments";
 export * from "./assessment-controls";
 export * from "./control-tests";
+export * from "./documents";
+export * from "./evidence";
+export * from "./evidence-links";

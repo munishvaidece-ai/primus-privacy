@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, foreignKey, unique } from "drizzle-orm/pg-core";
 import { controlTestResultEnum } from "./enums";
 import { controls } from "./control-library";
 import { assessments } from "./assessments";
@@ -86,5 +86,21 @@ export const controlTests = pgTable(
       ],
       name: "control_tests_assessment_scope_fk",
     }),
+    // Milestone 6 additions: consumed by `evidence_links`' own composite
+    // FKs, which must prove tenant/organisation/engagement consistency
+    // for a ControlTest exactly like every other EvidenceLink subject —
+    // `idTenantUnique` is always active (tenant_id is never null);
+    // `idOrganisationUnique`/`idEngagementUnique` are each active only
+    // when `evidence_links`' own matching column is non-null (see
+    // evidence-links.ts).
+    idTenantUnique: unique("control_tests_id_tenant_id_key").on(table.id, table.tenantId),
+    idOrganisationUnique: unique("control_tests_id_organisation_id_key").on(
+      table.id,
+      table.organisationId,
+    ),
+    idEngagementUnique: unique("control_tests_id_engagement_id_key").on(
+      table.id,
+      table.engagementId,
+    ),
   }),
 );

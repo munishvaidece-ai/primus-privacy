@@ -1,17 +1,316 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Milestone 5 COMPLETE (Session 8): Assessment Engine
-— Assessment, AssessmentControl, AssessmentResponse, and ControlTest,
-connecting Engagement → ControlLibraryVersion → Controls → Assessment →
-AssessmentControls → AssessmentResponses → ControlTests, with a
-database-enforced CRITICAL invariant that an AssessmentControl can only
-reference a Control belonging to the exact ControlLibraryVersion its
-Assessment uses, finalized-assessment immutability, and historical
-reproducibility across control-library versions, implemented, migrated,
-and tested against real PostgreSQL 16. No Evidence workflow, Risk,
-Findings, Remediation, Maturity, DPIA, AI, dashboards, or reports; no
-product UI. Milestones 1-4 (Sessions 4-7) and the architecture gate
-(Sessions 1-3) passed before this milestone began.
+Status: 2026-09-01 — Milestone 6 COMPLETE (Session 9): Evidence &
+Document Management — Document, DocumentVersion, Evidence, and
+EvidenceLink, connecting the Assessment Engine (AssessmentResponse,
+ControlTest) to documentary proof, with database-enforced organisation
+consistency, polymorphic-subject security (per-type FK columns + CHECK,
+not a bare generic pair), DocumentVersion immutability, and historical
+evidence-version preservation across re-uploads, implemented, migrated,
+and tested against real PostgreSQL 16. No Risk, Findings, Remediation,
+Maturity, DPIA, AI, dashboards, or reports; no product UI. Milestones 1-5
+(Sessions 4-8) and the architecture gate (Sessions 1-3) passed before
+this milestone began.
+
+## Milestone 6 — Evidence & Document Management (Session 9, 2026-09-01)
+
+**Scope:** exactly what MILESTONE 6 instructed — `Document`,
+`DocumentVersion`, `Evidence`, `EvidenceLink`, per DATA_MODEL.md §4,
+connecting Evidence to the two Assessment Engine subject types the brief
+names (`AssessmentResponse`, `ControlTest`). No Risk, Findings,
+Remediation, Maturity, DPIA, AI, dashboards, reports, or document-upload
+UI — none of those exist anywhere in this milestone's changes. No real
+files, no real client documents, no real PII of any kind were ever
+created, uploaded, or committed — every test uses short, synthetic,
+in-memory "file content" hashed with Node's own `crypto` module.
+
+Read `DATA_MODEL.md` §4/§12, `SECURITY.md` §2/§3/§5, `DECISIONS.md`
+D-03/D-05, and the actual Milestone 4/5 code
+(`db/schema/control-library.ts`, `db/schema/assessment-controls.ts`,
+`db/schema/control-tests.ts`, migrations 0006-0009) fresh from disk
+before writing anything, per instruction. Two reads were decisive: (1)
+DATA_MODEL.md §4's `Document` field list — read literally, it describes
+exactly one uploaded file, not a re-uploadable logical document, which is
+why this milestone splits it into `Document`/`DocumentVersion` rather
+than inventing a parallel structure (DECISIONS.md R-57); (2) SECURITY.md
+§2's explicit statement that the CONSULTANT_INTERNAL/CLIENT_VISIBLE
+distinction is an application-layer, not RLS-layer, control — followed
+exactly as instructed ("preserve the existing visibility model"), not
+re-architected (DECISIONS.md R-64).
+
+### What was implemented
+
+- **Drizzle TS schema** (3 new files: `db/schema/documents.ts`
+  [`Document` + `DocumentVersion`], `db/schema/evidence.ts`,
+  `db/schema/evidence-links.ts`): `documents` (12 columns: `tenant_id`,
+  `organisation_id` [NOT NULL], `engagement_id` [nullable], `title`,
+  `document_type`, `owner_user_id`, `status`, audit columns);
+  `document_versions` (17 columns: `document_id`, denormalized
+  `tenant_id`/`organisation_id`/`engagement_id`, trigger-assigned
+  `version_number`, `storage_path`, `original_filename`, `mime_type`,
+  `file_size_bytes`, `checksum_sha256`, `scan_status`, `uploaded_by`,
+  `uploaded_at`, audit columns); `evidence` (20 columns: DATA_MODEL.md
+  §4's exact fields plus the additive review-lifecycle fields —
+  DECISIONS.md R-59); `evidence_links` (10 columns: `evidence_id`,
+  denormalized scope columns, `subject_type`, nullable
+  `assessment_response_id`/`control_test_id` — DECISIONS.md R-60).
+- **New enums**: `document_status`, `document_type`,
+  `document_version_scan_status` (a placeholder for the deferred D-05
+  malware-scanning decision — nothing in this milestone runs a scanner),
+  `evidence_type`, `evidence_quality_rating`, `evidence_visibility`,
+  `evidence_review_status` (exactly instructions §13's four states),
+  `evidence_link_subject_type`.
+- **Extended two existing schema files** (`assessment-controls.ts`'s
+  `assessmentResponses`, `control-tests.ts`) with new `UNIQUE`
+  constraints — additive only, needed so `evidence_links` can
+  composite-FK against them (DECISIONS.md R-61).
+- **Migration 0010** (`drizzle-kit` generated, then hand-reordered — the
+  same new-UNIQUE-before-dependent-FK statement-ordering issue found in
+  Milestones 3/5 [R-39], caught and fixed before the file was ever
+  applied): 4 new tables, 8 new enums, and every composite FK/CHECK
+  constraint described below.
+- **Migration 0011** (hand-written, per DECISIONS.md R-02): audit-column
+  FKs; reparenting guards on `documents` and `evidence` (the latter
+  including `document_version_id` — the pinned version is permanent,
+  matching Milestone 5's `assessments.control_library_version_id`
+  pattern); a `document_versions` version-number auto-assignment trigger
+  (BEFORE INSERT, application never sets it directly); a
+  `document_versions` full-immutability trigger — every field frozen
+  after creation except `scan_status`, which may transition exactly once
+  away from `pending` (instructions §4/§14); an `evidence_links`
+  finalization-lock trigger extending Milestone 5's finalized-assessment
+  guarantee one hop further (DECISIONS.md R-63); RLS enabled with `FORCE`
+  on all 4 tables and 12 policies, all reusing `can_access_engagement`/
+  `can_access_organisation` from migration 0001 unchanged — symmetric
+  read/write, dual-shaped exactly like `Evidence` itself
+  (engagement-scoped when `engagement_id` is set, organisation-level
+  otherwise, never Tenant-only); `GRANT`/`REVOKE` statements —
+  `document_versions` gets no `DELETE` grant at all, ever; audit triggers
+  reusing Milestone 4's `log_methodology_change()`/`log_methodology_
+  relationship_change()` **unchanged** for a third milestone in a row
+  (DECISIONS.md R-56, confirmed again here).
+- **The CRITICAL organisation-consistency invariant** (Milestone 6
+  instructions §15's own example): `evidence(document_version_id,
+  tenant_id, organisation_id) → document_versions(id, tenant_id,
+  organisation_id)` makes "Evidence belongs to Organisation A; its linked
+  DocumentVersion must belong to Organisation A" a structural
+  impossibility to violate. Verified via the Vitest suite AND a
+  standalone `psql` transaction outside the test framework.
+- **The CRITICAL polymorphic-subject security invariant** (instructions
+  §7, "security-critical area"): `EvidenceLink` uses per-subject-type
+  nullable FK columns (`assessment_response_id`, `control_test_id`) plus
+  a `CHECK` constraint tying `subject_type` to which one is populated —
+  not DATA_MODEL.md's literal bare `(subject_type, subject_id)` pair,
+  which could never carry a real FK at all (DECISIONS.md R-60/R-61).
+  Verified via the Vitest suite AND a standalone `psql` transaction.
+- **Storage architecture actually exercised** (instructions §9, D-03
+  unresolved): `document_versions.storage_path` is a plain object-key
+  string, never a public URL; no file bytes are ever written to
+  PostgreSQL or any filesystem/bucket; no signed-URL code, no Storage SDK
+  calls, no new API route exist anywhere in this milestone. "Testing the
+  authorization model" means proving unauthorized callers cannot even
+  `SELECT` the row carrying a `storage_path` — exercised directly (see
+  "Testing performed"). See "Known limitations" for the explicit
+  what-was/wasn't-tested statement instructions §23 requires.
+
+### Testing performed (exact commands, run in this order)
+
+1. `npm run typecheck` — clean, before and after the security migration
+   was hand-written.
+2. `npm run db:generate` — generated migration 0010; collided with
+   existing `0009_assessment_engine_security.sql` (drizzle-kit's own
+   numbering, the same recurring issue as Milestones 2-5) — renamed to
+   `0010_evidence_document_management.sql`, `meta/0009_snapshot.json`
+   renamed to `meta/0010_snapshot.json`, `meta/_journal.json`'s
+   `idx`/`tag` fixed; re-ran `db:generate`, confirmed "No schema changes,
+   nothing to migrate." Reviewed the generated SQL and found (and fixed,
+   before ever applying it) the same statement-ordering issue R-39/the
+   Milestone 5 report first found: the new `UNIQUE` constraints on
+   `assessment_responses`/`control_tests` were emitted after the FKs that
+   depend on them.
+3. `npx tsx scripts/reset-test-db.ts` (fresh database, all 12 migration
+   files applied in order) — succeeded cleanly after the reordering fix.
+4. `npx vitest run tests/rls tests/master-data tests/processing-activity
+   tests/control-library tests/assessment-engine` — all 175 pre-existing
+   tests still passing against the post-Milestone-6 schema (no
+   regressions).
+5. `npx vitest run tests/evidence` — all 59 new tests passing.
+6. `npm run test:db` (fresh reset + full suite: `tests/rls` +
+   `tests/master-data` + `tests/processing-activity` +
+   `tests/control-library` + `tests/assessment-engine` +
+   `tests/evidence`) — **234/234 passing**. Run **twice** in full (fresh
+   `reset-test-db` each time) to prove stability — 234/234 both times,
+   identical results.
+7. `npm run lint` — clean.
+8. `npm run build` (`next build`) — compiles successfully, static pages
+   generated, no type or lint errors.
+9. Direct `psql` inspection of the resulting database: `relrowsecurity`/
+   `relforcerowsecurity` confirmed `t`/`t` on all 4 new tables;
+   `pg_policies` confirmed all 12 new policies with the expected
+   commands; `information_schema.role_table_grants` confirmed
+   `authenticated` has exactly the intended privileges per table (no
+   `DELETE` grant anywhere, no `UPDATE`/`DELETE` grant at all on
+   `document_versions` beyond the one `UPDATE` needed for `scan_status`)
+   and `anon`/`PUBLIC` have none; `pg_constraint` confirmed every FK
+   (including both CRITICAL invariants), `UNIQUE`, and `CHECK` constraint
+   described above; `information_schema.triggers` confirmed all 14
+   triggers present with correct timing/events; two standalone `psql`
+   transactions (outside vitest) reproduced (a) the Evidence/
+   DocumentVersion cross-organisation rejection and (b) the
+   DocumentVersion storage-path immutability rejection, both directly
+   against the database.
+
+### tests/evidence (7 new files, 59 new tests)
+
+- `crud.test.ts` (12 tests): Document creation (engagement-scoped and
+  organisation-level); DocumentVersion upload with auto-assigned,
+  monotonically-incrementing `version_number`; hash verification against
+  independently-recomputed SHA-256; duplicate-upload detection (a query
+  pattern, not a hard constraint — re-uploading identical content is
+  still permitted as a legitimate "reconfirm current state" action, but
+  creates a genuinely new, separately immutable version); Evidence
+  creation pinned to a specific version; the full review lifecycle
+  (reviewer, date, decision, rationale); EvidenceLink to both
+  AssessmentResponse and ControlTest; duplicate-link prevention;
+  delete-not-update semantics for link removal.
+- `immutability.test.ts` (12 tests, two `describe` blocks):
+  DocumentVersion immutability — storage_path, hash, version_number,
+  uploaded_by/uploaded_at, filename, mime_type all rejected on UPDATE;
+  the one legitimate `scan_status` transition (pending → clean/flagged,
+  once only); no `DELETE` grant at all (tested via `asUser`, not
+  `asFixtureSetup`, so the grant restriction is genuinely exercised, not
+  bypassed by superuser fixture access). Document/Evidence reparenting
+  guards, including confirmation that ordinary fields (title, status,
+  review fields) remain freely editable.
+- `historical-immutability.test.ts` (6 tests): the exact instructions §8
+  scenario — Assessment A1/FY2026, Control C1, response "Partially
+  Implemented", Evidence "Information Security Policy — Version 1",
+  reviewer Consultant A, finalized; then FY2027's Version 2 upload to the
+  *same* Document. Confirms Version 1/Version 2 are distinct rows with
+  distinct hashes; Version 1's content is unchanged; FY2026's Evidence
+  still resolves to Version 1; changing the Document's own current title
+  doesn't rewrite Evidence's historical title or pin; a full one-query
+  resolution of A1's evidence trail is unaffected by Version 2's
+  existence; the EvidenceLink to the finalized assessment cannot be
+  removed.
+- `consistency.test.ts` (9 tests, two `describe` blocks): the CRITICAL
+  Evidence→DocumentVersion organisation/engagement consistency suite
+  (including the exact milestone example) and the CRITICAL EvidenceLink
+  polymorphic-subject security suite — cross-tenant AssessmentResponse/
+  ControlTest linking rejected even when the link's own scope columns are
+  forged to match the wrong tenant; a `subject_type`/populated-column
+  mismatch rejected by the `CHECK` constraint; linking to a fully
+  standalone (no-organisation) ControlTest rejected (DECISIONS.md R-62).
+- `finalization.test.ts` (4 tests, two `describe` blocks): an
+  EvidenceLink to an AssessmentResponse can be created while draft,
+  cannot once finalized; an existing link to a ControlTest cannot be
+  removed once its Assessment is finalized; a link to a ControlTest with
+  no `assessment_id` is never locked, regardless of any other
+  assessment's state.
+- `tenant-isolation.test.ts` (11 tests): the 10 required RLS scenarios —
+  Tenant A own evidence; Tenant A blocked from Tenant B (Document,
+  DocumentVersion, and Evidence listing); Organisation A blocked from
+  Organisation B under the same tenant; Engagement-scoped access proven
+  exact (no more, no less); unauthorized read/write blocking (0-rows-
+  affected + unchanged-data confirmation); unauthorized cross-tenant
+  EvidenceLink creation blocked even against a legitimate same-tenant
+  subject; anonymous requests denied at the grant level for all three
+  tables; RLS cannot be bypassed by querying `document_versions` directly
+  (proven both by a direct SELECT and by confirming it's absent from an
+  unfiltered listing); a positive write case proving the blocks are real.
+- `audit.test.ts` (5 tests): Document/DocumentVersion creation audited;
+  Evidence creation, review, and status changes (accepted → expired)
+  audited; EvidenceLink creation/removal audited as insert/delete;
+  `auth.uid()` attribution confirmed.
+
+### Files changed
+
+- New: `db/schema/documents.ts`, `db/schema/evidence.ts`,
+  `db/schema/evidence-links.ts`,
+  `drizzle/migrations/0010_evidence_document_management.sql`,
+  `drizzle/migrations/0011_evidence_document_management_security.sql`,
+  `drizzle/migrations/meta/0010_snapshot.json`,
+  `tests/evidence/helpers.ts`, `tests/evidence/crud.test.ts`,
+  `tests/evidence/immutability.test.ts`,
+  `tests/evidence/historical-immutability.test.ts`,
+  `tests/evidence/consistency.test.ts`,
+  `tests/evidence/finalization.test.ts`,
+  `tests/evidence/tenant-isolation.test.ts`, `tests/evidence/audit.test.ts`.
+- Modified: `db/schema/enums.ts` (new Milestone 6 enum block),
+  `db/schema/assessment-controls.ts` (new `UNIQUE(id, tenant_id,
+  organisation_id, engagement_id)` on `assessmentResponses`),
+  `db/schema/control-tests.ts` (three new `UNIQUE` constraints),
+  `db/schema/index.ts` (barrel exports), `package.json` (new
+  `test:evidence` script, `test:db` extended),
+  `drizzle/migrations/meta/_journal.json` (renumbering fix),
+  `DATA_MODEL.md` (one additive implementation-clarification paragraph
+  after §4), `DECISIONS.md` (R-57 through R-65), `PROGRESS.md` (this
+  entry).
+- Unchanged: `ARCHITECTURE.md`, `SECURITY.md`, `PRODUCT_SPEC.md`,
+  `ROADMAP.md`, `README.md`, and every migration/schema file from
+  Milestones 1-5 (`0000`-`0009`, and every `db/schema/*.ts` file this
+  milestone didn't touch).
+
+### Known limitations (documented, not silently built around)
+
+- **Explicit scope statement on storage (instructions §23):** this
+  milestone tested the database-authorization layer only — that RLS
+  correctly gates every row carrying storage metadata (`storage_path`,
+  `checksum_sha256`, etc.), proven for both the "happy path" (an
+  authorized user reads their own tenant's `document_versions`) and the
+  negative path (cross-tenant/anonymous access denied, and RLS cannot be
+  bypassed by querying `document_versions` directly). It did **not**
+  test: real Supabase Storage bucket privacy, real signed-URL issuance or
+  expiry, real upload MIME/size validation, or any actual file transfer —
+  none of that code exists yet anywhere in the repository (no API
+  routes, no Storage SDK integration), consistent with every milestone's
+  "no UI/no application-layer code" scope and D-03's unresolved status.
+  This is a real, currently-untested gap between "the database will
+  correctly authorize a signed-URL request" and "a real signed URL is
+  ever correctly issued or expires correctly" — the latter requires
+  actual Supabase Storage provisioning, which cannot happen before D-03
+  is resolved.
+- Malware/content scanning (D-05) remains unimplemented — `scan_status`
+  stays `pending` for every row in practice; this milestone only builds
+  the column and its one-time-transition trigger for a future scanner to
+  write into.
+- Duplicate-upload "detection" is a documented query pattern
+  (`WHERE document_id = ? AND checksum_sha256 = ?`), not a blocking
+  constraint — re-uploading identical content remains legitimate.
+- Carried forward from Milestone 4, still unaddressed (out of scope):
+  published `Requirement` content is not independently frozen by a
+  `ControlLibraryVersion`'s publish state — only the library's Control
+  set and mappings are (DECISIONS.md R-43/R-44). Also carried forward
+  from Milestone 5 (no change this milestone): `Assessment` uses exactly
+  DATA_MODEL.md's two-state status; no completeness/percentage view was
+  built.
+- The CONSULTANT_INTERNAL/CLIENT_VISIBLE `visibility` column is stored
+  but not RLS-enforced, matching SECURITY.md's existing, unchanged
+  architecture (DECISIONS.md R-64) — enforcement remains an
+  application-layer responsibility for a future milestone that builds
+  the permission/role-matrix layer SECURITY.md §2 describes.
+- No UI of any kind was built (none was requested) — every table above
+  was exercised exclusively through direct SQL/RLS-aware test clients.
+
+### Recommended Milestone 7
+
+Risk, Finding, and RemediationAction (DATA_MODEL.md §8) are the natural
+next layer: they consume `AssessmentResponse`/`ControlTest` results
+(now evidenced) the same way this milestone's `EvidenceLink` does, and
+DATA_MODEL.md §8's own `ValidationRecord` entity already anticipates
+`Evidence` attaching to `RemediationAction` via the same `EvidenceLink`
+mechanism built this milestone — no new evidence infrastructure would be
+needed, only new subject types (one more nullable column + one more
+`CHECK` branch each, per DECISIONS.md R-60's stated extension pattern).
+
+### Git status / remote synchronization status
+
+All Milestone 6 work is committed on `claude/primus-privacy-architecture-39p3gh`
+and pushed to `origin`, with local and remote `HEAD` confirmed matching
+(see the commit this entry accompanies). No commits are queued or
+pending push.
+
+---
 
 ## Milestone 5 — Assessment Engine (Session 8, 2026-09-01)
 

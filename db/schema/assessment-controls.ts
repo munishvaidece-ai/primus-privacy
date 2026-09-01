@@ -151,5 +151,15 @@ export const assessmentResponses = pgTable(
     assessmentControlUnique: unique("assessment_responses_assessment_control_id_key").on(
       table.assessmentControlId,
     ),
+    // Milestone 6 addition: consumed by `evidence_links`' composite FK,
+    // proving an EvidenceLink to an AssessmentResponse carries the exact
+    // same (tenant, organisation, engagement) tuple as the response it
+    // supports — the same discipline as every consumer of this table.
+    idScopeUnique: unique("assessment_responses_id_scope_key").on(
+      table.id,
+      table.tenantId,
+      table.organisationId,
+      table.engagementId,
+    ),
   }),
 );
