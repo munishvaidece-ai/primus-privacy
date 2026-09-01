@@ -1,9 +1,11 @@
 # PRIMUS PRIVACY — Architectural Decisions
 
-Status: Draft v0.3 (Session 3, 2026-09-01: added R-16, closing a
-historical-integrity gap found during this session's consistency review;
-D-01/D-02 remain RESOLVED from Session 2). This log records material
-architectural decisions and
+Status: Draft v0.4 (Session 4 / Milestone 1, 2026-09-01: added R-17
+through R-24, recording implementation decisions made while building the
+Identity + Tenancy + Engagement Structure database foundation — see
+PROGRESS.md for the milestone report. D-01/D-02 remain RESOLVED from
+Session 2; R-16 from Session 3 stands unchanged). This log records
+material architectural decisions and
 their rationale, in the order they were made. Items requiring a human
 product/business decision that cannot be safely inferred from the brief are
 marked **DECISION REQUIRED** and are not assumed — implementation should
@@ -434,3 +436,166 @@ principle already established for methodology (R-04, §6) and master data
 DECISION REQUIRED: it's the same append-only pattern already used
 elsewhere in this schema, applied consistently, not a new product
 decision.
+
+---
+
+## Milestone 1 implementation decisions (Session 4, 2026-09-01)
+
+Recorded while building the Identity + Tenancy + Engagement Structure
+database foundation (`drizzle/migrations/0000_identity_tenancy_engagement.sql`,
+`0001_identity_tenancy_engagement_security.sql`). See PROGRESS.md for the
+full milestone report.
+
+### R-17 — Membership grants/revocations are service_role-only in Milestone 1's RLS; no self-service write path for `authenticated`
+
+**Decision:** `tenant_memberships`, `organisation_memberships`, and
+`engagement_memberships` have a SELECT policy for `authenticated` (see
+their own rows, plus the roster of any scope they're an active member of)
+but no INSERT/UPDATE/DELETE policy at all — granting or revoking a
+membership requires the `service_role` connection (bypasses RLS), used
+only by trusted server-side application code that performs its own
+authorization/permission check first.
+**Rationale:** SECURITY.md's threat table requires that granting a
+broader membership "requires a permission of its own, not just write
+access to the membership table." Encoding *which* role can grant *which*
+other role, safely, as a self-service RLS policy is exactly the dynamic
+role-permission-matrix logic R-07 already says doesn't belong in RLS
+(RLS is the tenant/scope-isolation backstop, not the fine-grained
+permission engine). Until a future milestone's object-level permission
+model can express "requires permission X" inside a WITH CHECK safely,
+routing all membership mutations through server-only code is the
+conservative, correct choice — consistent with ARCHITECTURE.md's
+"Next.js server ↔ Postgres: only server processes hold database
+credentials" pattern, which the browser never violates anyway.
+
+### R-18 — `tenants` table writes (INSERT/UPDATE/DELETE) are service_role-only in Milestone 1
+
+**Decision:** No `authenticated`-role write policy exists on `tenants`;
+provisioning a new practice tenant is treated as a platform-ops action in
+this milestone, performed via service_role.
+**Rationale:** the MVP has exactly one `Tenant` row (DECISIONS.md D-01);
+there is no in-product "create a new tenant" workflow to support yet, and
+building RLS for a feature that doesn't exist yet would be premature.
+When Phase 3 (multi-practice) becomes real, this gets a proper
+permission-gated policy alongside whatever admin workflow creates it.
+
+### R-19 — `organisations.tenant_id` and `engagements.{tenant_id,organisation_id}` are immutable after creation, enforced by a trigger rather than an RLS `WITH CHECK`
+
+**Decision:** `BEFORE UPDATE` triggers (`organisations_prevent_reparenting`,
+`engagements_prevent_reparenting`) unconditionally reject any attempt to
+change these columns, regardless of who is asking — including
+`service_role` and the Postgres superuser used for fixture setup.
+**Rationale:** RLS's `WITH CHECK` can express "the acting user must be
+authorized to make this change" but cannot cleanly compare OLD vs. NEW
+column values to express "this specific column must never change" without
+also blocking ordinary updates to other columns by users who legitimately
+lack tenant-wide membership (a Client Administrator updating their own
+org's name has `OrganisationMembership` but not `TenantMembership`, so a
+`WITH CHECK` requiring tenant membership for *any* update would wrongly
+block that). A trigger comparing `OLD`/`NEW` directly is the correct tool
+for an absolute, per-column immutability rule, and is verified in
+`tests/rls/tenancy-consistency.test.ts` (Milestone 1 RLS Test 3) to hold
+even for a superuser bypassing RLS entirely — proving reparenting is
+impossible at the schema level, not just discouraged by policy.
+
+### R-20 — `users.email` is a synced, denormalized convenience column, not a duplicated credential
+
+**Decision:** `public.users.email` is kept in sync with `auth.users.email`
+via an `AFTER UPDATE` trigger (`on_auth_user_email_updated`) and set once
+at provisioning time (`on_auth_user_created`); it is never written
+directly by application code.
+**Rationale:** Milestone 1 instructions §2 say "do not duplicate Supabase
+authentication credentials in our own database unnecessarily." An email
+address is an identifier, not a credential — no password hash, MFA
+secret, or session token exists anywhere outside `auth.users`/`auth`
+schema tables, which this migration set never touches except via the
+provisioning trigger's read of `NEW.email`/`NEW.raw_user_meta_data`.
+Without a synced copy, every membership-roster or "who does this belong
+to" query would need a separate Supabase Admin API call per user, which
+is both an unnecessary runtime dependency and contrary to "one source of
+truth" for ordinary read paths.
+
+### R-21 — `auth.users` → `public.users` provisioning requires `raw_app_meta_data.tenant_id`; there is no default-tenant fallback
+
+**Decision:** the `handle_new_auth_user()` trigger function raises an
+exception if `NEW.raw_app_meta_data ->> 'tenant_id'` is absent — it never
+silently defaults to the (currently only) tenant.
+**Rationale:** Milestone 1 has no self-service signup (ROADMAP.md places
+that in Phase 3), so every real user account is expected to be
+provisioned by trusted server-side code via the Supabase Admin API, which
+sets `app_metadata.tenant_id` (and, for client-side users,
+`client_org_id`) at creation time. Defaulting to "the one tenant that
+happens to exist right now" would be a silent, MVP-only assumption baked
+into a trigger that's supposed to also work once a second tenant exists
+(D-01) — failing loudly instead keeps the provisioning path correct as
+written, unconditionally, rather than correct only by accident of there
+being one tenant today.
+
+### R-22 — Role-to-scope assignment for the 12 seeded roles (`db/seed/roles.ts`)
+
+**Decision:** `Platform Administrator` and `Practice Partner` are seeded
+as `tenant`-scoped roles; `Client Administrator`, `Privacy Officer`, and
+`CXO / Executive Viewer` as `organisation`-scoped; the remaining seven
+(`Engagement Manager`, `Consultant`, `Auditor`, `Business Owner`,
+`IT/CISO`, `Procurement`, `Legal`) as `engagement`-scoped.
+**Rationale:** the tenant/organisation split for `Platform
+Administrator`/`Practice Partner` vs. everyone PRIMUS-side follows
+DECISIONS.md R-11 directly. The client-side split is a judgment call this
+milestone had to make that R-11 didn't fully resolve: `Client
+Administrator` was explicitly named in R-11 as organisation-scoped;
+`Privacy Officer` and `CXO / Executive Viewer` are added to that tier
+here because PRODUCT_SPEC.md describes them as needing "broadest
+client-side visibility" and "summary/dashboard-level visibility ... for
+governance reporting" respectively — both read as needing all of a
+client's engagements, not one at a time, which only organisation-level
+membership provides. `IT/CISO` is kept `engagement`-scoped for now even
+though it will plausibly want client-wide visibility once master data
+(Systems, Processors — DECISIONS.md D-02) exists in a later milestone;
+narrower-than-necessary is the safer default to widen later, and this is
+recorded as revisitable, not a considered final answer. None of this is
+DECISION REQUIRED: it's seed-data classification within an already-agreed
+three-scope model, easily changed by editing `db/seed/roles.ts` and
+re-running it — not a schema or RLS change.
+
+### R-23 — Business Unit, `control_library_version_id`, and `EngagementMembership.business_unit_id` are deliberately out of Milestone 1
+
+**Decision:** no `business_units` table exists in this migration set;
+`engagements.control_library_version_id` (from DATA_MODEL.md §3) and
+`engagement_memberships.business_unit_id` (from DATA_MODEL.md §2) are
+both omitted from the Milestone 1 schema.
+**Rationale:** Milestone 1 instructions §2 name exactly six concepts to
+implement (Tenant, Organisation, Engagement, User, and the three
+membership tables); Business Unit is not among them, and `Control` /
+`ControlLibraryVersion` belong to the (explicitly out-of-scope) Assessment
+Engine milestone. Including a foreign key to a table that doesn't exist
+yet isn't possible, and building Business Unit now would be exactly the
+kind of "blindly create every field from the conceptual documents" the
+instructions warn against. This is a scope cut, not a design change —
+DATA_MODEL.md is unmodified; these fields are simply not yet built.
+
+### R-24 — Local Postgres 16 + a hand-written `auth` schema/role shim stands in for Supabase in this milestone's tests, per D-03 being unresolved
+
+**Decision:** `tests/rls` runs against a local PostgreSQL 16 database
+with `scripts/local-dev-auth-shim.sql` providing a byte-for-byte
+reimplementation of Supabase's `auth.uid()` and the
+`anon`/`authenticated`/`service_role` role shape — clearly marked as
+local/CI-only and never to be run against a real Supabase project (which
+already provides all of it).
+**Rationale:** Milestone 1 instructions §10 explicitly anticipate and
+permit this ("If a full Supabase environment is not yet provisioned
+because D-03 data residency is unresolved, use a local/test
+PostgreSQL-compatible environment where practical... Clearly document any
+limitation."). The two real migrations
+(`0000_identity_tenancy_engagement.sql`,
+`0001_identity_tenancy_engagement_security.sql`) contain nothing
+Supabase-incompatible and were not modified to accommodate the shim — the
+shim exists entirely alongside them, in a separate file, so what's tested
+locally is exactly what would run against a real Supabase project.
+**Known limitation:** this shim does not (and cannot) exercise
+Supabase-specific request-layer behavior (PostgREST's actual JWT
+verification, Storage, realtime, connection pooling via PgBouncer) — only
+the `auth.uid()` / role-membership mechanics that this milestone's RLS
+policies depend on. Full end-to-end verification against a real Supabase
+project is still required once D-03 is resolved and a project is
+provisioned, before this is considered production-verified rather than
+locally-verified.
