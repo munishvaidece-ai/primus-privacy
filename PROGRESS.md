@@ -1,5 +1,33 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-02 — Slice P2A.1 (Close Remediation Self-Validation Gap)
+COMPLETE (Session 34): a tightly-scoped follow-up security patch closing
+the one remaining P0/P1 gap P2A's own final report flagged —
+`RemediationAction.status = "validated"` was directly settable through
+the ordinary `updateRemediationAction`, a second, narrower self-
+validation surface distinct from `createValidationRecord` (already
+closed by P2A). Confirmed, by direct inspection of
+`validation-records.ts`'s own header and DATA_MODEL.md §8's five-value
+lifecycle, that "validated" genuinely is the same consultant-validation
+decision `ValidationRecord` creation makes explicit — not a conflict to
+report, a real gap to close. Fixed with the smallest possible change:
+`updateRemediationAction` now requires the same `validation.perform`
+permission `createValidationRecord` already requires, but ONLY when the
+submitted `status` is `"validated"` — no new permission, no new role, no
+new lifecycle state, every other status value and every other field
+(progress notes, due date, ownership, and `"closed"`) completely
+unaffected. One new, minimal, hand-written migration (0032) adds the
+matching RLS `WITH CHECK` condition to `remediation_actions_insert`/
+`_update`, layered onto the existing broad `can_access_engagement`
+check rather than replacing it. 6 new focused tests (extending
+`tests/app/authorization-hardening.test.ts` to 32), covering all 8
+required P2A.1 scenarios. 854 tests pass (67 files, same file count as
+P2A — no new test file), typecheck/lint/build all clean, full DB suite
+run twice with zero regressions. DECISIONS.md R-154 records the fix and
+formally supersedes R-151's "left untouched" call for this one status
+value. Per explicit instruction, STOP after P2A.1 — no P2B. Full details
+in the "Close Remediation Self-Validation Gap" section below.
+
 Status: 2026-09-02 — Slice P2A (Authorization & Confidentiality
 Hardening) COMPLETE (Session 33): implementation-only hardening slice
 closing four gaps a design-only discovery pass (P2 —
@@ -99,6 +127,106 @@ expected-YES). Full details in the "Maturity Implementation" section
 below and in `REFERENCE_ENGAGEMENT.md`. Per explicit instruction, STOP
 after M2 — no Client Portal, trends, dashboards, comparison, AI, or any
 other feature without further explicit direction.
+
+## Close Remediation Self-Validation Gap (Session 34, 2026-09-02)
+
+**Scope:** exactly what the P2A.1 brief instructed — a tightly-scoped
+security hardening patch, not a Remediation lifecycle redesign. No new
+lifecycle state, no new role, no Client Portal, no invitation/
+provisioning, no Evidence/Maturity/Assessment change, no comments/
+notifications.
+
+**The gap:** P2A's own final report named it directly: `createValidation
+Record` was correctly restricted to `validation.perform` (Engagement
+Manager/Consultant only), but `RemediationAction.status = "validated"`
+remained directly settable by ANY engagement/organisation member —
+client-side roles included — through the ordinary, unrestricted
+`updateRemediationAction`. DECISIONS.md R-151 had, at the time, named
+this as a deliberate, accepted, out-of-scope limitation rather than
+close it, per P2A's own "do not over-restrict client participation" /
+"do not invent additional lifecycle states" instructions.
+
+**Required first step — determine what "validated" actually means:**
+inspected `db/schema/remediation-actions.ts` (status enum, DATA_MODEL.md
+§8's own five-value lifecycle "Open → In Progress → Evidence Submitted →
+Validated → Closed"), `db/schema/validation-records.ts` (`ValidationRecord`
+— "the explicit consultant-validation step between 'evidence submitted'
+and 'control reassessment'", its own header, verbatim), and DECISIONS.md
+R-71 (status is a plain, application-layer-only state machine — no
+database-enforced transition order, by design). Conclusion: "validated"
+IS the same consultant-validation decision `ValidationRecord` creation
+makes explicit — the P2A.1 brief's own "if the existing schema semantics
+reveal that 'validated' is NOT actually intended to mean consultant
+validation, STOP" condition does not apply; closing the gap is correct.
+
+**The fix, smallest defensible:** `updateRemediationAction`
+(`lib/domain/remediation.ts`) now calls the existing
+`requireValidationPerformAccess` (the same function/permission
+`createValidationRecord` already uses) whenever, and only whenever,
+`input.status === "validated"`. No change to the function's existing
+`requireEngagementAccess` call, no change to any other field, no change
+to any other status value — a client retains complete, unrestricted
+remediation participation: progress notes, description, due date,
+ownership, and every status transition except this one, `"closed"`
+included (per the brief's own "preserve all other legitimate client
+remediation participation").
+
+**RLS backstop:** migration 0032 (hand-written, smallest possible) adds
+one additional `WITH CHECK` condition to `remediation_actions_insert`/
+`_update` — `status <> 'validated' OR has_engagement_permission(...,
+'validation.perform') OR has_organisation_permission(..., 'validation.
+perform')` — layered onto (ANDed with) the existing, unchanged, broad
+`can_access_engagement` check, not replacing it. `USING` (read-for-
+update visibility) is untouched. Proven directly that a client cannot
+bypass the application-layer block via direct SQL: both a forged UPDATE
+setting an existing row's status to `'validated'` and a forged INSERT of
+a brand-new row already carrying `status = 'validated'` are rejected by
+RLS, while an ordinary direct-SQL write that doesn't touch `status`
+(or sets it to anything else) still succeeds for a client.
+
+**No new permission, no new role, no new lifecycle state:** reuses
+`validation.perform`, seeded to Engagement Manager and Consultant only
+since P2A (`db/seed/roles.ts`, unchanged this slice).
+
+**Testing:** 6 new focused tests appended to the existing
+`tests/app/authorization-hardening.test.ts` (26 → 32 tests total),
+covering all 8 required P2A.1 scenarios: (1) a client can still perform
+ordinary, non-"validated" remediation updates including "closed"; (2) a
+client (both a Client Administrator and an Other-Client-Member persona)
+cannot set `status = "validated"`, with the row's actual status
+reconfirmed unchanged after each rejected attempt; (3) a client cannot
+bypass via direct SQL/RLS — neither an UPDATE nor an INSERT forging
+`status = 'validated'` succeeds, while an ordinary direct-SQL write that
+doesn't touch `status` still does; (4) an Engagement Manager and a
+Consultant can both perform the transition, with `completed_at`
+confirmed stamped; (5)/(6) `createValidationRecord` and the full
+validation workflow are completely unaffected by the new gate — still
+works normally, and a client still cannot self-validate via that path
+either; (7) tenant isolation remains intact — a different-tenant
+consultant cannot validate this tenant's RemediationAction; (8) the
+existing, unmodified `tests/app/remediation.test.ts` suite (which
+already exercises a Consultant setting `status = "validated"`, per its
+own pre-existing test) continues to pass unchanged — no test file
+needed modification for this slice, only `lib/domain/remediation.ts`.
+854 tests pass (67 files — same file count as P2A, no new test file,
++6 tests in the existing authorization-hardening suite),
+typecheck/lint/build all clean, full DB suite run twice for stability,
+zero regressions.
+
+**Documentation:** DECISIONS.md R-154 records the fix and its full
+reasoning, and formally supersedes R-151's "left untouched" call for
+`RemediationAction.status = "validated"` specifically (R-151's other two
+decisions — `validation_records_update` and general `remediation_
+actions` writes remaining broad — are unaffected and still stand).
+`REFERENCE_ENGAGEMENT.md` was not touched — its fixture's `leadUserId`
+(Engagement Manager) and `secondUserId` (Consultant) both already hold
+`validation.perform`, so its own remediation-status-setting calls are
+unaffected by this narrower gate.
+
+**Not built, deliberately, per the brief's own STOP condition:** no
+Remediation lifecycle redesign, no new lifecycle state, no Client
+Portal, no invitation/provisioning, no Evidence/Maturity/Assessment
+change, no comments/notifications, no P2B.
 
 ## Authorization & Confidentiality Hardening (Session 33, 2026-09-02)
 

@@ -4098,6 +4098,12 @@ than a new authorization framework or a new Client role.
 
 ### R-151 — `validation_records_update`, `RemediationAction.status = "validated"`, and Remediation writes generally are deliberately left untouched (Slice P2A)
 
+> **Superseded in part by R-154 (Slice P2A.1):** the `RemediationAction.
+> status = "validated"` portion of this decision was revisited and
+> closed as a direct P2A follow-up — see R-154. `validation_records_
+> update` and general `remediation_actions` writes are unaffected and
+> this decision's reasoning for those two still stands.
+
 **Decision:** P2A does not narrow `validation_records_update` (no
 domain code writes through it — it exists only for a future, narrow
 reassessment-trigger transition per its own migration 0013 comment;
@@ -4176,3 +4182,43 @@ existing SELECT policies") read together with Part 15's "use the
 smallest migration possible" — RLS remains the backstop for every write
 this slice narrows; it was never asked to become the mechanism for
 visibility filtering specifically.
+
+### R-154 — `RemediationAction.status = "validated"` now requires `validation.perform`, closing the second self-validation surface R-151 had deliberately left open (Slice P2A.1)
+
+**Decision:** `updateRemediationAction` (`lib/domain/remediation.ts`) now
+calls `requireValidationPerformAccess` whenever `input.status ===
+"validated"`, in addition to its existing, unchanged
+`requireEngagementAccess` check — the same `validation.perform`
+permission `createValidationRecord` already requires (R-150), not a new
+permission. Migration 0032 adds the matching RLS backstop: one extra
+`WITH CHECK` condition on `remediation_actions_insert`/`_update` —
+`status <> 'validated' OR has_engagement_permission(..., 'validation.
+perform') OR has_organisation_permission(..., 'validation.perform')` —
+layered onto the existing, unchanged, broad `can_access_engagement`
+check rather than replacing it. Every other status value
+(`open`/`in_progress`/`evidence_submitted`/`closed`), and every other
+column on this table, is completely unaffected — a client retains full,
+ordinary remediation participation, `"closed"` included.
+**Rationale:** this is a direct, explicit follow-up (P2A.1) to P2A's own
+final report, which flagged `RemediationAction.status = "validated"` as
+a second, narrower self-validation surface distinct from the
+`ValidationRecord`-creation vector P2A itself closed (R-150), and which
+R-151 had at the time deliberately left untouched. Re-inspecting the
+schema's own semantics resolved the P2A.1 brief's own "if the existing
+schema semantics reveal that 'validated' is NOT actually intended to
+mean consultant validation, STOP" condition: `validation-records.ts`'s
+own header names `ValidationRecord` "the explicit consultant-validation
+step between 'evidence submitted' and 'control reassessment'", and
+DATA_MODEL.md §8's own five-value lifecycle name ("Open → In Progress →
+Evidence Submitted → Validated → Closed") uses "Validated" as exactly
+that same decision — so the two ARE the same concept under two
+different names, and closing the gap is the correct action, not a
+conflict to report. R-71's own established doctrine (`status` is a
+plain, unconstrained application-layer state machine, not a database
+state machine) is preserved for every value except this one: the fix
+adds a permission requirement on a specific enum VALUE, not a general
+lifecycle/transition constraint, and invents no new status. This
+supersedes R-151's "deliberately left untouched" call for `status =
+"validated"` specifically; R-151's OTHER decisions (`validation_records_
+update` and general `remediation_actions` writes remain untouched)
+still stand unchanged.

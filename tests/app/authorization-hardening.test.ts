@@ -537,4 +537,222 @@ describe("Application layer — Authorization & Confidentiality Hardening (P2A)"
 
     expect(risk.id && finding.id && remediation.id && evidenceId && validation.id).toBeTruthy();
   });
+
+  // ======================================================================
+  // P2A.1 — Close Remediation Self-Validation Gap
+  //
+  // RemediationAction.status = "validated" was directly settable through
+  // the ordinary updateRemediationAction, a second, narrower self-
+  // validation surface distinct from createValidationRecord (closed by
+  // P2A itself, scenarios [1]-[3] above). Covers all 8 scenarios the
+  // P2A.1 brief requires:
+  //   1. client can perform legitimate remediation updates
+  //   2. client cannot set status = validated
+  //   3. client cannot bypass via direct SQL/RLS
+  //   4. Engagement Manager/Consultant can set validated where intended
+  //   5. existing createValidationRecord behavior still works
+  //   6. validation workflow remains intact
+  //   7. tenant isolation remains intact
+  //   8. no regression to existing remediation tests (see also the
+  //      dedicated tests/app/remediation.test.ts suite, unmodified)
+  // ======================================================================
+
+  it("[P2A.1-1] a client can still perform ordinary, non-'validated' remediation updates (progress notes, due date, ownership, and 'closed')", async () => {
+    await expect(
+      withRequestDb(clientMemberA, (db) =>
+        updateRemediationAction(db, clientMemberA, {
+          organisationId: orgA,
+          engagementId: engagementA,
+          remediationActionId: remediationId,
+          title: "P2A.1 remediation (client progress update)",
+          description: "Client-provided progress notes.",
+          priority: "high",
+          status: "in_progress",
+          dueDate: "2026-12-31",
+          ownerAction: "keep",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      withRequestDb(clientMemberA, (db) =>
+        updateRemediationAction(db, clientMemberA, {
+          organisationId: orgA,
+          engagementId: engagementA,
+          remediationActionId: remediationId,
+          title: "P2A.1 remediation (client closes it)",
+          description: "Client believes this is complete.",
+          priority: "high",
+          status: "closed",
+          dueDate: "2026-12-31",
+          ownerAction: "keep",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    // Reset back to a non-terminal status so later tests in this file
+    // (and the shared `remediationId` fixture) are unaffected.
+    await withRequestDb(consultantA, (db) =>
+      updateRemediationAction(db, consultantA, {
+        organisationId: orgA,
+        engagementId: engagementA,
+        remediationActionId: remediationId,
+        title: "P2A remediation",
+        description: null,
+        priority: "high",
+        status: "evidence_submitted",
+        dueDate: null,
+        ownerAction: "keep",
+      }),
+    );
+  });
+
+  it("[P2A.1-2] a client (Client Administrator / Other Client Member) cannot set status = 'validated' via updateRemediationAction", async () => {
+    await expect(
+      withRequestDb(clientAdminA, (db) =>
+        updateRemediationAction(db, clientAdminA, {
+          organisationId: orgA,
+          engagementId: engagementA,
+          remediationActionId: remediationId,
+          title: "Client-attempted self-validation",
+          description: null,
+          priority: "high",
+          status: "validated",
+          dueDate: null,
+          ownerAction: "keep",
+        }),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundOrForbiddenError);
+
+    await expect(
+      withRequestDb(clientMemberA, (db) =>
+        updateRemediationAction(db, clientMemberA, {
+          organisationId: orgA,
+          engagementId: engagementA,
+          remediationActionId: remediationId,
+          title: "Client-attempted self-validation (other member)",
+          description: null,
+          priority: "high",
+          status: "validated",
+          dueDate: null,
+          ownerAction: "keep",
+        }),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundOrForbiddenError);
+
+    // Reconfirm the row itself was never actually flipped to "validated"
+    // by either rejected attempt.
+    const { rows } = await asFixtureSetup((c) => c.query("SELECT status FROM remediation_actions WHERE id = $1", [remediationId]));
+    expect(rows[0]!.status).not.toBe("validated");
+  });
+
+  it("[P2A.1-3] a client cannot bypass the applicaton-layer block via direct SQL — RLS independently rejects UPDATE/INSERT with status = 'validated'", async () => {
+    await expect(
+      asUser(clientMemberA, (c) => c.query(`UPDATE remediation_actions SET status = 'validated' WHERE id = $1`, [remediationId])),
+    ).rejects.toThrow(/row-level security/i);
+
+    await expect(
+      asUser(clientAdminA, (c) => c.query(`UPDATE remediation_actions SET status = 'validated' WHERE id = $1`, [remediationId])),
+    ).rejects.toThrow(/row-level security/i);
+
+    // A direct-SQL INSERT that tries to forge an already-"validated" row
+    // is rejected the same way.
+    await expect(
+      asUser(clientMemberA, (c) =>
+        c.query(
+          `INSERT INTO remediation_actions (engagement_id, organisation_id, tenant_id, title, status) VALUES ($1, $2, $3, 'Forged validated remediation', 'validated')`,
+          [engagementA, orgA, tenantA],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/i);
+
+    // Ordinary direct-SQL writes that do NOT touch status remain allowed
+    // for a client — the RLS narrowing is specific to the "validated"
+    // value, not a general lockout (mirrors the application-layer
+    // scenario [P2A.1-1] above, at the RLS layer).
+    const updateResult = await asUser(clientMemberA, (c) =>
+      c.query(`UPDATE remediation_actions SET description = 'Direct-SQL client note' WHERE id = $1 RETURNING description`, [remediationId]),
+    );
+    expect(updateResult.rows[0]!.description).toBe("Direct-SQL client note");
+  });
+
+  it("[P2A.1-4] an Engagement Manager and a Consultant can both set status = 'validated'", async () => {
+    await expect(
+      withRequestDb(consultantA, (db) =>
+        updateRemediationAction(db, consultantA, {
+          organisationId: orgA,
+          engagementId: engagementA,
+          remediationActionId: remediationId,
+          title: "Consultant-validated remediation",
+          description: "Independently verified.",
+          priority: "high",
+          status: "validated",
+          dueDate: null,
+          ownerAction: "keep",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    const { rows } = await asFixtureSetup((c) => c.query("SELECT status, completed_at FROM remediation_actions WHERE id = $1", [remediationId]));
+    expect(rows[0]!.status).toBe("validated");
+    expect(rows[0]!.completed_at).not.toBeNull();
+
+    // An Engagement Manager can also perform the same transition,
+    // reusing a second RemediationAction so this doesn't depend on the
+    // ordering of the test above.
+    const finding2 = await withRequestDb(consultantA, (db) => createFinding(db, consultantA, { riskId, title: "P2A.1 second finding", description: null, severity: "medium", assignOwnerToSelf: false }));
+    const remediation2 = await withRequestDb(consultantA, (db) => createRemediationAction(db, consultantA, { findingId: finding2.id, title: "P2A.1 second remediation", description: null, priority: "medium", dueDate: null, assignOwnerToSelf: false }));
+    await expect(
+      withRequestDb(engagementManagerA, (db) =>
+        updateRemediationAction(db, engagementManagerA, {
+          organisationId: orgA,
+          engagementId: engagementA,
+          remediationActionId: remediation2.id,
+          title: "EM-validated remediation",
+          description: null,
+          priority: "medium",
+          status: "validated",
+          dueDate: null,
+          ownerAction: "keep",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("[P2A.1-5,6] createValidationRecord and the full validation workflow remain unaffected by the status = 'validated' gate", async () => {
+    // The remediation this describe block shares is already status =
+    // 'validated' from [P2A.1-4] above; ValidationRecord creation is a
+    // fully independent write path (its own table, its own permission
+    // check) and must still work regardless of the RemediationAction's
+    // own current status.
+    const { id } = await withRequestDb(consultantA, (db) =>
+      createValidationRecord(db, consultantA, { remediationActionId: remediationId, outcome: "accepted", rationale: "P2A.1 regression check." }),
+    );
+    expect(id).toBeTruthy();
+
+    // A client still cannot self-validate via createValidationRecord —
+    // reaffirms P2A's own [1]/[2] scenarios are unaffected by this
+    // narrower P2A.1 fix.
+    await expect(
+      withRequestDb(clientAdminA, (db) => createValidationRecord(db, clientAdminA, { remediationActionId: remediationId, outcome: "accepted", rationale: null })),
+    ).rejects.toBeInstanceOf(NotFoundOrForbiddenError);
+  });
+
+  it("[P2A.1-7] tenant isolation remains intact — a different-tenant consultant cannot set status = 'validated' on this tenant's RemediationAction", async () => {
+    await expect(
+      withRequestDb(consultantB, (db) =>
+        updateRemediationAction(db, consultantB, {
+          organisationId: orgA,
+          engagementId: engagementA,
+          remediationActionId: remediationId,
+          title: "Cross-tenant validation attempt",
+          description: null,
+          priority: "high",
+          status: "validated",
+          dueDate: null,
+          ownerAction: "keep",
+        }),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundOrForbiddenError);
+  });
 });

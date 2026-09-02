@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
 import { findings, remediationActions, remediationFindings, validationRecords, users } from "@/db/schema";
-import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, requireEngagementAccess, requireValidationPerformAccess } from "@/lib/authorization/service";
 
 // Slice C5 (PHASE C — REMEDIATION) — the Remediation domain module:
 // turns an existing Finding into a structured, traceable
@@ -171,6 +171,21 @@ export interface UpdateRemediationActionInput {
  * an explicit, consultant-chosen status change, not the "automatic
  * remediation completion" instructions §23 forbid (nothing here
  * transitions status on its own).
+ *
+ * **P2A.1 (Close Remediation Self-Validation Gap):** `status =
+ * "validated"` is DATA_MODEL.md §8's own name for the exact same
+ * decision `createValidationRecord` (lib/domain/validation.ts) makes
+ * explicit — "the explicit consultant-validation step between 'evidence
+ * submitted' and 'control reassessment'" (validation-records.ts's own
+ * header). Setting it is therefore gated by the same `validation.perform`
+ * permission as creating a ValidationRecord, closing the second,
+ * narrower self-validation surface P2A's own final report flagged
+ * (superseding DECISIONS.md R-151's earlier "left untouched" call — see
+ * R-154). Every other status value, and every other field on this
+ * function, is completely unchanged: a client still has full,
+ * unrestricted remediation participation (progress notes, due date,
+ * ownership, and every non-"validated" status transition, "closed"
+ * included).
  */
 export async function updateRemediationAction(
   db: RequestDb,
@@ -184,6 +199,15 @@ export async function updateRemediationAction(
   }
   if (input.dueDate !== null && !DATE_RE.test(input.dueDate)) {
     throw new InvalidRemediationInputError("Use the date format YYYY-MM-DD for the due date.");
+  }
+
+  // P2A.1: setting (or keeping) `status = "validated"` is the consultant-
+  // validation declaration itself — gated by the same `validation.perform`
+  // permission `createValidationRecord` requires, closing the second
+  // self-validation surface this function's own docstring above
+  // describes. Every other status value is unaffected.
+  if (input.status === "validated") {
+    await requireValidationPerformAccess(db, userId, input.engagementId, input.organisationId);
   }
 
   const [row] = await db
