@@ -4222,3 +4222,47 @@ supersedes R-151's "deliberately left untouched" call for `status =
 "validated"` specifically; R-151's OTHER decisions (`validation_records_
 update` and general `remediation_actions` writes remain untouched)
 still stand unchanged.
+
+### R-155 — `users` gets a column-selective tampering-guard trigger (`prevent_user_identity_tampering`), closing a pre-existing, empirically-confirmed self-escalation gap — a standalone hardening fix, not a P2B feature (Slice P2B.0.2)
+
+**Decision:** Migration 0033 adds `prevent_user_identity_tampering`, a
+`BEFORE UPDATE` trigger on `users` blocking changes to `id`, `tenant_id`,
+`client_org_id`, `email`, `status`, and `created_at` whenever
+`current_user = 'authenticated'` — mirroring the exact, already-
+established reparenting-guard shape (`prevent_engagement_membership_
+reparenting`, migration 0024; `prevent_engagement_reparenting`/
+`prevent_organisation_reparenting`, migration 0001) applied, for the
+first time, to `users` itself. `display_name`/`updated_at` remain
+self-editable (unused by any built feature today, left open at zero
+cost rather than closed for one that doesn't exist). No GRANT/RLS-policy
+change — `users_update_self`'s existing row-level scoping (`id =
+auth.uid()`) was already correct; the trigger adds the missing
+column-level layer underneath it. The `current_user = 'authenticated'`
+check (rather than enumerating every legitimate caller) is what lets the
+existing `handle_auth_user_email_change` trigger keep working unchanged
+— that function is `SECURITY DEFINER`, so `current_user` during its own
+execution (and any nested trigger it fires) is its owner, never
+`authenticated`, a standard, already-relied-upon PostgreSQL property
+this codebase's own comments elsewhere already invoke for the same
+reason.
+**Rationale:** discovered during P2B.0.1's own security review (`docs/
+P2B.0.1_SECURITY_CLARIFICATIONS.md`), and empirically confirmed live,
+rolled back, against the real running system: `GRANT SELECT, UPDATE ON
+"users" TO authenticated` (migration 0001) is unrestricted by column,
+and combined with `users_update_self`'s row-only policy, let any
+ordinary authenticated user change their own `tenant_id`/`client_org_
+id`/`email`/`status` via a plain UPDATE — verified by moving a test
+user from one tenant into a completely unrelated one, then rolling
+back. Exhaustive grep confirmed zero legitimate writers of this table
+exist anywhere in `lib/`/`app/` (only the two existing triggers write
+it) — so this fix closes a real, live, pre-existing hole at zero cost
+to any actual feature. **This vulnerability pre-dates P2B entirely and
+is not a P2B feature** — it is reported and fixed here as a standalone
+identity/tenant-integrity hardening slice (P2B.0.2) because P2B's own
+forthcoming invitation-acceptance design is the first feature whose
+correctness would have depended on trusting the column this closes,
+making the fix a required prerequisite rather than an optional
+follow-up. Nothing about P2B's own discovery/design decisions
+(`docs/P2B_CLIENT_INVITATION_DESIGN.md`, `docs/P2B.0.1_SECURITY_
+CLARIFICATIONS.md`) is rewritten by this entry — it records the fix
+those documents already called for.

@@ -21,6 +21,18 @@ import { organisations } from "./organisations";
 // Practice-side (PRIMUS) users have `client_org_id = NULL`; client-side
 // users have it set. Every user has a required `tenant_id` (their home
 // practice) — see DATA_MODEL.md §2, ARCHITECTURE.md §5.
+//
+// P2B.0.2 (migration 0033's own tampering-guard trigger,
+// `prevent_user_identity_tampering`): `id`/`tenant_id`/`client_org_id`/
+// `email`/`status`/`created_at` are immutable via the ordinary
+// `authenticated`-role self-update path this table's own RLS policy
+// (`users_update_self`) otherwise allows — closing a real, empirically
+// confirmed gap (docs/P2B.0.1_SECURITY_CLARIFICATIONS.md) where RLS's
+// row-level `id = auth.uid()` check alone did not prevent a user from
+// changing their OWN tenant/organisation/email/status. Only
+// `display_name`/`updated_at` remain self-editable — unused by any
+// feature today, left open at zero cost rather than closed for one
+// that doesn't exist yet.
 export const users = pgTable(
   "users",
   {

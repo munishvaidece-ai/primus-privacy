@@ -1,5 +1,41 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-02 — Slice P2B.0.2 (Users Identity Integrity Hardening)
+COMPLETE (Session 35): a standalone security hardening fix for a
+pre-existing, empirically-confirmed vulnerability discovered during
+P2B's own discovery/review work (`docs/P2B_CLIENT_INVITATION_DESIGN.md`,
+`docs/P2B.0_...` decision review, `docs/P2B.0.1_SECURITY_
+CLARIFICATIONS.md`) — not an invitation feature itself. `GRANT SELECT,
+UPDATE ON "users" TO authenticated` (migration 0001) was unrestricted
+by column, and `users_update_self`'s RLS policy checked only row
+identity (`id = auth.uid()`), never which columns changed — together
+letting any ordinary authenticated user change their OWN `tenant_id`,
+`client_org_id`, `email`, or `status` via a plain UPDATE statement.
+Confirmed live, twice: once during P2B.0.1's own review (rolled back),
+and again after this fix (also rolled back) to prove the exact same
+attack is now rejected. Exhaustive grep confirmed zero legitimate
+writers of `users` exist anywhere in `lib/`/`app/` — only the two
+existing triggers (`handle_new_auth_user`/`handle_auth_user_email_
+change`) ever write this table — so closing it costs no real feature
+anything. Fixed with one new migration (0033): a `BEFORE UPDATE`
+trigger (`prevent_user_identity_tampering`) blocking `id`/`tenant_id`/
+`client_org_id`/`email`/`status`/`created_at` specifically when
+`current_user = 'authenticated'` — the exact same reparenting-guard
+shape this codebase already uses everywhere else (`engagement_
+memberships`, `assessments`, etc.), applied to `users` for the first
+time. The `current_user` check (rather than enumerating every
+legitimate caller) is what lets the existing, legitimate email-sync
+trigger keep working unchanged, verified directly. `display_name`/
+`updated_at` remain self-editable at zero cost. 11 new focused tests
+(`tests/rls/users-identity-integrity.test.ts`, pure RLS/trigger-level,
+no domain function involved — none touches this table). 865 tests pass
+(68 files), typecheck/lint/build all clean, full DB suite run twice.
+DECISIONS.md R-155 records the fix. Per explicit instruction, this
+slice does NOT implement any part of P2B's own invitation feature
+(no `invitations` table, no tokens, no acceptance flow, no UI) — it is
+a required prerequisite P2B's own design already called for, completed
+on its own. STOP — do not proceed to P2B.1.
+
 Status: 2026-09-02 — Slice P2A.1 (Close Remediation Self-Validation Gap)
 COMPLETE (Session 34): a tightly-scoped follow-up security patch closing
 the one remaining P0/P1 gap P2A's own final report flagged —
