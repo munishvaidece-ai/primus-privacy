@@ -7,6 +7,12 @@
 // RLS entirely) — the same pattern `tests/risk-remediation/crud.test.ts`/
 // `tests/evidence/crud.test.ts` already use for pure schema-level
 // coverage, not a workaround.
+//
+// P2B.1.1 (migration 0036, DECISIONS.md R-159): tests 23/23b updated —
+// `invitations` now uses its own dedicated `log_invitation_change()`
+// audit trigger, which withholds `token_hash` from `audit_log.field_
+// changes` entirely (not merely from a raw-token comparison); every
+// other column remains fully auditable.
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -302,22 +308,49 @@ describe("invitations — schema & lifecycle (P2B.1)", () => {
     expect(auditRows[1].field_changes.new.status).toBe("accepted");
   });
 
-  it("23. the raw token is never present anywhere in the audit output — only the hash", async () => {
+  it("23. neither the raw token nor token_hash is ever present anywhere in the audit output (P2B.1.1, DECISIONS.md R-159)", async () => {
     const rawTokenLookAlike = "this-would-be-the-raw-token-if-it-were-ever-stored";
     const hash = randomUUID().replace(/-/g, "");
     const { rows } = await insertInvitation({ invitedEmail: "audit-no-raw-token@example.test", tokenHash: hash });
     const id = rows[0].id;
 
+    await asFixtureSetup((c) =>
+      c.query("UPDATE invitations SET status = 'accepted', accepted_at = now(), accepted_user_id = $1 WHERE id = $2", [acceptedUserA, id]),
+    );
+
+    const { rows: auditRows } = await asFixtureSetup((c) =>
+      c.query(`SELECT field_changes FROM audit_log WHERE entity_type = 'invitations' AND entity_id = $1 ORDER BY occurred_at`, [id]),
+    );
+    expect(auditRows).toHaveLength(2); // insert, then the accept UPDATE — both checked
+    for (const row of auditRows) {
+      const serialized = JSON.stringify(row.field_changes);
+      expect(serialized).not.toContain(rawTokenLookAlike);
+      // Unlike document_versions.checksum_sha256 (an ordinary content
+      // checksum), token_hash is the verifier for a bearer invitation
+      // credential — deliberately excluded from audit output entirely
+      // (not merely "not equal to the raw token"), per DECISIONS.md
+      // R-159. Neither the value nor the key itself may appear.
+      expect(serialized).not.toContain(hash);
+      expect(row.field_changes).not.toHaveProperty("token_hash");
+      if (row.field_changes.old) expect(row.field_changes.old).not.toHaveProperty("token_hash");
+      if (row.field_changes.new) expect(row.field_changes.new).not.toHaveProperty("token_hash");
+    }
+  });
+
+  it("23b. every other invitation column remains fully auditable — only token_hash is withheld", async () => {
+    const { rows } = await insertInvitation({ invitedEmail: "audit-other-columns@example.test", engagementId: engagementA });
+    const id = rows[0].id;
     const { rows: auditRows } = await asFixtureSetup((c) =>
       c.query(`SELECT field_changes FROM audit_log WHERE entity_type = 'invitations' AND entity_id = $1`, [id]),
     );
-    const serialized = JSON.stringify(auditRows[0].field_changes);
-    expect(serialized).not.toContain(rawTokenLookAlike);
-    // The hash itself IS expected to appear (document_versions.
-    // checksum_sha256 precedent — a one-way digest is safe to audit
-    // openly) — asserted positively so this test would fail loudly if
-    // the audit trigger's own shape ever changed to redact it silently.
-    expect(serialized).toContain(hash);
+    expect(auditRows[0].field_changes).toMatchObject({
+      id,
+      organisation_id: orgA,
+      engagement_id: engagementA,
+      invited_email: "audit-other-columns@example.test",
+      role_id: roleClientAdministrator,
+      status: "pending",
+    });
   });
 
   // --- Lifecycle integrity -----------------------------------------------------

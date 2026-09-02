@@ -65,12 +65,20 @@ export const invitations = pgTable(
       .notNull()
       .references(() => roles.id),
     // SHA-256 hex digest of the raw token — the raw value itself is
-    // never stored anywhere, matching document_versions.checksum_
-    // sha256's own established use of the same primitive. UNIQUE as
-    // defense-in-depth (a broken RNG or a bug producing two rows
-    // resolvable by the same hash would otherwise make lookup-by-token
-    // ambiguous) — single-use enforcement itself comes from `status`,
-    // not from this constraint.
+    // never stored anywhere. UNIQUE as defense-in-depth (a broken RNG
+    // or a bug producing two rows resolvable by the same hash would
+    // otherwise make lookup-by-token ambiguous) — single-use
+    // enforcement itself comes from `status`, not from this constraint.
+    //
+    // P2B.1.1 (migration 0036, DECISIONS.md R-159): unlike document_
+    // versions.checksum_sha256 (an ordinary content-integrity
+    // checksum), this column is the verifier for a bearer invitation
+    // credential — the generic `log_methodology_change()` audit
+    // trigger P2B.1 originally attached would have captured it openly
+    // in every `audit_log.field_changes` entry. `invitations` uses its
+    // own dedicated `log_invitation_change()` trigger instead, which
+    // strips this one column before the row ever reaches `audit_log` —
+    // every other column remains fully auditable.
     tokenHash: text("token_hash").notNull(),
     status: invitationStatusEnum("status").notNull().default("pending"),
     // Set once, at creation — a resend creates a new row with a fresh

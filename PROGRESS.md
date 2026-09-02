@@ -1,5 +1,40 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-02 — Slice P2B.1.1 (Invitation Token Audit Hardening)
+COMPLETE (Session 37): a narrowly-scoped follow-up to P2B.1, before
+P2B.2. P2B.1 attached the existing, fully generic `log_methodology_
+change()` audit trigger to `invitations`, reasoning (DECISIONS.md
+R-158) that `token_hash` — a SHA-256 digest — was no more sensitive to
+audit openly than `document_versions.checksum_sha256` already is. On
+product/security reconsideration, this was overruled for this one
+column: unlike an ordinary content-integrity checksum, `token_hash` is
+the verifier for a bearer invitation credential, and `audit_log` is
+readable by any tenant-wide member for the life of the practice —
+storing the verifier there widens its exposure for no audit benefit.
+Migration 0036 gives `invitations` its own dedicated `log_invitation_
+change()` trigger — identical to the shared one in every respect except
+that it strips `token_hash` (via `jsonb - text`) before the row ever
+reaches `audit_log`, for both INSERT and both sides of an UPDATE's
+old/new diff — enforced at the database/trigger boundary itself, not by
+application discipline. The shared `log_methodology_change()` function
+itself is untouched, so every other table using it (a dozen, from
+`documents` to `engagements`) is completely unaffected — confirmed by
+the full regression suite, including `tests/evidence/audit.test.ts`'s
+own `checksum_sha256` coverage, staying green. Every other invitation
+column (status, organisation, engagement, email, role, timestamps)
+remains fully auditable; only the credential verifier is withheld. Two
+existing tests updated to assert the new, correct behavior (`tests/rls/
+invitations-schema.test.ts` #23, which previously asserted the hash
+SHOULD appear) plus one new test (#23b, confirming everything else
+still does). 891 tests pass (69 files, same file count as P2B.1 — no
+new test file, +1 test in the existing invitations-schema suite),
+typecheck/lint/build all clean, full DB suite run twice. DECISIONS.md
+R-159 records the fix and formally supersedes R-158's audit-treatment
+conclusion specifically (R-158's other conclusion — that a generic,
+table-agnostic trigger function is the right shape at all — is
+unchanged). Per explicit instruction, STOP after P2B.1.1 — no P2B.2, no
+invitation creation/acceptance/Admin API/email/UI functionality.
+
 Status: 2026-09-02 — Slice P2B.1 (Invitation Schema & Lifecycle)
 COMPLETE (Session 36): the first real implementation slice of P2B —
 schema and lifecycle ONLY, per its own explicit brief. A new

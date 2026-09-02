@@ -4326,6 +4326,17 @@ actually need.
 
 ### R-158 — `invitations` reuses `log_methodology_change()` for its audit trail; `token_hash` is captured openly in `field_changes`, deliberately (Slice P2B.1)
 
+> **Superseded in part by R-159 (Slice P2B.1.1):** the "`token_hash` is
+> not excluded from the resulting `field_changes` JSON" conclusion below
+> was reconsidered, on product/security review, as a credential-
+> handling issue distinct from the `document_versions.checksum_sha256`
+> precedent this entry compares it to — see R-159. `invitations` now
+> uses its own dedicated `log_invitation_change()` trigger, not `log_
+> methodology_change()`; this entry's OTHER conclusion (no new,
+> table-name-aware audit mechanism was needed to reach `field_changes`
+> in the first place — a generic, table-agnostic trigger function
+> remains the right shape) still stands and is not reversed.
+
 **Decision:** `invitations_audit_log` (migration 0035) attaches the
 EXISTING `log_methodology_change()` trigger function (migration 0007,
 unmodified) rather than `log_membership_change()` or a new function —
@@ -4348,3 +4359,51 @@ recording it in the audit trail exposes nothing regardless. The raw
 token itself is never a column on this table at all (docs/P2B_CLIENT_
 INVITATION_DESIGN.md §6), so there is nothing else for this trigger to
 ever leak.
+
+### R-159 — `invitations.token_hash` is withheld from `audit_log.field_changes` entirely, via a dedicated `log_invitation_change()` trigger — supersedes R-158's audit-treatment conclusion (Slice P2B.1.1)
+
+**Decision:** P2B.1 (migration 0035) attached the existing, fully
+generic `log_methodology_change()` to `invitations` — R-158 concluded
+this was fine, including its full-row `to_jsonb(NEW)`/`to_jsonb(OLD)`
+capture of `token_hash`, reasoning that a SHA-256 digest is no more
+sensitive than `document_versions.checksum_sha256`, already audited the
+same open way. **This conclusion is reconsidered and reversed for this
+one column, on explicit product/security direction, not because the
+cryptographic-reversibility reasoning was wrong** — a SHA-256 digest
+genuinely cannot be reversed to its pre-image either way. The
+distinction drawn: `checksum_sha256` is a content-integrity fingerprint
+— knowing it grants no capability, since nothing accepts a checksum as
+proof of anything. `token_hash` is the verifier for a bearer invitation
+credential — it exists specifically so a future `accept_invitation()`
+function can compare an incoming raw token's hash against it. Storing
+it in `audit_log`, itself readable by any tenant-wide member
+(`audit_log_select`'s own `can_access_tenant` policy, migration 0001)
+for the life of the practice, widens that credential-verifier's
+exposure surface for zero audit benefit the invitation's other columns
+(status, organisation, engagement, email, role, timestamps) don't
+already provide on their own. P2B.1.1 (migration 0036) replaces
+`invitations`' own trigger attachment with a new, dedicated
+`log_invitation_change()` function — identical to `log_methodology_
+change()` in every other respect, differing only in stripping
+`token_hash` via Postgres's own `jsonb - text` key-removal operator
+before the row ever reaches `audit_log`, for both the INSERT capture and
+both sides of an UPDATE's old/new diff.
+**Rationale:** the fix is scoped to `invitations` alone, not to `log_
+methodology_change()` itself — that shared function is reused,
+unmodified, by a dozen other tables (`documents`, `document_versions`,
+`evidence`, `regulatory_references`, `requirements`, `control_library_
+versions`, `controls`, `assessments`, `engagements`, and more), none of
+which carry an analogous bearer-credential-verifier column, so
+special-casing the shared function (e.g. "if entity_type =
+'invitations', strip this key") would add invitations-specific
+knowledge to a supposedly table-agnostic mechanism and re-open
+regression risk across every one of those unrelated tables for no
+benefit. A new, narrowly-scoped, invitation-specific function is the
+smaller, safer, more isolated change — and it enforces the redaction at
+the database/trigger boundary itself: no future application code path,
+bug, or direct-SQL write can cause `token_hash` to reach `audit_log`
+through this path, regardless of what any calling code does or fails to
+do. Every other column on `invitations` remains fully auditable —
+invitation-created, status-changed, accepted, and revoked events are
+all still fully reconstructable from `audit_log` alone; only the one
+credential-verifier value is withheld.
