@@ -1,8 +1,9 @@
 import { pgTable, uuid, text, timestamp, foreignKey, unique } from "drizzle-orm/pg-core";
-import { controlEffectivenessRatingEnum } from "./enums";
+import { controlEffectivenessRatingEnum, controlApplicabilityDecisionEnum } from "./enums";
 import { assessments } from "./assessments";
 import { controls } from "./control-library";
 import { users } from "./users";
+import { engagementScopeControls } from "./engagement-scopes";
 
 // AssessmentControl — the inclusion of a specific Control (from the
 // Assessment's pinned ControlLibraryVersion) in scope for a particular
@@ -33,6 +34,31 @@ export const assessmentControls = pgTable(
     organisationId: uuid("organisation_id").notNull(),
     engagementId: uuid("engagement_id").notNull(),
     controlLibraryVersionId: uuid("control_library_version_id").notNull(),
+
+    // Slice D3 — Applicability & Scope. Written ONCE, by `createAssessment`,
+    // at creation time (a snapshot of the Engagement's currently LOCKED
+    // EngagementScope, or 'undecided'/null if none exists — never
+    // filtered into/out of AssessmentControl membership, which stays
+    // exactly as it was before this slice: every Control in the pinned
+    // library version). No application code ever UPDATEs these columns
+    // afterward, so — mirroring `control_library_version_id`'s own
+    // "immutable by omission" reasoning — no separate immutability
+    // trigger is needed for them specifically; they ride along with the
+    // table's own existing finalization-immutability trigger regardless.
+    applicabilityDecision: controlApplicabilityDecisionEnum("applicability_decision").notNull().default("undecided"),
+    applicabilityRationale: text("applicability_rationale"),
+    applicabilityDecidedBy: uuid("applicability_decided_by"),
+    applicabilityDecidedAt: timestamp("applicability_decided_at", { withTimezone: true }),
+    // Pins the SPECIFIC EngagementScopeControl row this snapshot was
+    // copied from — nullable (no locked Scope existed at Assessment
+    // creation time is a real, valid state). Safe to pin by id rather
+    // than only copying values: an EngagementScopeControl row is itself
+    // immutable once its parent EngagementScope is locked (the only
+    // state a row can be snapshotted FROM), so the pinned row can never
+    // later change out from under this snapshot — the same reasoning
+    // that already justifies pinning `*_version_id` throughout this
+    // codebase (DATA_MODEL.md §5.3) rather than copying values alone.
+    engagementScopeControlId: uuid("engagement_scope_control_id"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     createdBy: uuid("created_by"),
@@ -73,6 +99,19 @@ export const assessmentControls = pgTable(
       columns: [table.controlId, table.controlLibraryVersionId],
       foreignColumns: [controls.id, controls.controlLibraryVersionId],
       name: "assessment_controls_control_library_version_fk",
+    }),
+    // Slice D3: proves the pinned `EngagementScopeControl` snapshot
+    // source genuinely belongs to the SAME Control and Engagement as
+    // this AssessmentControl row — the identical "prove by construction"
+    // technique as the FK above, applied to the new snapshot pin.
+    // Nullable columns compose with a FK exactly as everywhere else in
+    // this codebase (e.g. `data_store_versions_system_version_
+    // organisation_fk`) — inapplicable (all-null) whenever no locked
+    // Scope existed at Assessment creation.
+    engagementScopeControlFk: foreignKey({
+      columns: [table.engagementScopeControlId, table.controlId, table.engagementId],
+      foreignColumns: [engagementScopeControls.id, engagementScopeControls.controlId, engagementScopeControls.engagementId],
+      name: "assessment_controls_engagement_scope_control_fk",
     }),
     // A control appears at most once per assessment.
     assessmentControlUnique: unique("assessment_controls_assessment_id_control_id_key").on(

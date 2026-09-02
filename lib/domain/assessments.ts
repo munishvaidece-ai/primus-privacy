@@ -13,6 +13,8 @@ import {
   regulatoryReferences,
   controlTests,
   engagements,
+  engagementScopes,
+  engagementScopeControls,
   users,
 } from "@/db/schema";
 import { NotFoundOrForbiddenError, requireEngagementAccess, requireAssessmentFinalizeAccess } from "@/lib/authorization/service";
@@ -210,11 +212,51 @@ export async function createAssessment(
   // One query for the pinned library's entire Control set — every
   // Control in it becomes an AssessmentControl (see this function's own
   // docstring for why: no applicability/manual-selection mechanism
-  // exists in the repository to filter this set).
+  // exists in the repository to filter this set). Slice D3 does NOT
+  // change this — AssessmentControl membership is never filtered by
+  // Applicability & Scope (D3 approval §6: "Preserve this behaviour...
+  // DO NOT remove AssessmentControl rows for N/A controls").
   const libraryControls = await db
     .select({ id: controls.id })
     .from(controls)
     .where(eq(controls.controlLibraryVersionId, controlLibraryVersionId));
+
+  // Slice D3 (Applicability & Scope): snapshot the Engagement's
+  // currently LOCKED EngagementScope, if one exists, onto each new
+  // AssessmentControl row — never a live join re-evaluated later (the
+  // same "pin now, never re-derive" discipline every version-pinned
+  // relationship in this codebase already follows). If no locked Scope
+  // exists, every row keeps the column defaults ('undecided', nulls) —
+  // existing Assessment-creation behavior is otherwise completely
+  // unaffected, and no explicit "applicable" decision is ever fabricated
+  // (D3 approval §6).
+  const [lockedScope] = await db
+    .select({ id: engagementScopes.id })
+    .from(engagementScopes)
+    .where(and(eq(engagementScopes.engagementId, engagement.id), eq(engagementScopes.status, "locked")))
+    .orderBy(desc(engagementScopes.createdAt))
+    .limit(1);
+
+  const scopeDecisionByControlId = new Map<
+    string,
+    { id: string; decision: "undecided" | "applicable" | "not_applicable"; rationale: string | null; decidedBy: string | null; decidedAt: Date | null }
+  >();
+  if (lockedScope) {
+    const scopeControlRows = await db
+      .select({
+        id: engagementScopeControls.id,
+        controlId: engagementScopeControls.controlId,
+        decision: engagementScopeControls.decision,
+        rationale: engagementScopeControls.rationale,
+        decidedBy: engagementScopeControls.decidedBy,
+        decidedAt: engagementScopeControls.decidedAt,
+      })
+      .from(engagementScopeControls)
+      .where(eq(engagementScopeControls.engagementScopeId, lockedScope.id));
+    for (const row of scopeControlRows) {
+      scopeDecisionByControlId.set(row.controlId, row);
+    }
+  }
 
   // A library version with zero Controls is a real, valid state (an
   // Engagement Manager pinned a version before any Control was
@@ -224,15 +266,23 @@ export async function createAssessment(
   // fallback behavior instructions §15 explicitly forbids.
   if (libraryControls.length > 0) {
     await db.insert(assessmentControls).values(
-      libraryControls.map((c) => ({
-        assessmentId,
-        controlId: c.id,
-        tenantId: engagement.tenantId,
-        organisationId: engagement.organisationId,
-        engagementId: engagement.id,
-        controlLibraryVersionId,
-        createdBy: userId,
-      })),
+      libraryControls.map((c) => {
+        const scoped = scopeDecisionByControlId.get(c.id);
+        return {
+          assessmentId,
+          controlId: c.id,
+          tenantId: engagement.tenantId,
+          organisationId: engagement.organisationId,
+          engagementId: engagement.id,
+          controlLibraryVersionId,
+          createdBy: userId,
+          applicabilityDecision: scoped?.decision ?? "undecided",
+          applicabilityRationale: scoped?.rationale ?? null,
+          applicabilityDecidedBy: scoped?.decidedBy ?? null,
+          applicabilityDecidedAt: scoped?.decidedAt ?? null,
+          engagementScopeControlId: scoped?.id ?? null,
+        };
+      }),
     );
   }
 

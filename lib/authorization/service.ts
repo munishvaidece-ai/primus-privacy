@@ -188,6 +188,36 @@ export async function requireOrganisationAccess(db: RequestDb, userId: string, o
   }
 }
 
+/**
+ * Slice D3 (Applicability & Scope): the narrower "genuinely staffed on
+ * this engagement" check, deliberately NOT `requireEngagementAccess`
+ * (which also passes for anyone with mere Organisation-wide membership
+ * — the exact fallback that would otherwise let a client-side,
+ * Organisation-scoped role like Client Administrator reach the Scope
+ * write path, contradicting D3's own explicit "no client-side write
+ * access" requirement). A real `EngagementMembership` row is required
+ * — matching how every seeded PRIMUS-side role that should propose/edit
+ * a draft Scope (Engagement Manager, Consultant) is itself Engagement-
+ * scoped (`db/seed/roles.ts`), while the client-side, Organisation-
+ * scoped roles (Client Administrator, Privacy Officer, CXO/Executive
+ * Viewer) hold only `OrganisationMembership`, never `EngagementMembership`,
+ * in this codebase's own established fixture/seed convention. This does
+ * NOT fully solve the separate, pre-existing, already-documented gap
+ * that client-side Engagement-scoped roles (Business Owner, IT/CISO,
+ * Procurement, Legal — PRODUCT_UX_BLUEPRINT.md §8's "Client Contributor"
+ * grouping) would still pass this check too — the same limitation
+ * `updateAssessmentResponse` already has today (no function anywhere in
+ * this codebase distinguishes Client Contributor from Consultant at the
+ * domain layer yet, PRODUCT_UX_BLUEPRINT.md §22's own flagged,
+ * NON-BLOCKING gap) — closing that fully is out of this slice's scope;
+ * see DECISIONS.md.
+ */
+export async function requireEngagementMembershipAccess(db: RequestDb, userId: string, engagementId: string): Promise<void> {
+  if (!(await isActiveEngagementMember(db, userId, engagementId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
 export async function requireEngagementAccess(
   db: RequestDb,
   userId: string,
@@ -442,6 +472,27 @@ export async function canManageMethodology(db: RequestDb, userId: string, tenant
 
 export async function requireMethodologyManageAccess(db: RequestDb, userId: string, tenantId: string): Promise<void> {
   if (!(await canManageMethodology(db, userId, tenantId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
+/**
+ * Slice D3 (Applicability & Scope): "who may permanently lock an
+ * Engagement's Scope" — mirrors `canFinalizeAssessment`'s exact shape,
+ * applied to the new, DEDICATED `scope.lock` permission (D3 approval,
+ * Change 3) instead of `assessment.finalize`. Deliberately a separate
+ * function/permission, not a call to `canFinalizeAssessment` itself:
+ * the two actions are independently meaningful and must stay
+ * independently controllable even though they are seeded to the same
+ * role (Engagement Manager) today — see DECISIONS.md.
+ */
+export async function canLockScope(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<boolean> {
+  if (await hasEngagementPermission(db, userId, engagementId, "scope.lock")) return true;
+  return hasOrganisationPermission(db, userId, organisationId, "scope.lock");
+}
+
+export async function requireScopeLockAccess(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<void> {
+  if (!(await canLockScope(db, userId, engagementId, organisationId))) {
     throw new NotFoundOrForbiddenError();
   }
 }

@@ -112,8 +112,22 @@ for free, with the repository's own existing tooling, not a new one.
   domain functions — the exact functions a real consultant would call
   from `/organisations/[id]/master-data/[category]` and
   `/organisations/[id]/engagements/[id]/data-landscape` — not raw SQL.
+- **Applicability & Scope:** one locked Scope version covering all 25
+  demo Controls — 21 `applicable`, 2 `not_applicable` (CHI-01/CHI-02,
+  the children's-data controls, rationale grounded directly in the real
+  Data Landscape above: no Processing Activity or Data Principal
+  Category involves children's data), 2 deliberately left `undecided`
+  (BRE-02, ACC-02 — a genuine "not yet reviewed" state, not a fabricated
+  decision either way), plus one RegulatoryReference-level
+  `ApplicabilityDetermination`. Since Slice D3, built entirely through
+  the real `lib/domain/applicability.ts` domain functions —
+  `createEngagementScope`, `updateControlApplicability`,
+  `createApplicabilityDetermination`, `lockEngagementScope` — the exact
+  functions a real consultant would call from `/engagements/[id]/scope`,
+  not raw SQL.
 - **Assessment:** one, `annual`, kept `draft` (not finalized) — 25
-  AssessmentControls auto-populated from the pinned library.
+  AssessmentControls auto-populated from the pinned library, each
+  snapshotting the locked Scope's own applicability decision (Slice D3).
 - **Assessment Responses:** 18 of 25 controls responded (a realistic
   mixture of `implemented`/`partially_implemented`/`not_implemented`/
   `not_applicable`), 7 deliberately left unresponded.
@@ -276,11 +290,12 @@ header comment ("ROPA is a future view/workflow over this table and its
 junctions — not a separate dataset"). No new PDF/export subsystem —
 R1's Engagement Report is unchanged and untouched by this slice.
 
-**Applicability/Scope, the explicit future integration point:** not
-built here (out of scope by instruction), and nothing in this slice's
-schema or domain layer blocks it. A future `ApplicabilityDetermination`
-(DATA_MODEL.md §4) would reference `ProcessingActivity` the same way
-`Risk`/`Finding` already do — no schema change to this slice's own
+**Applicability/Scope, the explicit future integration point (built in
+Slice D3 — see below):** not built here (out of scope by instruction),
+and nothing in this slice's schema or domain layer blocks it. A future
+`ApplicabilityDetermination` (DATA_MODEL.md §4) would reference
+`ProcessingActivity` the same way `Risk`/`Finding` already do — no
+schema change to this slice's own
 tables would be required.
 
 **Tests:** `tests/app/data-landscape.test.ts` (new, 26 tests) —
@@ -292,13 +307,93 @@ real, non-test-only "production" use, and `tests/app/reference-
 engagement.test.ts`'s own STAGE 3 upgraded from PARTIAL-proving to
 YES-proving assertions.
 
+## Applicability & Scope (Slice D3)
+
+The gap D2's own closing review re-ranked to top priority — resolved as
+its own focused slice, per the same discipline as D1/D2.
+
+**Two entities, matching the approved design's own split, not one doing
+both jobs:** `ApplicabilityDetermination` (DATA_MODEL.md §4, implemented
+exactly as already specified — RegulatoryReference-level,
+engagement-scoped, narrative/report-facing) and `EngagementScope` /
+`EngagementScopeControl` (new — Control-level, the ONE mechanism that
+actually integrates with Assessment). The split is not stylistic: the
+RegulatoryReference↔Requirement↔Control graph is M:N, so a
+RegulatoryReference-level "not applicable" cannot reliably cascade to
+"these Controls are not applicable" — confirmed independently by
+`createAssessment`'s own pre-existing docstring (Slice C7.1, R-113),
+which already flagged this exact disconnect before D3 existed.
+
+**Assessment integration — the critical acceptance criterion:**
+`AssessmentControl` membership is NEVER filtered by applicability —
+every Control in the pinned library still becomes an AssessmentControl,
+exactly as before this slice (R-113's own behavior, unmodified).
+`createAssessment` instead SNAPSHOTS the Engagement's currently LOCKED
+`EngagementScope`, per Control, onto each new `AssessmentControl` row at
+creation time — the same "pin now, never re-derive" discipline every
+version-pinned relationship in this codebase already follows. Re-verified
+directly: revising the Scope, or flipping a Control's decision, AFTER an
+Assessment exists never changes that Assessment's own snapshot — proven
+for both a still-draft and a since-finalized Assessment.
+
+**The tri-state distinction, the CRITICAL semantic requirement:** every
+Control in the pinned library gets a real `EngagementScopeControl` row
+the moment a Scope is created (mirroring `createAssessment`'s own "every
+Control becomes a row" population), defaulting to `decision =
+'undecided'` — an explicit, queryable state, never inferred from an
+absent row or a defaulted `true`. `applicable`/`not_applicable` are the
+only two decided states; `not_applicable` requires a rationale
+(DB-enforced by a CHECK constraint, not merely the application layer).
+
+**Lifecycle:** draft (freely editable) → locked (permanently immutable —
+both the Scope header and every Control/RegulatoryReference decision
+under it) → a revision opens a NEW `EngagementScope`
+(`previous_scope_version_id` set), carrying forward the prior version's
+own decisions as its starting point rather than resetting to undecided;
+the old, locked version is never touched. No "reopen" action exists.
+
+**Authorization:** a genuinely NEW, DEDICATED `scope.lock` permission —
+deliberately NOT a reuse of `assessment.finalize`, even though both
+resolve to Engagement Manager today (`db/seed/roles.ts`) — the two
+actions are independently meaningful and must stay independently
+controllable. Proposing/editing a draft Scope requires real
+`EngagementMembership` (`requireEngagementMembershipAccess`, new) —
+deliberately narrower than the broad `requireEngagementAccess` every
+other engagement-scoped write in this codebase uses, specifically to
+exclude client-side, Organisation-scoped roles (Client Administrator,
+Privacy Officer, CXO/Executive Viewer) from the write path, per this
+slice's own explicit requirement. Reads stay on the broad check —
+client-side roles can see the Scope, matching the existing read
+convention everywhere else.
+
+**Tenant isolation & methodology compatibility:** every write
+re-derives the authoritative engagement/organisation from the target row
+itself; a Control from another tenant's library, or the wrong library
+version, is rejected by composite FKs (mirroring
+`assessment_controls_control_library_version_fk` exactly) — proven with
+a direct raw-SQL insert attempt, not merely the domain layer.
+
+**Tests:** `tests/app/applicability-scope.test.ts` (new, 16 tests) —
+Scope lifecycle (draft/edit/lock/locked-immutable/revise/old-scope-
+unchanged), applicability semantics (undecided/applicable/not_applicable/
+missing-rationale-rejected), authorization (Consultant/Engagement
+Manager/client-side/cross-tenant), methodology compatibility (forged
+cross-tenant Control rejected), and the Assessment-snapshot acceptance
+criterion (draft AND finalized) — plus the reference-engagement fixture
+itself now exercising the full Scope path as its own real,
+non-test-only "production" use, and `tests/app/reference-
+engagement.test.ts`'s own STAGE 4 upgraded from MISSING-proving to
+YES-proving assertions.
+
 ## Gap Matrix
 
 Recorded from actually attempting each stage against real PostgreSQL —
 never inferred from "a table exists." `Database Support` is marked YES
 only where a real insert respecting every real constraint/trigger
-succeeded (or, for Applicability/Scope, where a real query proved the
-table doesn't exist at all).
+succeeded. `Application Support`/`End-to-End Verified` are marked YES
+only when a consultant can perform the full workflow through the
+running application without raw SQL/developer intervention — never
+merely because the underlying tables exist.
 
 | Workflow Stage | Database Support | Application Support | End-to-End Verified | Gap |
 |---|---|---|---|---|
@@ -306,7 +401,7 @@ table doesn't exist at all).
 | Engagement | YES | YES | YES | None |
 | Data Landscape (master data) | YES | **YES** | YES | **None (Slice D2).** `lib/domain/master-data.ts` + `/organisations/[id]/master-data/[category]` — a consultant can create/version/retire Business Units, Systems, Processors, Data Stores, Purposes, Personal Data Elements, and Data Principal Categories entirely from the running application; verified directly against real PostgreSQL, including that a new version never rewrites the old one. |
 | ROPA / Processing Activities | YES | **YES** | YES | **None (Slice D2).** `lib/domain/processing-activities.ts` + `/organisations/[id]/engagements/[id]/data-landscape` (+ `/ropa`) — a consultant can create Processing Activities, link all six relationship categories, review the Data Landscape, open the ROPA view, and carry an activity forward into a new engagement, entirely from the running application; verified directly, including that carry-forward re-resolves to current master-data versions without touching the source engagement's rows. |
-| Applicability / Scope | NO | NO | NO | Not built at any layer. DATA_MODEL.md §4 documents `ApplicabilityDetermination`/`ApplicabilityDeterminationRegulatoryReference`; neither table exists — confirmed by a real query against it failing with "relation does not exist," not by inspection alone. |
+| Applicability / Scope | YES | **YES** | YES | **None (Slice D3).** `lib/domain/applicability.ts` + `/organisations/[id]/engagements/[id]/scope` (+ `/[scopeId]`) — a consultant can draft a Scope, decide each Control's applicability (Undecided/Applicable/Not Applicable, with mandatory rationale for Not Applicable), record RegulatoryReference-level determinations, lock the Scope, and revise a locked Scope into a new version, entirely from the running application; verified directly, including that a new Assessment snapshots the locked Scope's decisions without ever filtering `AssessmentControl` membership, and that revising Scope after an Assessment exists (draft or finalized) never changes that Assessment's own snapshot. |
 | DPDP Controls (Regulatory Content & Control Library) | YES | **YES** | YES | **None (Slice D1).** `lib/domain/control-library.ts` + `/methodology/**` — a Platform Administrator/Practice Partner can create/edit/publish/clone the control library and author regulatory content entirely from the running application; verified directly against real PostgreSQL, including the Assessment-pinning acceptance criterion. |
 | Assessment | YES | YES | YES | None |
 | Control Testing | YES | YES | YES | None |
@@ -325,47 +420,50 @@ A consultant using only the running application (no database script, no
 developer intervention) can today take a real engagement from
 **Organisation creation, through authoring the DPDP Control Library
 itself, through building the client's Data Landscape and Processing
-Activities / ROPA, through Assessment → Control Testing → Evidence →
-Risk → Finding → Remediation → Validation → Engagement Report —
-entirely inside PRIMUS.** Slice D1 closed the control-library gap;
-Slice D2 closes the Data Landscape/ROPA gap that became top-ranked once
-D1 was done: a consultant can now maintain the client's reusable master
-data (Business Units, Systems, Processors, Data Stores, Purposes,
-Personal Data Elements, Data Principal Categories) and record/link/review
-Processing Activities and their ROPA view, all before or during an
-Assessment, with no developer intervention.
+Activities / ROPA, through determining Applicability & Scope, through
+Assessment → Control Testing → Evidence → Risk → Finding → Remediation →
+Validation → Engagement Report — entirely inside PRIMUS.** Slice D1
+closed the control-library gap; Slice D2 closed Data Landscape/ROPA;
+Slice D3 closes the gap that became top-ranked once D2 was done: a
+consultant can now decide, control by control, whether each item in the
+pinned Control Library applies to this engagement — with a mandatory
+rationale for "Not Applicable," a genuine "Undecided" state for anything
+not yet reviewed, and a permanent lock once settled — before or
+alongside opening the Assessment, with no developer intervention. The
+Assessment itself is unchanged in every other respect: it still includes
+every Control from the pinned library, exactly as before this slice: the
+Scope decision travels alongside each Control as a snapshot, it never
+removes a Control from the Assessment.
 
-They **still cannot**, from inside the running application: record a
-formal Applicability/Scope determination, or compute a Maturity score.
-Both gaps were already true before Session 28's exercise and remain true
-after Slice D2 — deliberately: this slice's own instructions scoped it
-to Data Landscape/Processing Activities/ROPA alone, explicitly excluding
-Applicability/Scope and Maturity.
+They **still cannot**, from inside the running application: compute a
+Maturity score, or use a dedicated Client Portal. Both gaps were already
+true before Session 28's exercise and remain true after Slice D3 —
+deliberately: this slice's own instructions scoped it to Applicability &
+Scope alone, explicitly excluding Maturity and Client Portal.
 
 ## Highest-priority gaps for a first real consulting engagement
 
 Ranked by what most blocks PRIMUS from delivering a complete first real
 engagement, given the loop itself (Control Library → Data Landscape/ROPA
-→ Assessment → Risk → Finding → Remediation → Validation → Report) now
-works end to end, Control Library Authoring and Data Landscape/ROPA
-having been resolved by Slices D1 and D2:
+→ Applicability & Scope → Assessment → Risk → Finding → Remediation →
+Validation → Report) now works end to end, Control Library Authoring,
+Data Landscape/ROPA, and Applicability & Scope having been resolved by
+Slices D1, D2, and D3:
 
-1. **Applicability / Scope.** Now the top-ranked remaining gap, and
-   genuinely unbuilt at the schema level, not just the application
-   level — the smallest in raw effort (one new table plus a junction),
-   but the one with no existing database foundation to build on at all.
-   Slice D2 confirmed the Data Landscape model does not block adding
-   it: a future `ApplicabilityDetermination` would reference
-   `ProcessingActivity` the same way `Risk`/`Finding` already do.
-2. **Maturity.** The one area where even the *scoring model* has never
-   been designed (no algorithm, no domain reasoning) — the largest,
-   least-defined gap, and correctly the one this task's own instructions
-   forbid starting without further explicit direction.
-3. **Client Portal.** Deliberately last — nothing above depends on it,
+1. **Maturity.** Now the top-ranked remaining gap, and the one area
+   where even the *scoring model* has never been designed (no
+   algorithm, no domain reasoning) — the largest, least-defined gap, and
+   correctly the one this task's own instructions forbid starting
+   without further explicit direction. Slice D3's own Control-level
+   applicability decision is the exact integration point a future
+   Maturity calculation needs to avoid an inflated score (an N/A control
+   must never count as a failed one; an Undecided control must still
+   count, never silently excluded) — identified, not built.
+2. **Client Portal.** Deliberately last — nothing above depends on it,
    and PRODUCT_SPEC.md/PRODUCT_UX_BLUEPRINT.md both treat it as a later
    phase once the consultant-side loop is solid, which it now is.
 
 See `PROGRESS.md`'s "Reference Engagement Dataset", "Control Library
-Authoring", and "Data Landscape / Processing Activities" sections, and
-`DECISIONS.md` R-127 through R-132 and the Slice D2 entries, for the
-full session record.
+Authoring", "Data Landscape / Processing Activities", and "Applicability
+& Scope" sections, and `DECISIONS.md` R-127 through R-137 and the Slice
+D3 entries, for the full session record.

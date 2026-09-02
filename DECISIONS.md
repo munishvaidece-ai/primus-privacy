@@ -3785,3 +3785,150 @@ the same way `Risk`/`Finding` already do today — `processing_
 activities.id` is a stable, already-composite-FK-protected primary key
 requiring no change to support a future referencing table. This is
 recorded as the integration point, not built.
+
+### R-138 — RegulatoryReference-level applicability remains exactly as DATA_MODEL.md §4 specifies it; Control-level applicability is a new, second entity — never one entity doing both jobs (Slice D3)
+
+**Decision:** `ApplicabilityDetermination` is implemented unchanged
+from DATA_MODEL.md §4's own field list — engagement-scoped,
+RegulatoryReference-level, `scope_description` free text. A NEW,
+separate entity pair — `EngagementScope` (versioned header) and
+`EngagementScopeControl` (one row per Control in the pinned library) —
+is the ONE mechanism that integrates with Assessment.
+**Rationale:** the D3 design proposal (reviewed and approved before
+this implementation) found, and this implementation re-confirms, that
+RegulatoryReference-level applicability cannot reliably drive
+Control-level Assessment scope: `RegulatoryReference -> Requirement ->
+Control` is M:N (`ControlRequirement`, migration 0006), so marking one
+RegulatoryReference "not applicable" cannot cleanly cascade to "these
+Controls are not applicable" without either an unreliable heuristic or
+restructuring the existing methodology graph — neither acceptable.
+`lib/domain/assessments.ts`'s own pre-existing docstring (Slice C7.1,
+R-113) had already independently reached the identical conclusion
+before D3 existed: "`ApplicabilityDetermination`... concerns which
+RegulatoryReferences apply, a different question entirely [from
+Control/AssessmentControl]." Two entities, not one overloaded with two
+granularities, keeps each one's own meaning unambiguous.
+
+### R-139 — AssessmentControl membership is never filtered by applicability; `createAssessment` snapshots the locked Scope's per-Control decision onto each row instead (Slice D3)
+
+**Decision:** `createAssessment` (`lib/domain/assessments.ts`) is
+extended, not restructured: it still creates exactly one
+`AssessmentControl` per Control in the pinned `ControlLibraryVersion`,
+unconditionally (R-113's own pre-existing behavior, unchanged). It
+additionally looks up the Engagement's most recently LOCKED
+`EngagementScope`, if any, and copies each Control's `applicability_
+decision`/`rationale`/`decided_by`/`decided_at` — plus a pin to the
+specific `EngagementScopeControl` row — onto the new `AssessmentControl`
+row. If no locked Scope exists, every column keeps its default
+(`'undecided'`, nulls) — existing Assessment-creation behavior for an
+Engagement with no Scope is completely unaffected.
+**Rationale:** the approved design's own Model 3 (snapshot-at-creation,
+never filter membership): filtering membership would (a) require
+editing `createAssessment`'s core population logic, an explicit
+non-goal for this task ("Preserve this behaviour... DO NOT remove
+AssessmentControl rows for N/A controls"), and (b) make an N/A control's
+history *disappear* from the Assessment rather than being visibly
+recorded as "excluded, and here is why" — worse for the "why is this
+control applicable/not applicable" auditability requirement than
+keeping the row and showing its snapshot. Snapshotting at creation
+reuses the exact discipline `control_library_version_id` already uses
+on the same table (R-49) — pin now, never re-derive later — which is
+also what makes a later Maturity calculation's historical
+reproducibility automatic for free, with no separate "as-of" logic
+needed.
+
+### R-140 — Applicability is a genuine tri-state (`undecided`/`applicable`/`not_applicable`); every Control gets a real row at Scope-creation time, never inferred from absence or a defaulted boolean (Slice D3)
+
+**Decision:** `control_applicability_decision` (enums.ts) is a
+three-value enum, not a boolean. `createEngagementScope` pre-populates
+one `EngagementScopeControl` row per Control in the pinned library,
+`decision = 'undecided'` by default — mirroring `createAssessment`'s own
+"every Control becomes a row" population pattern one level up.
+**Rationale:** an explicit implementation directive: "Do NOT allow
+`applicable = true` to silently mean 'someone has explicitly decided
+this Control is applicable'... Do NOT use `boolean DEFAULT true` if
+doing so destroys the distinction between 'not yet decided' and
+'explicitly applicable'." A boolean (or an absent row standing in for
+"undecided") cannot represent three genuinely distinct states without
+conflating at least two of them. Pre-populating every Control's row at
+Scope-creation time (rather than only inserting a row once a decision is
+made) means "nobody has reviewed this yet" is always a real, queryable,
+auditable fact — never an inference from a missing row, which could
+otherwise be confused with "this Control isn't part of this Scope at
+all."
+
+### R-141 — `scope.lock` is a new, dedicated permission — never a reuse of `assessment.finalize`, even though both resolve to Engagement Manager today (Slice D3)
+
+**Decision:** a new `scope.lock` permission (`db/seed/roles.ts`),
+granted only to Engagement Manager. `lockEngagementScope`
+(`lib/domain/applicability.ts`) checks it via `requireScopeLockAccess`
+— a distinct function from `requireAssessmentFinalizeAccess`, never a
+call to it.
+**Rationale:** an explicit implementation directive, reversing this
+task's own initial D3 design recommendation (which had proposed reusing
+`assessment.finalize`): "`assessment.finalize` means certification/
+finalization of an Assessment. `scope.lock` means the Engagement's
+applicability/scope determination is settled... they must remain
+independently controllable." The two actions are conceptually distinct
+governance events on different objects (Assessment vs. EngagementScope)
+that merely happen to be granted to the same role today — collapsing
+them into one permission would make it impossible to later grant one
+without the other (e.g. a future role that may lock Scope but not
+finalize Assessments, or vice versa) without a migration to un-collapse
+them. No role currently seeded holds one without the other, matching
+today's actual seed data exactly (`db/seed/roles.ts`'s own
+`ROLE_PERMISSIONS["Engagement Manager"]` now lists both).
+
+### R-142 — Proposing/editing a draft Scope requires real `EngagementMembership`, not the broader `requireEngagementAccess` every other engagement-scoped write in this codebase uses (Slice D3)
+
+**Decision:** a new, narrower authorization primitive,
+`requireEngagementMembershipAccess` (`lib/authorization/service.ts`),
+wrapping the existing `isActiveEngagementMember` — used for
+`createEngagementScope`/`reviseEngagementScope`/
+`updateControlApplicability`/`createApplicabilityDetermination` instead
+of the broader `requireEngagementAccess` every other write function in
+this codebase (`createProcessingActivity`, `createRisk`, etc.) uses.
+Reads (`listEngagementScopes`/`getEngagementScopeDetail`) remain on the
+broad `requireEngagementAccess`, matching the existing read convention
+everywhere else.
+**Rationale:** `requireEngagementAccess`/`canAccessEngagement` passes
+for anyone with mere Organisation-wide membership (the `can_access_
+organisation` fallback), which would let a client-side, Organisation-
+scoped role (Client Administrator, Privacy Officer, CXO/Executive
+Viewer — none of which hold `EngagementMembership` in this codebase's
+own seed/fixture convention) reach the Scope write path — directly
+contradicting this task's own explicit "Client-side roles: No Scope
+write access" requirement. This does NOT fully close the separate,
+pre-existing, already-documented gap that client-side, Engagement-scoped
+roles (Business Owner, IT/CISO, Procurement, Legal —
+PRODUCT_UX_BLUEPRINT.md §8's "Client Contributor" grouping) would still
+pass this narrower check too, since their own `Role.scope` is also
+`'engagement'` — the identical limitation `updateAssessmentResponse`
+already has today (no function anywhere in this codebase yet
+distinguishes Client Contributor from Consultant at the domain layer;
+PRODUCT_UX_BLUEPRINT.md §22's own flagged, NON-BLOCKING gap). Closing
+that fully is a broader, codebase-wide Permission-Matrix-completion
+effort, out of this focused slice's scope — recorded here, not silently
+left undocumented, mirroring R-131's own precedent for the identical
+kind of deliberate, flagged scope limit.
+
+### R-143 — Revising a locked Scope carries forward its prior decisions as the new draft's starting point, rather than resetting every Control to undecided (Slice D3)
+
+**Decision:** `reviseEngagementScope` copies every `EngagementScopeControl`
+decision/rationale/decider and every `ApplicabilityDetermination` (with
+its RegulatoryReference links) from the previous, now-locked
+`EngagementScope` into the new draft version.
+**Rationale:** a genuine, considered extension beyond the literal
+implementation brief, which specified the revision mechanism
+(`previous_scope_version_id`, old version immutable) without specifying
+whether the new draft starts blank or carries forward prior content.
+Starting from a blank slate would silently discard a consultant's prior
+work on every revision — every single Control would read "undecided"
+again even though 23 of them were already decided identically the
+previous round — inviting exactly the kind of confusion the "why is
+this control applicable" auditability requirement (implementation
+directive §12) exists to prevent, and making a "revision" indistinguishable
+from "start over." Carrying forward matches the same spirit as D2's own
+carry-forward mechanism for Processing Activities (DATA_MODEL.md §5.4)
+— continuity by default, with the consultant free to change any
+individual decision on the new draft afterward.

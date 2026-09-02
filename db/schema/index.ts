@@ -47,3 +47,5 @@ export * from "./maturity-domain-weights";
 export * from "./maturity-domain-control-mappings";
 export * from "./maturity-assessments";
 export * from "./maturity-scores";
+export * from "./engagement-scopes";
+export * from "./applicability-determinations";

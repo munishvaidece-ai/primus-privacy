@@ -1,61 +1,178 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-02 — Slice D2 (Data Landscape / Processing Activities /
-ROPA) COMPLETE (Session 30): closes the gap Slice D1's own closing
-review re-ranked to top priority — the application had a real, correct
-SCD2 schema for client master data (Business Units, Systems, Processors,
-Data Stores, Purposes, Personal Data Elements, Data Principal
-Categories) and for Processing Activities + their six version-pinned
-junctions (Milestones 2/3), but no domain module and no route for any
-of it, so a consultant could only build a Data Landscape via raw SQL. A
-consultant can now, entirely from the running application: maintain
-Organisation-level master data at `/organisations/[id]/master-data/
-[category]` (create, and "edit" as a genuine new SCD2 version — never
-an in-place rewrite — for the six versioned categories; direct in-place
-edit for Business Unit, the one entity DATA_MODEL.md §5.1/§5.3 carves
-out of version-pinning); create, edit, and review Engagement-scoped
-Processing Activities at `/organisations/[id]/engagements/[id]/
-data-landscape`, link all six relationship categories (each resolved to
-the linked entity's CURRENT master-data version at the moment of
-linking), and carry an activity forward into a new engagement (re-
-resolving every link to each entity's then-current version, never
-touching the source engagement's own rows); and open a ROPA view at
-`/data-landscape/ropa` — a read composition over Processing Activities
-and their junctions, never a new persisted table. No new migration was
-needed — the entire schema, RLS, triggers, and audit logging already
-existed (Milestones 2/3); this was purely an application-layer slice,
-like D1. No new permission was introduced either — master data and
-Processing Activity writes reuse the SAME broad `requireOrganisation
-Access`/`requireEngagementAccess` checks migrations 0003/0005's own RLS
-policies already used for these exact tables, confirmed against
-PRODUCT_UX_BLUEPRINT.md §8's own Permission Matrix (DECISIONS.md
-R-134) — the opposite conclusion from D1's Methodology slice, and
-correctly so: the evidence pointed opposite ways in each case. Tenant
-isolation and version-pinning historical integrity were both directly,
-adversarially verified: a cross-tenant write attempt is rejected at
-both the application layer and the RLS layer independently; changing a
-System's current version after a Processing Activity has linked to it
-leaves that Processing Activity's own resolved detail unchanged, while
-the System's own master-data list correctly shows the new current
-version — reproducing DATA_MODEL.md §5.5's own worked FY2026→FY2027
-scenario end to end, including carry-forward. The reference-engagement
-fixture (Session 28) was refactored to build its own demo Data
-Landscape (master data + all ten Processing Activities) through this
-real domain layer instead of raw SQL — the Gap Matrix
-(`REFERENCE_ENGAGEMENT.md`) Data Landscape and ROPA/Processing
-Activities rows now both read YES/YES/YES/None; Applicability/Scope
-correctly remains NO/NO/NO (explicitly out of scope, and confirmed not
-blocked by this slice's own model). R1's Engagement Report is
-completely unchanged — re-verified its PDF still contains no Maturity
-or Data Landscape/ROPA section even though this reference engagement
-has real data for both. 784 tests pass (64 files, +26 new in `tests/
-app/data-landscape.test.ts`), typecheck/lint/build all clean, every
-check run twice for stability, zero regressions against the Slice D1
-baseline of 63/758 (delta: +1 file, +26 tests, exactly the new suite).
-Full details in the "Data Landscape / Processing Activities" section
-below and in `REFERENCE_ENGAGEMENT.md`. Per explicit instruction, STOP
-after D2 — no Applicability/Scope, Maturity, Client Portal, or any
-other feature without further explicit direction.
+Status: 2026-09-02 — Slice D3 (Applicability & Scope) COMPLETE (Session
+31): closes the gap Slice D2's own closing review re-ranked to top
+priority. Preceded by a design/discovery-only pass (no code) that
+inspected the existing Regulatory/Methodology/Assessment/Data-Landscape/
+Authorization model and produced a design proposal, reviewed and
+approved with three explicit changes before this implementation began.
+A consultant can now, entirely from the running application, at
+`/organisations/[id]/engagements/[id]/scope`: start a Scope for an
+engagement (one `EngagementScopeControl` row per Control in the pinned
+library, each explicitly `undecided` — never inferred from an absent
+row or a defaulted boolean), decide each Control's applicability
+(Undecided/Applicable/Not Applicable, mandatory rationale for Not
+Applicable), record RegulatoryReference-level determinations
+(DATA_MODEL.md §4's own, already-specified `ApplicabilityDetermination`,
+implemented unchanged), permanently lock the Scope, and revise a locked
+Scope into a new version (carrying forward its prior decisions, never
+resetting to blank). `createAssessment` is extended, not restructured:
+every Control in the pinned library still becomes an `AssessmentControl`
+exactly as before this slice — nothing is filtered — but each new row
+now also snapshots the Engagement's currently locked Scope's own
+per-Control decision, the same "pin now, never re-derive" discipline
+`control_library_version_id` already uses on the same table. No new
+migration risk: the entire schema for Assessment/Control Library was
+already correct and untouched in its existing behavior; two new tables
+(`EngagementScope`, `EngagementScopeControl`) plus DATA_MODEL.md §4's
+own already-specified `ApplicabilityDetermination` (+ its junction) were
+added, plus five new nullable snapshot columns on the pre-existing
+`AssessmentControl` table. A genuinely new, DEDICATED `scope.lock`
+permission was introduced — deliberately NOT a reuse of
+`assessment.finalize`, per explicit instruction, even though both
+currently resolve to Engagement Manager. Proposing/editing a draft Scope
+requires real `EngagementMembership` (a new, narrower authorization
+primitive than this codebase's usual broad engagement-access check) —
+specifically to exclude client-side, Organisation-scoped roles from the
+write path. Tenant isolation, methodology (cross-library-version/
+cross-tenant Control) compatibility, and — the critical acceptance
+criterion — Assessment-snapshot historical integrity were all directly,
+adversarially verified: revising a locked Scope, or flipping a Control's
+decision, after an Assessment already exists never changes that
+Assessment's own snapshot, proven for both a still-draft and a
+since-finalized Assessment. The reference-engagement fixture (Session
+28) now builds a real, locked Scope for ABC Fintech's 25-control demo
+library (21 applicable, 2 not-applicable with rationale grounded
+directly in the real Data Landscape, 2 deliberately left undecided)
+through this real domain layer instead of raw SQL — the Gap Matrix
+(`REFERENCE_ENGAGEMENT.md`) Applicability/Scope row now reads
+YES/YES/YES/None. R1's Engagement Report is completely untouched and
+unaffected (it reads no column this slice added). 800 tests pass (65
+files, +16 new in `tests/app/applicability-scope.test.ts`), typecheck/
+lint/build all clean, every check run twice for stability, zero
+regressions against the Slice D2 baseline of 64/784 (delta: +1 file,
++16 tests, exactly the new suite). Full details in the "Applicability &
+Scope" section below and in `REFERENCE_ENGAGEMENT.md`. Per explicit
+instruction, STOP after D3 — no Maturity, Client Portal, or any other
+feature without further explicit direction.
+
+## Applicability & Scope (Session 31, 2026-09-02)
+
+**Scope:** exactly what the D3 implementation brief instructed — on top
+of a design/discovery pass (its own prior turn, no code) that inspected
+the existing Regulatory Content/Control Library, Engagement, Data
+Landscape, Assessment, Evidence/Risk, and Authorization model, and
+produced a design proposal covering scope definition, applicability
+level, the Applicability-vs-Assessment relationship, N/A semantics,
+historical versioning, authorization, and a minimum data model/UX
+proposal — reviewed and approved with three explicit changes before any
+code was written: (1) do NOT build ProcessingActivity×Control
+traceability this slice (documented as a future extension only); (2) do
+NOT modify the existing polymorphic `EvidenceLink` mechanism this slice;
+(3) create a DEDICATED `scope.lock` permission rather than reusing
+`assessment.finalize`. Explicitly NOT built, per instruction: Maturity,
+Client Portal, AI/automated legal interpretation, automatic N/A
+decisions, a separate approval/review workflow, a PA×Control matrix UI,
+a visual flow diagram, or an R1 redesign.
+
+**Core architectural finding, carried from the design phase and
+re-confirmed during implementation:** RegulatoryReference-level
+applicability (DATA_MODEL.md §4's own, already-specified
+`ApplicabilityDetermination`) cannot reliably drive Control-level
+Assessment scope, because `RegulatoryReference -> Requirement -> Control`
+is M:N (`ControlRequirement`) — a finding `lib/domain/assessments.ts`'s
+own pre-existing docstring (Slice C7.1, R-113) had already independently
+reached before D3 existed. Control-level applicability
+(`EngagementScopeControl`, new) is therefore the one mechanism that
+actually integrates with Assessment; `ApplicabilityDetermination`
+remains exactly as documented, serving its own narrative/report-facing
+purpose only. See DECISIONS.md R-138.
+
+**Assessment integration, the critical acceptance criterion:**
+`AssessmentControl` membership is never filtered — every Control in the
+pinned library still becomes a row, unconditionally, exactly as Slice
+C7.1 originally built it. `createAssessment` additionally snapshots the
+Engagement's currently LOCKED `EngagementScope`, per Control, onto each
+new `AssessmentControl` row at creation time; if no locked Scope exists,
+every row keeps its default (`undecided`, nulls) — no explicit
+"applicable" decision is ever fabricated. Verified directly: revising
+Scope, or flipping a decision, after Assessment creation never changes
+that Assessment's own already-created snapshot — for a still-draft
+Assessment AND a since-finalized one, both. See DECISIONS.md R-139.
+
+**The tri-state, the critical semantic requirement:** `undecided` /
+`applicable` / `not_applicable` is a genuine three-value enum, never a
+boolean — every Control gets a real, explicit `EngagementScopeControl`
+row the moment a Scope is created (mirroring `createAssessment`'s own
+population pattern), so "not yet reviewed" is always a queryable fact,
+never inferred from an absent row. `not_applicable` requires a
+rationale, enforced by a database CHECK constraint, not merely the
+application layer. See DECISIONS.md R-140.
+
+**Lifecycle:** draft (freely editable) → locked (permanently immutable
+— both the Scope header and every Control/RegulatoryReference decision
+under it, enforced by dedicated database triggers mirroring Assessment
+finalization's own trigger family) → a revision opens a NEW
+`EngagementScope` (`previous_scope_version_id` set), carrying forward
+the prior version's own decisions as its starting point (a considered
+extension beyond the literal brief — DECISIONS.md R-143) rather than
+resetting to blank; the old, locked version is never touched. No
+"reopen" action exists.
+
+**Authorization:** a genuinely new, DEDICATED `scope.lock` permission
+(`db/seed/roles.ts`, granted to Engagement Manager only), deliberately
+NOT a reuse of `assessment.finalize` even though both resolve to the
+same role today — per explicit instruction, the two actions must stay
+independently controllable (DECISIONS.md R-141). Proposing/editing a
+draft Scope requires real `EngagementMembership`
+(`requireEngagementMembershipAccess`, new) — narrower than the broad
+`requireEngagementAccess` every other engagement-scoped write in this
+codebase uses, specifically to exclude client-side, Organisation-scoped
+roles (Client Administrator, Privacy Officer, CXO/Executive Viewer) from
+the write path, per the brief's own explicit "no client-side write
+access" requirement; this does not fully close the separate,
+pre-existing, already-documented gap that client-side, Engagement-scoped
+roles (Business Owner/IT-CISO/Procurement/Legal) would still pass this
+narrower check too — the identical limitation `updateAssessmentResponse`
+already has today, out of this slice's own scope to fully close
+(DECISIONS.md R-142).
+
+**Tenant isolation & methodology compatibility:** every write re-derives
+the authoritative engagement/organisation from the target row itself,
+never a caller-supplied id; a Control from another tenant's library, or
+the wrong library version, is rejected by composite FKs mirroring
+`assessment_controls_control_library_version_fk` exactly — verified
+directly with a raw-SQL insert attempt, not merely the domain layer.
+
+**Database:** two new tables (`engagement_scopes`,
+`engagement_scope_controls`), DATA_MODEL.md §4's own
+`applicability_determinations`/`applicability_determination_regulatory_
+references` (implemented for the first time, unchanged from its
+existing spec), and five new nullable snapshot columns on the
+pre-existing `assessment_controls` table
+(`applicability_decision`/`applicability_rationale`/
+`applicability_decided_by`/`applicability_decided_at`/
+`engagement_scope_control_id`) — migrations 0027 (schema) and 0028
+(RLS/triggers/audit/grants), mirroring the Assessment Engine's own
+migration 0008/0009 shape throughout.
+
+**UI:** `/organisations/[id]/engagements/[id]/scope` (version history,
+"Start Scope") and `/scope/[scopeId]` (Framework determinations,
+Controls with an explicit Undecided/Applicable/Not Applicable badge on
+every row, "Lock scope", "Create new revision") — the smallest coherent
+experience, using the existing shadcn/ui-style components and
+Server-Action pattern established since Slice B1/D1/D2, no new design
+system, no PA×Control matrix, no visual flow diagram.
+
+**Tests:** `tests/app/applicability-scope.test.ts` (new, 16 tests) —
+Scope lifecycle, applicability semantics (including the mandatory-
+rationale and tri-state requirements), authorization (Consultant/
+Engagement Manager/client-side/cross-tenant), methodology compatibility,
+and the Assessment-snapshot acceptance criterion (draft AND finalized)
+— plus the reference-engagement fixture itself now exercising the full
+Scope path as its own real, non-test-only "production" use, and
+`tests/app/reference-engagement.test.ts`'s own STAGE 4 upgraded from
+MISSING-proving to YES-proving assertions.
 
 ## Data Landscape / Processing Activities (Session 30, 2026-09-02)
 

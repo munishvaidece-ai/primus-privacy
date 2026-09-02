@@ -46,6 +46,17 @@ const ROLES: Array<{ name: string; scope: "tenant" | "organisation" | "engagemen
 // permission rather than the coarse `is_active_tenant_member` check
 // every tenant-scope Role previously shared undifferentiated (see
 // migration 0026 and DECISIONS.md).
+//
+// Slice D3 (Applicability & Scope) adds `scope.lock` — a genuinely NEW,
+// DEDICATED permission (D3 approval, Change 3), deliberately NOT a
+// reuse of `assessment.finalize` even though both are granted to the
+// same seeded role today: "scope.lock" means the Engagement's own
+// applicability/scope determination is settled; "assessment.finalize"
+// means one Assessment instance is certified — two independently
+// meaningful, independently revisable product actions that happen to
+// currently share an owner (Engagement Manager, "final report
+// sign-off" — db/seed/roles.ts's own pre-existing description), not one
+// action wearing two names. See DECISIONS.md.
 const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "tenant.manage", description: "Manage tenant-level settings." },
   { key: "organisation.create", description: "Onboard a new client organisation under the tenant." },
@@ -57,6 +68,7 @@ const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "audit_log.read", description: "Read the audit log." },
   { key: "assessment.finalize", description: "Finalize an Assessment, freezing its responses/tests/evidence permanently." },
   { key: "methodology.manage", description: "Author and publish the practice's regulatory content and control library." },
+  { key: "scope.lock", description: "Permanently lock an Engagement's Applicability & Scope determination." },
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -73,7 +85,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "methodology.manage",
   ],
   "Practice Partner": ["organisation.create", "engagement.create", "engagement.manage", "audit_log.read", "methodology.manage"],
-  "Engagement Manager": ["engagement.manage", "membership.manage", "assessment.finalize"],
+  "Engagement Manager": ["engagement.manage", "membership.manage", "assessment.finalize", "scope.lock"],
   "Client Administrator": ["membership.manage", "user.manage"],
 };
 

@@ -89,6 +89,21 @@ export default async function EngagementDetailPage({
 
       <section className="mt-8">
         <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Applicability &amp; Scope</h2>
+          <Link
+            href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/scope`}
+            className="text-sm font-medium text-slate-900 underline"
+          >
+            View Scope
+          </Link>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          Which controls apply to this engagement, and why — settled before or alongside the Assessment.
+        </p>
+      </section>
+
+      <section className="mt-8">
+        <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Data Landscape</h2>
           <Link
             href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/data-landscape`}

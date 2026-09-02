@@ -101,6 +101,13 @@ import {
   linkDataPrincipalCategory,
 } from "@/lib/domain/processing-activities";
 import {
+  createEngagementScope,
+  getEngagementScopeDetail,
+  updateControlApplicability,
+  createApplicabilityDetermination,
+  lockEngagementScope,
+} from "@/lib/domain/applicability";
+import {
   createAssessment,
   getAssessmentDetail,
   updateAssessmentResponse,
@@ -291,6 +298,7 @@ export interface ReferenceEngagementFixture {
   engagementId: string;
   engagementName: string;
   controlLibraryVersionId: string;
+  engagementScopeId: string;
   assessmentId: string;
   leadUserId: string;
   secondUserId: string;
@@ -552,8 +560,69 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
     addEngagementMember(db, leadUserId, { organisationId, engagementId, targetUserId: secondUserId, roleId: consultantRoleId }),
   );
 
+  // Applicability & Scope (Slice D3, real domain layer —
+  // lib/domain/applicability.ts): the consultant reviews the 25-control
+  // demo library against ABC Fintech's actual Data Landscape (built
+  // above) BEFORE opening the Assessment, exactly as a real engagement
+  // would. `createEngagementScope` pre-populates one 'undecided'
+  // EngagementScopeControl per Control in the pinned library.
+  const { id: engagementScopeId } = await withRequestDb(leadUserId, (db) => createEngagementScope(db, leadUserId, { engagementId }));
+  const scopeBeforeDecisions = await withRequestDb(leadUserId, (db) => getEngagementScopeDetail(db, leadUserId, engagementScopeId));
+  const scopeControlIdByCode: Record<string, string> = {};
+  for (const row of scopeBeforeDecisions.controlRows) {
+    const code = Object.keys(controlIdByCode).find((c) => controlIdByCode[c] === row.controlId)!;
+    scopeControlIdByCode[code] = row.id;
+  }
+
+  // Not applicable — grounded directly in the real Data Landscape built
+  // above, not asserted in the abstract: none of ABC Fintech's four Data
+  // Principal Categories is flagged for children's data, and none of
+  // its ten Processing Activities involves it.
+  const notApplicableControls: Array<{ code: string; rationale: string }> = [
+    { code: "CHI-01", rationale: "Data Landscape review found no Processing Activity or Data Principal Category involving children's personal data (SAMPLE)." },
+    { code: "CHI-02", rationale: "Same basis as CHI-01 — no children's-data processing exists to restrict (SAMPLE)." },
+  ];
+  for (const { code, rationale } of notApplicableControls) {
+    await withRequestDb(leadUserId, (db) =>
+      updateControlApplicability(db, leadUserId, { engagementScopeControlId: scopeControlIdByCode[code]!, decision: "not_applicable", rationale }),
+    );
+  }
+
+  // Deliberately left at their pre-populated 'undecided' default — a
+  // genuine "not yet reviewed" state, not a fabricated decision either
+  // way (BRE-02, ACC-02).
+  const undecidedControls = ["BRE-02", "ACC-02"];
+
+  // Every other control: applicable (the realistic default for a
+  // regulated fintech processing customer/employee/applicant/vendor
+  // personal data).
+  for (const code of Object.keys(controlIdByCode)) {
+    if (notApplicableControls.some((c) => c.code === code) || undecidedControls.includes(code)) continue;
+    await withRequestDb(leadUserId, (db) =>
+      updateControlApplicability(db, leadUserId, { engagementScopeControlId: scopeControlIdByCode[code]!, decision: "applicable", rationale: null }),
+    );
+  }
+
+  // One RegulatoryReference-level determination (DATA_MODEL.md §4) —
+  // narrative/report-facing, independent of the Control-level decisions
+  // above (D3's own approved architecture: the two never drive each
+  // other).
+  await withRequestDb(leadUserId, (db) =>
+    createApplicabilityDetermination(db, leadUserId, {
+      engagementScopeId,
+      scopeDescription: "DPDP Act obligations generally",
+      decisionValue: "applicable",
+      decisionRationale: "ABC Fintech processes personal data of Indian data principals as an ongoing regulated business (SAMPLE).",
+      regulatoryReferenceIds: [regulatoryReference.id],
+    }),
+  );
+
+  await withRequestDb(leadUserId, (db) => lockEngagementScope(db, leadUserId, { engagementScopeId }));
+
   // Assessment (real domain function — Slice C7.1): auto-populates one
-  // AssessmentControl per Control in the pinned, published library.
+  // AssessmentControl per Control in the pinned, published library, and
+  // (Slice D3) snapshots the just-locked Scope's applicability decision
+  // onto each one.
   const { id: assessmentId } = await withRequestDb(leadUserId, (db) =>
     createAssessment(db, leadUserId, { engagementId, assessmentType: "annual", periodLabel: "FY2026-27 Annual DPDP Assessment" }),
   );
@@ -960,6 +1029,7 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
     engagementId,
     engagementName,
     controlLibraryVersionId,
+    engagementScopeId,
     assessmentId,
     leadUserId,
     secondUserId,

@@ -372,3 +372,43 @@ export const maturityAssessmentStatusEnum = pgEnum("maturity_assessment_status",
   "draft",
   "finalized",
 ]);
+
+// --- Slice D3 (Applicability & Scope, DATA_MODEL.md §4 + design proposal) --
+
+// EngagementScope.status — deliberately the same two-value shape as
+// `assessment_status` (draft/finalized) and `control_library_version_
+// status`'s own draft/published pair: "keep the state machine as small
+// as possible" (D3 design §17). A revision is a NEW EngagementScope row
+// (`previous_scope_version_id`), never a third "reopened" state — no
+// reopen action is implemented (D3 §4/§17).
+export const engagementScopeStatusEnum = pgEnum("engagement_scope_status", [
+  "draft",
+  "locked",
+]);
+
+// EngagementScopeControl.decision — the tri-state the D3 approval
+// explicitly requires: "undecided" must be a real, distinct,
+// explicitly-representable state, never conflated with a defaulted-away
+// `true`. Every Control in the Engagement's pinned ControlLibraryVersion
+// gets a row at EngagementScope-creation time with `decision =
+// 'undecided'` (mirroring `createAssessment`'s own "every Control
+// becomes a row" population pattern, D3 §2/§6) — so "no explicit
+// decision yet" is always a real row, never an absent one.
+export const controlApplicabilityDecisionEnum = pgEnum("control_applicability_decision", [
+  "undecided",
+  "applicable",
+  "not_applicable",
+]);
+
+// ApplicabilityDetermination.decision_value / system_suggested_value —
+// binary, unlike the Control-level enum above: an ApplicabilityDetermination
+// row is only ever created to record an actual decision about a
+// RegulatoryReference (DATA_MODEL.md §4) — there is no fixed, enumerable
+// set of "every RegulatoryReference must get one" the way every Control
+// must get an EngagementScopeControl row, so there is no "undecided" row
+// to represent; the row's very existence already means a decision was
+// made (see lib/domain/applicability.ts).
+export const applicabilityDeterminationDecisionEnum = pgEnum("applicability_determination_decision", [
+  "applicable",
+  "not_applicable",
+]);

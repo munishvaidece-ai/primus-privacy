@@ -25,6 +25,7 @@ import { getEngagementReportData } from "@/lib/domain/reports";
 import { renderEngagementReportPdf } from "@/lib/reports/engagement-report-pdf";
 import { getControlLibraryVersionDetail, updateControl, ControlLibraryVersionNotDraftError } from "@/lib/domain/control-library";
 import { listProcessingActivities, listRopaEntries } from "@/lib/domain/processing-activities";
+import { getEngagementScopeDetail } from "@/lib/domain/applicability";
 
 async function extractPdfText(buffer: Buffer): Promise<{ numPages: number; text: string; textByPage: string[] }> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -152,10 +153,69 @@ describe("Reference/Demo Engagement Dataset — end-to-end walkthrough", () => {
     ).toBe(true);
   });
 
-  // === STAGE 4 — Applicability / Scope: MISSING =============================
-  it("STAGE 4 — Applicability / Scope: MISSING (DATA_MODEL.md §4 documents ApplicabilityDetermination; no such table, or any application code for it, exists)", async () => {
-    await expect(asFixtureSetup((c) => c.query(`SELECT 1 FROM applicability_determinations LIMIT 1`))).rejects.toThrow(/does not exist/i);
-    expect(repoFileExists("lib/domain/applicability.ts")).toBe(false);
+  // === STAGE 4 — Applicability / Scope: YES (Slice D3) =======================
+  it("STAGE 4 — Applicability / Scope: YES (Slice D3 — real application/domain layer, no raw SQL/developer intervention)", async () => {
+    // The Scope built for ABC Fintech (reference-engagement-fixture.ts,
+    // since Slice D3) is locked and covers every one of the 25 demo
+    // Controls — re-verified here via the same real READ function a
+    // real `/scope/[scopeId]` page would call, not raw SQL.
+    const scope = await withRequestDb(fx.leadUserId, (db) => getEngagementScopeDetail(db, fx.leadUserId, fx.engagementScopeId));
+    expect(scope.status).toBe("locked");
+    expect(scope.controlRows).toHaveLength(25);
+
+    const byDecision = { applicable: 0, not_applicable: 0, undecided: 0 };
+    for (const row of scope.controlRows) byDecision[row.decision as keyof typeof byDecision]++;
+    // All three states genuinely present — Undecided is real, explicit
+    // row state (CRITICAL semantic requirement), never conflated with a
+    // defaulted-away "Applicable".
+    expect(byDecision.applicable).toBe(21);
+    expect(byDecision.not_applicable).toBe(2);
+    expect(byDecision.undecided).toBe(2);
+
+    const chi01 = scope.controlRows.find((r) => r.controlCode === "CHI-01")!;
+    expect(chi01.decision).toBe("not_applicable");
+    expect(chi01.rationale).toContain("children");
+    expect(chi01.decidedByEmail).toBeTruthy();
+
+    const undecidedRow = scope.controlRows.find((r) => r.decision === "undecided")!;
+    expect(undecidedRow.rationale).toBeNull();
+    expect(undecidedRow.decidedByEmail).toBeNull();
+
+    // RegulatoryReference-level applicability (DATA_MODEL.md §4) —
+    // narrative, genuinely distinct from the Control-level decisions
+    // above.
+    expect(scope.determinations).toHaveLength(1);
+    expect(scope.determinations[0]!.decisionValue).toBe("applicable");
+    expect(scope.determinations[0]!.regulatoryReferences.length).toBeGreaterThan(0);
+
+    // ASSESSMENT INTEGRATION — the whole point of the Control-level
+    // layer: the Assessment created after locking this Scope snapshotted
+    // it, per-control, without filtering AssessmentControl membership at
+    // all (still all 25, exactly as before Slice D3).
+    const { rows: snapshotRows } = await asFixtureSetup((c) =>
+      c.query(
+        `SELECT ac.applicability_decision, ac.applicability_rationale, c.code
+           FROM assessment_controls ac JOIN controls c ON c.id = ac.control_id
+          WHERE ac.assessment_id = $1 ORDER BY c.code`,
+        [fx.assessmentId],
+      ),
+    );
+    expect(snapshotRows).toHaveLength(25);
+    const chi01Snapshot = snapshotRows.find((r) => r.code === "CHI-01")!;
+    expect(chi01Snapshot.applicability_decision).toBe("not_applicable");
+    expect(chi01Snapshot.applicability_rationale).toContain("children");
+
+    // Locked-scope immutability, re-verified directly: attempting to
+    // tamper with the locked Scope via raw SQL is rejected by the
+    // database trigger, independent of the domain layer.
+    await expect(asFixtureSetup((c) => c.query(`UPDATE engagement_scopes SET status = 'draft' WHERE id = $1`, [fx.engagementScopeId]))).rejects.toThrow(/immutable/i);
+
+    // The application layer this fixture actually used to build the
+    // Scope above genuinely exists — both the domain module and the
+    // full UI route tree.
+    expect(repoFileExists("lib/domain/applicability.ts")).toBe(true);
+    expect(repoFileExists("app/(shell)/organisations/[organisationId]/engagements/[engagementId]/scope")).toBe(true);
+    expect(repoFileExists("app/(shell)/organisations/[organisationId]/engagements/[engagementId]/scope/[scopeId]")).toBe(true);
   });
 
   // === STAGE 5 — DPDP Controls / Control Library: YES (Slice D1) ============
