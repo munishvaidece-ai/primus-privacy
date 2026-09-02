@@ -40,6 +40,7 @@ export function statusTone(status: string): keyof typeof toneClasses {
     case "implemented":
     case "pass":
     case "accepted":
+    case "published":
       return "positive";
     case "draft":
     case "not_assessed":

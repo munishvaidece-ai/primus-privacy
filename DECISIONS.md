@@ -3598,3 +3598,86 @@ this codebase's own established "no invented completion %" posture
 (Slice R1, DECISIONS.md) both forbid. Recorded in the Gap Matrix
 (`REFERENCE_ENGAGEMENT.md`) as Application Support: NO — the honest
 finding, not softened by a fixture-only workaround.
+
+### R-130 — Control Library Authoring: `methodology.manage` granted to Platform Administrator AND Practice Partner, resolved from PRODUCT_UX_BLUEPRINT.md §8's own Permission Matrix (Slice D1)
+
+**Decision:** the new `methodology.manage` permission (`db/seed/
+roles.ts`) is granted to both tenant-scope Roles — Platform
+Administrator and Practice Partner — not Platform Administrator alone.
+**Rationale:** two places in PRODUCT_UX_BLUEPRINT.md name the actor for
+Methodology Admin screens, and they read differently at first glance.
+§5's row 20 ("Methodology Admin — Control Library") names only
+"Platform Administrator" as the Actor column's single illustrative
+persona — but that column is consistently a single-persona label
+throughout §5 even for capabilities multiple roles genuinely share
+(e.g. row 19's Audit Log viewer names only "Consultant," while §8's own
+Permission Matrix gives Tenant/Consultant/Reviewer all read access to
+it). §8's Permission Matrix is the document's own dedicated, careful
+reconciliation of "the brief's 6 requested columns" against "the
+existing role model" — and it explicitly maps "Tenant" (the column
+holding "R,C,E,F" — full read/create/edit/finalize — on the
+"Methodology" capability row) to exactly "Platform Administrator,
+Practice Partner" in its own legend table. Treated as the more
+authoritative of the two for an exact "who gets what" question, per
+this codebase's own established discipline of resolving such
+tensions by finding the most specific, deliberately-reconciled source
+rather than the first illustrative label encountered — and confirmed
+independently by `db/seed/roles.ts`'s own pre-existing Platform
+Administrator description ("control library and regulatory content
+management"), which the Milestone 4 session already wrote before this
+slice existed, without yet having any permission to attach it to.
+
+### R-131 — Control Library read access left at the existing, broader `can_access_tenant` boundary — a documented, deliberate scope limit, not an oversight (Slice D1)
+
+**Decision:** every read function in `lib/domain/control-library.ts`
+is gated by `requireTenantAccess` (the pre-existing, application-layer
+`canAccessTenant` check, which today resolves true only for a literal
+`TenantMembership` holder — `lib/authorization/service.ts`'s own
+docstring already anticipated, but never built, an engagement-
+membership fallback: "no screen in Slice A1 needs tenant-level access
+resolution (Methodology/Administration screens are out of scope);
+added when that slice needs it"). This slice does NOT build that
+fallback.
+**Rationale:** PRODUCT_UX_BLUEPRINT.md §8's Permission Matrix envisions
+broader read access — "Consultant"/"Reviewer" columns both get "R" on
+Methodology — which today's `canAccessTenant` does not yet grant (an
+engagement-scoped Consultant, with no `TenantMembership` row, is
+denied `/methodology` entirely under this slice). This is a real,
+known, DELIBERATELY left gap: instructions §12 forbid "advanced
+methodology workflow" and broader scope creep, and this task's actual
+ask is the AUTHORING capability specifically (§7: "so an authorised
+PRIMUS user can create and maintain methodology content") — Platform
+Administrator and Practice Partner, both of which already hold
+`TenantMembership` today, so the write-authorization work this slice
+exists for is unaffected either way. Broadening `canAccessTenant`
+itself is a general-purpose, security-relevant function shared by every
+current and future Tenant-scoped screen; changing its semantics as an
+incidental side effect of a read-convenience improvement for one
+screen was judged the wrong place to make that change. Recorded here,
+not silently left implicit, so a future slice building out broader
+Methodology read access (or Administration) knows exactly where the
+gap is and why it wasn't closed here.
+
+### R-132 — Cloning a published Control Library Version never duplicates Requirements/RegulatoryReferences, matching R-43's existing, documented model exactly (Slice D1)
+
+**Decision:** `cloneControlLibraryVersion` creates new `Control` rows
+(fresh ids, same `code`/`title`/`description`/`controlType`, in the new
+draft `ControlLibraryVersion`) and new `ControlRequirement` mapping
+rows pointing at the SAME existing `Requirement` rows the source
+version's Controls were mapped to — it never creates a new
+`Requirement` or `RegulatoryReference` row, and it adds no new
+"lineage"/"carried-forward-from" column to any table.
+**Rationale:** this is not a new design choice this slice made — it is
+the ALREADY-DOCUMENTED model (DECISIONS.md R-42/R-43, Milestone 4):
+"carrying a control's intent forward into a new library version means
+creating a brand new Control row... with no formal link back to the
+row it succeeds," and Requirement is "Practice-owned reference content
+that exists independently of any one library version" specifically so
+the same Requirement (e.g. "R1") can be mapped from multiple library
+versions' worth of Controls over time. Inventing a `cloned_from_id`
+column here, or duplicating Requirements per clone, would have directly
+contradicted an existing, deliberate architectural decision instead of
+building on it — instructions §4's own "if the current versioning
+architecture expects cloning, implement cloning through the existing
+domain model" was read as a direct instruction to preserve exactly
+this, not to design a new lineage mechanism.

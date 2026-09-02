@@ -72,15 +72,6 @@ import {
   createRiskScoringModel,
 } from "./helpers";
 import {
-  createRegulatoryReference,
-  createRequirement,
-  linkControlRequirement,
-  linkRequirementRegulatoryReference,
-  createControlLibraryVersion,
-  publishControlLibraryVersion,
-  createControl,
-} from "../control-library/helpers";
-import {
   createBusinessUnit,
   createSystem,
   insertSystemVersion,
@@ -121,6 +112,14 @@ import { createRisk, updateRiskStatus } from "@/lib/domain/risks";
 import { createFinding, updateFinding } from "@/lib/domain/findings";
 import { createRemediationAction, updateRemediationAction } from "@/lib/domain/remediation";
 import { createValidationRecord } from "@/lib/domain/validation";
+import {
+  createRegulatoryReference as createRegulatoryReferenceDomain,
+  createRequirement as createRequirementDomain,
+  createControlLibraryVersion as createControlLibraryVersionDomain,
+  createControl as createControlDomain,
+  associateControlRequirement,
+  publishControlLibraryVersion as publishControlLibraryVersionDomain,
+} from "@/lib/domain/control-library";
 
 export { pool, asFixtureSetup };
 
@@ -314,57 +313,73 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
   // application layer exists for regulatory content/control-library
   // authoring, and this product has no self-service sign-up flow for
   // Tenant/User provisioning either. ==========================================
-  const { tenantId, leadUserId, secondUserId, controlLibraryVersionId } = await asFixtureSetup(async (client: PoolClient) => {
-      const tenantId = await createTenant(client, "PRIMUS Reference Demo Practice (Synthetic Data)");
+  const { tenantId, leadUserId, secondUserId } = await asFixtureSetup(async (client: PoolClient) => {
+    const tenantId = await createTenant(client, "PRIMUS Reference Demo Practice (Synthetic Data)");
 
-      const leadUserId = await createUser(client, { tenantId, email: "ananya.krishnan.demo@primusprivacy.example" });
-      await grantTenantMembership(client, leadUserId, tenantId, "Practice Partner");
-      const secondUserId = await createUser(client, { tenantId, email: "rohan.verma.demo@primusprivacy.example" });
+    const leadUserId = await createUser(client, { tenantId, email: "ananya.krishnan.demo@primusprivacy.example" });
+    await grantTenantMembership(client, leadUserId, tenantId, "Practice Partner");
+    const secondUserId = await createUser(client, { tenantId, email: "rohan.verma.demo@primusprivacy.example" });
 
-      await createRiskScoringModel(client, { tenantId, name: "Reference Engagement Risk Matrix", version: "v1.0" });
+    await createRiskScoringModel(client, { tenantId, name: "Reference Engagement Risk Matrix", version: "v1.0" });
 
-      // --- Demo DPDP Control Library (§4) ---------------------------------
-      const regulatoryReferenceId = await createRegulatoryReference(client, {
-        tenantId,
-        frameworkName: "Digital Personal Data Protection Act, 2023 (illustrative reference — DEMO content, not verified statutory text)",
-        citation: "General reference (demo)",
-        title: "DPDP Act, 2023 — general reference used by this DEMO control library",
-        version: "2023 (demo)",
-      });
-
-      const controlLibraryVersionId = await createControlLibraryVersion(client, {
-        tenantId,
-        versionLabel: "DPDP Demo Control Library v1.0 (SAMPLE — for demonstration only, not an official or verified regulatory framework)",
-      });
-
-      for (const category of CATEGORIES) {
-        const requirementId = await createRequirement(client, {
-          tenantId,
-          primaryRegulatoryReferenceId: regulatoryReferenceId,
-          title: category.requirementTitle,
-          description: "Illustrative DEMO requirement grouping — not a verified statutory citation.",
-        });
-        await linkRequirementRegulatoryReference(client, { tenantId, requirementId, regulatoryReferenceId });
-
-        for (const control of category.controls) {
-          const controlId = await createControl(client, {
-            tenantId,
-            controlLibraryVersionId,
-            code: control.code,
-            title: control.title,
-            controlType: control.type,
-            description: control.description,
-          });
-          controlIdByCode[control.code] = controlId;
-          await linkControlRequirement(client, { tenantId, controlId, requirementId });
-        }
-      }
-      await publishControlLibraryVersion(client, controlLibraryVersionId);
-
-      return { tenantId, leadUserId, secondUserId, controlLibraryVersionId };
-    });
+    return { tenantId, leadUserId, secondUserId };
+  });
 
   // === Layer 2: real application code from here on ==========================
+  //
+  // Slice D1 (Control Library Authoring): the demo DPDP Control Library
+  // is now built through the REAL application/domain layer
+  // (lib/domain/control-library.ts) — createRegulatoryReference,
+  // createRequirement, createControlLibraryVersion, createControl,
+  // associateControlRequirement, publishControlLibraryVersion — exactly
+  // the functions a real "Ananya Krishnan" (Practice Partner, who holds
+  // the new `methodology.manage` permission) would call from the real
+  // `/methodology` UI. Before Slice D1 this same content was built via
+  // raw SQL fixture helpers (../control-library/helpers), because no
+  // application layer existed yet — this is the one part of this
+  // fixture Slice D1's own instructions §11 asked to refactor "only as
+  // necessary to demonstrate that the application/domain layer can now
+  // create the same library," which this is.
+  const regulatoryReference = await withRequestDb(leadUserId, (db) =>
+    createRegulatoryReferenceDomain(db, leadUserId, {
+      frameworkName: "Digital Personal Data Protection Act, 2023 (illustrative reference — DEMO content, not verified statutory text)",
+      citation: "General reference (demo)",
+      title: "DPDP Act, 2023 — general reference used by this DEMO control library",
+      version: "2023 (demo)",
+    }),
+  );
+
+  const controlLibraryVersion = await withRequestDb(leadUserId, (db) =>
+    createControlLibraryVersionDomain(db, leadUserId, {
+      versionLabel: "DPDP Demo Control Library v1.0 (SAMPLE — for demonstration only, not an official or verified regulatory framework)",
+    }),
+  );
+  const controlLibraryVersionId = controlLibraryVersion.id;
+
+  for (const category of CATEGORIES) {
+    const requirement = await withRequestDb(leadUserId, (db) =>
+      createRequirementDomain(db, leadUserId, {
+        primaryRegulatoryReferenceId: regulatoryReference.id,
+        title: category.requirementTitle,
+        description: "Illustrative DEMO requirement grouping — not a verified statutory citation.",
+      }),
+    );
+
+    for (const control of category.controls) {
+      const created = await withRequestDb(leadUserId, (db) =>
+        createControlDomain(db, leadUserId, {
+          controlLibraryVersionId,
+          code: control.code,
+          title: control.title,
+          controlType: control.type,
+          description: control.description,
+        }),
+      );
+      controlIdByCode[control.code] = created.id;
+      await withRequestDb(leadUserId, (db) => associateControlRequirement(db, leadUserId, { controlId: created.id, requirementId: requirement.id }));
+    }
+  }
+  await withRequestDb(leadUserId, (db) => publishControlLibraryVersionDomain(db, leadUserId, { versionId: controlLibraryVersionId }));
 
   // Organisation (real domain function — Slice B1/B2).
   const organisationName = "ABC Fintech Private Limited";

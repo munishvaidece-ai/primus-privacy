@@ -391,3 +391,57 @@ export async function requireAssessmentFinalizeAccess(
     throw new NotFoundOrForbiddenError();
   }
 }
+
+/**
+ * Slice D1 (Control Library Authoring): the tenant-scope counterpart to
+ * `hasEngagementPermission`/`hasOrganisationPermission` above — does the
+ * calling user hold an active `TenantMembership` whose `Role` grants
+ * `permissionKey`? Mirrors migration 0026's own `has_tenant_permission`
+ * SQL function, independently implemented per SECURITY.md §2's two-layer
+ * rule, the same discipline every other pair in this file already
+ * follows. The first tenant-scope permission check in this codebase —
+ * `hasEngagementPermission`/`hasOrganisationPermission` never needed one
+ * because no engagement-/organisation-scope screen has yet needed a
+ * finer grain than plain membership; methodology is genuinely
+ * Tenant-scoped (migration 0007), so this is the first slice that does.
+ */
+export async function hasTenantPermission(
+  db: RequestDb,
+  userId: string,
+  tenantId: string,
+  permissionKey: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: rolePermissions.roleId })
+    .from(tenantMemberships)
+    .innerJoin(rolePermissions, eq(rolePermissions.roleId, tenantMemberships.roleId))
+    .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+    .where(
+      and(
+        eq(tenantMemberships.userId, userId),
+        eq(tenantMemberships.tenantId, tenantId),
+        eq(tenantMemberships.status, "active"),
+        eq(permissions.key, permissionKey),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Slice D1: "who may author/publish methodology content" — resolved
+ * from PRODUCT_UX_BLUEPRINT.md §8's own Permission Matrix (the
+ * "Methodology" row's "Tenant" column = "Platform Administrator,
+ * Practice Partner", both of which hold `methodology.manage` in
+ * `db/seed/roles.ts`) rather than a generic "is this an admin" bypass —
+ * see DECISIONS.md for the full reasoning.
+ */
+export async function canManageMethodology(db: RequestDb, userId: string, tenantId: string): Promise<boolean> {
+  return hasTenantPermission(db, userId, tenantId, "methodology.manage");
+}
+
+export async function requireMethodologyManageAccess(db: RequestDb, userId: string, tenantId: string): Promise<void> {
+  if (!(await canManageMethodology(db, userId, tenantId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}

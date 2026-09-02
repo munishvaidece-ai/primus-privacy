@@ -23,6 +23,7 @@ import { listValidationRecordsForEngagement } from "@/lib/domain/validation";
 import { getEvidenceSummaryForEngagement } from "@/lib/domain/evidence";
 import { getEngagementReportData } from "@/lib/domain/reports";
 import { renderEngagementReportPdf } from "@/lib/reports/engagement-report-pdf";
+import { getControlLibraryVersionDetail, updateControl, ControlLibraryVersionNotDraftError } from "@/lib/domain/control-library";
 
 async function extractPdfText(buffer: Buffer): Promise<{ numPages: number; text: string; textByPage: string[] }> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -124,29 +125,36 @@ describe("Reference/Demo Engagement Dataset — end-to-end walkthrough", () => {
     expect(repoFileExists("lib/domain/applicability.ts")).toBe(false);
   });
 
-  // === STAGE 5 — DPDP Controls / Control Library: PARTIAL ===================
-  it("STAGE 5 — DPDP Controls (Regulatory Content & Control Library): PARTIAL (real database schema, real publish/versioning workflow, genuinely enforced — but NO application-layer domain module or UI exists to author this content as a real user would)", async () => {
-    const { rows } = await asFixtureSetup((c) =>
-      c.query(`SELECT status, published_at FROM control_library_versions WHERE id = $1`, [fx.controlLibraryVersionId]),
-    );
-    expect(rows[0]).toMatchObject({ status: "published" });
-    expect(rows[0]!.published_at).toBeTruthy(); // set by the real publish trigger, migration 0007 — not settable directly.
-
-    const { rows: controlRows } = await asFixtureSetup((c) =>
-      c.query(`SELECT count(*)::int AS n FROM controls WHERE control_library_version_id = $1`, [fx.controlLibraryVersionId]),
-    );
-    expect(controlRows[0]!.n).toBe(25);
+  // === STAGE 5 — DPDP Controls / Control Library: YES (Slice D1) ============
+  it("STAGE 5 — DPDP Controls (Regulatory Content & Control Library): YES (Slice D1 — real application/domain layer authoring, no raw SQL/developer intervention)", async () => {
+    // This reference engagement's own demo library was built entirely
+    // through the real domain layer (reference-engagement-fixture.ts,
+    // since Slice D1) — re-verified here via the real READ function a
+    // real `/methodology/control-library/[versionId]` page would call,
+    // not a raw SQL query.
+    const detail = await withRequestDb(fx.leadUserId, (db) => getControlLibraryVersionDetail(db, fx.leadUserId, fx.controlLibraryVersionId));
+    expect(detail.status).toBe("published");
+    expect(detail.publishedAt).toBeTruthy(); // set by the real publish trigger, migration 0007 — not settable directly.
+    expect(detail.controlRows).toHaveLength(25);
     expect(Object.keys(fx.controlIdByCode)).toHaveLength(25);
+    expect(detail.controlRows.every((c) => c.requirements.length > 0)).toBe(true); // every demo control is associated
 
     // Publication immutability is real, not merely documented — attempt
-    // a raw edit to a published Control and confirm the pre-existing
-    // trigger (migration 0007) rejects it, exactly as it would for a
-    // real consultant attempting the same thing.
+    // both a domain-layer edit and a raw SQL edit of a published
+    // Control, confirming both layers independently reject it, exactly
+    // as they would for a real consultant attempting the same thing.
     const anyControlId = Object.values(fx.controlIdByCode)[0]!;
+    await expect(
+      withRequestDb(fx.leadUserId, (db) => updateControl(db, fx.leadUserId, { controlId: anyControlId, code: "TAMPERED", title: "tampered", description: null, controlType: "preventive" })),
+    ).rejects.toThrow(ControlLibraryVersionNotDraftError);
     await expect(asFixtureSetup((c) => c.query(`UPDATE controls SET title = 'tampered' WHERE id = $1`, [anyControlId]))).rejects.toThrow();
 
-    expect(repoFileExists("lib/domain/control-library.ts")).toBe(false);
-    expect(repoFileExists("app/(shell)/methodology")).toBe(false);
+    // The application layer this fixture actually used to build the
+    // library above genuinely exists — both the domain module and the
+    // UI route tree.
+    expect(repoFileExists("lib/domain/control-library.ts")).toBe(true);
+    expect(repoFileExists("app/(shell)/methodology/control-library")).toBe(true);
+    expect(repoFileExists("app/(shell)/methodology/regulatory-content")).toBe(true);
   });
 
   // === STAGE 6 — Assessment: WORKS ==========================================

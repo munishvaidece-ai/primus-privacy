@@ -1,55 +1,201 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-02 — Reference/Demo Engagement Dataset COMPLETE
-(Session 28): built ONE fictional, coherent, end-to-end consulting
-engagement — "ABC Fintech Private Limited" / "DPDP Compliance
-Assessment — FY 2026–27" — through this repository's real application
-code wherever real application code exists (`tests/app/reference-
-engagement-fixture.ts`, `tests/app/reference-engagement.test.ts`, 16
-new stage-by-stage tests), and through a clearly-isolated raw-SQL
-fixture only where no application layer exists at all (Regulatory
-Content & Control Library authoring; Data Landscape/ROPA). This is NOT
-a new product feature — no `lib/domain/*` module, app route, or
-migration changed the product's own capabilities this session; the
-point was to actually exercise the full requested workflow
-(Organisation → Engagement → Data Landscape → ROPA → Applicability/
-Scope → DPDP Controls → Assessment → Assessment Responses → Control
-Testing → Evidence → Risks → Findings → Remediation → Validation →
-Maturity → Engagement Report) against real PostgreSQL and record
-exactly what worked, what didn't, and why — see the full Gap Matrix and
-end-to-end findings in `REFERENCE_ENGAGEMENT.md`. Confirmed WORKS end
-to end: Organisation, Engagement, Engagement Membership, Assessment,
-Assessment Responses, Control Testing, Evidence, Risk, Finding,
-Remediation, Validation, Engagement Report — the exact governance loop
-C7.1–C7.3/R1 already closed, re-verified here against a substantially
-larger, more varied fixture (25 demo controls, 6 risks, 7 findings, 8
-remediation actions, 9 evidence items) than any single prior slice's
-own tests used. Confirmed a real, honest gap at three areas: Data
-Landscape/ROPA and the DPDP Control Library both have real, correct
-database schema (Milestones 3/4) but zero application layer (no domain
-module, no UI) — populated here only via the exact raw-SQL fixture
-pattern every existing test suite for those areas already used, never
-pretending an application layer exists; Applicability/Scope has NO
-schema at all (`ApplicabilityDetermination`, documented in
-DATA_MODEL.md §4, was never built — confirmed by a real query against
-it failing with "relation does not exist"); Maturity has real storage/
-RLS/immutability (Milestone 8/8A) but no calculation engine anywhere,
-confirmed from the repository's own MaturityScore test fixture helper
-taking `score` as a direct caller-supplied input — this fixture
-therefore deliberately writes ZERO Maturity rows rather than fabricate
-a score (DECISIONS.md R-129). This session's own mandatory manual/
-visual inspection of the resulting PDF (a much larger, more realistic
-report than R1's own test fixture ever produced) found and fixed one
-real defect in Slice R1's shared PDF-rendering code — a table row could
-split mid-row across a page boundary when a cell's wrapped content
-landed right at the bottom margin, corrupting later cells' positions
-(DECISIONS.md R-127) — the only change made to R1 itself this session,
-per the brief's own "do not modify R1 unless an actual defect is
-discovered" instruction. 733 tests pass (62 files, +16 new in
-`tests/app/reference-engagement.test.ts`), run twice for stability,
-zero regressions against the R1 baseline of 61/717. Full details in the
-"Reference Engagement Dataset" section below and in
-`REFERENCE_ENGAGEMENT.md`.
+Status: 2026-09-02 — Slice D1 (Control Library Authoring) COMPLETE
+(Session 29): closes the single highest-priority gap the Reference
+Engagement Dataset exercise (Session 28) found — the application could
+execute a full engagement (Assessment → Control Testing → Evidence →
+Risk → Finding → Remediation → Validation → Report) but could not
+author the regulatory control library itself, requiring raw SQL/
+developer intervention. A Platform Administrator or Practice Partner
+(the two Tenant-scope Roles PRODUCT_UX_BLUEPRINT.md §8's own Permission
+Matrix maps to full Read/Create/Edit/Finalize on Methodology,
+DECISIONS.md R-130) can now, entirely from `/methodology`: create a
+draft Control Library Version, add/edit/delete Controls, create
+Regulatory References/Requirements, associate Controls with
+Requirements, publish a draft (permanently, immutably), and clone a
+published version into a new draft for corrections — the exact
+Draft → Published → immutable → New Draft lifecycle DATA_MODEL.md/
+migration 0007 already defined, not a second versioning mechanism
+(no schema change beyond one new migration narrowing RLS write
+policies and adding one resolver function — `has_tenant_permission`,
+migration 0026). Authorization is a genuinely new, dedicated
+`methodology.manage` permission, enforced in both the application layer
+(`requireMethodologyManageAccess`) and RLS (narrowed write policies on
+all six Milestone-4 methodology tables) — never a generic admin bypass,
+never inferred from an unrelated existing permission. Tenant isolation
+and Assessment-pin compatibility were both directly, adversarially
+verified: a cross-tenant write attempt is rejected at the RLS layer
+independently of the domain function, and an existing Assessment's
+pinned library version and already-populated AssessmentControls are
+provably untouched after a new version is cloned from and published
+alongside the one it's pinned to. The reference-engagement fixture
+(Session 28) was refactored to build its own demo Control Library
+through this real domain layer instead of raw SQL — the Gap Matrix
+(`REFERENCE_ENGAGEMENT.md`) DPDP Controls row now reads YES/YES/YES/
+None. 758 tests pass (63 files, +25 new in `tests/app/control-library-
+authoring.test.ts`), run twice for stability, zero regressions against
+the Reference Engagement Dataset baseline of 62/733. Full details in
+the "Control Library Authoring" section below and in
+`REFERENCE_ENGAGEMENT.md`. Per explicit instruction, STOP after D1 — no
+Data Landscape/ROPA, Applicability/Scope, Maturity, Client Portal, or
+any other feature without further explicit direction.
+
+## Control Library Authoring (Session 29, 2026-09-02)
+
+**Scope:** exactly what the D1 brief instructed — the minimum viable
+internal Control Library Authoring capability, on top of the EXACT
+existing Regulatory Content & Control Library model (Milestone 4,
+migrations 0006/0007), preserving its ownership model, its draft/
+published/retired lifecycle, and its publish-immutability guarantees
+unchanged. Explicitly NOT built, per instruction: Data Landscape, ROPA,
+Applicability/Scope, Maturity, Client Portal, Billing, SSO, MFA, AI,
+notifications, dashboards, a custom report builder, a methodology admin
+UI beyond the smallest coherent authoring experience, malware scanning,
+workflow automation, white-labeling, multi-framework UI, or any
+"advanced" methodology workflow (comparison views, approval chains,
+etc.) beyond the one linear lifecycle already documented.
+
+**Inspection (§1) findings, before any code was written:** direct
+reading of migration 0007 (the Milestone-4 security layer) confirmed
+the ENTIRE lifecycle this slice needed already existed at the database
+level: `prevent_control_library_version_tampering` (the draft →
+published → retired transition trigger, auto-stamping `published_at`),
+`enforce_control_draft_mutable`/`enforce_control_requirement_draft_
+mutable` (the triggers that make a published version's Controls and
+associations genuinely immutable), `prevent_methodology_reparenting`/
+`prevent_engagement_control_library_pin_change` (the two immutable-once-
+set guards), and `log_methodology_change`/`log_methodology_relationship_
+change` (audit-log triggers covering every write this slice makes,
+automatically — no new audit code was written). DECISIONS.md R-42/R-43
+(read fresh) settled §2's ownership question directly: methodology is
+Tenant/practice-owned (every table carries `tenant_id`, never
+`organisation_id`), and Requirements are deliberately NOT re-created
+per library version — shared, tenant-wide reference content a Control
+from any version may map to over time. This governed the one
+architecturally consequential decision in this slice: `clone
+ControlLibraryVersion` (§4's "create a new version from an existing
+published version") copies Controls into fresh rows but reuses the
+exact same Requirement rows, never duplicating them (DECISIONS.md
+R-132) — preserving an existing, documented decision rather than
+inventing a competing one.
+
+**Authorization (§7):** a new `methodology.manage` permission
+(`db/seed/roles.ts`), NOT a generic admin bypass — resolved from
+PRODUCT_UX_BLUEPRINT.md §8's own Permission Matrix, whose "Methodology"
+capability row maps its "Tenant" column (full R,C,E,F) to exactly
+"Platform Administrator, Practice Partner" in the same document's own
+legend (DECISIONS.md R-130, which also explains why this reading was
+preferred over §5 row 20's own single-persona "Platform Administrator"
+label). `hasTenantPermission`/`canManageMethodology`/
+`requireMethodologyManageAccess` (new, `lib/authorization/service.ts`)
+mirror `hasEngagementPermission`/`hasOrganisationPermission`'s exact
+existing shape, one scope up — the first tenant-scope permission check
+in this codebase. Enforced in BOTH layers per instruction: every domain
+write function re-derives the authoritative tenant from the target row
+itself (never a caller-supplied id) and calls
+`requireMethodologyManageAccess`; migration 0026 additionally narrows
+all six methodology tables' write RLS policies from "any active Tenant
+member" to "a Tenant member whose Role grants `methodology.manage`" —
+the same narrowing precedent Slice C7.3 established for
+`assessment.finalize`. Read access is deliberately left at the
+existing, broader `can_access_tenant` boundary — a documented, narrow
+scope limit, not an oversight (DECISIONS.md R-131): this slice's actual
+ask is authoring (write), and PRODUCT_UX_BLUEPRINT.md's own broader
+"Consultant: R" read aspiration for Methodology is recorded as a real,
+non-blocking gap for a future slice to close.
+
+**Domain module (`lib/domain/control-library.ts`, new):**
+`createRegulatoryReference`/`createRequirement` (always-editable,
+non-lifecycle-gated content, DECISIONS.md R-44), `createControlLibrary
+Version`/`createControl`/`updateControl`/`deleteControl`/
+`associateControlRequirement`/`dissociateControlRequirement` (all
+draft-only, pre-checked for clean errors with migration 0007's own
+triggers as the real, unconditional backstop), `publishControlLibrary
+Version` (re-loads the authoritative version, re-authorizes, re-
+verifies draft, and publishes transactionally — steps validating
+control/association integrity collapse into "already guaranteed by
+construction," documented in the function's own docstring rather than
+re-invented), and `cloneControlLibraryVersion` (the new-version-from-
+published-source path, DECISIONS.md R-132). A real, hard `DELETE` is
+supported for a draft Control (unlike most entities in this codebase)
+because it is provably safe by construction: a draft-version Control
+can never yet have any Assessment/Risk reference, since an Assessment
+can only pin to a published/retired version.
+
+**Migration (`drizzle/migrations/0026_control_library_authoring.sql`,
+new):** no new table, no new column — confirmed unnecessary by
+inspection, not assumed. Adds `has_tenant_permission` (mirroring
+migration 0024's `has_engagement_permission`/`has_organisation_
+permission`) and narrows the six methodology tables' write policies as
+described above. SELECT policies are unchanged.
+
+**UI (`app/(shell)/methodology/**`, new):** the smallest coherent
+authoring experience per instruction — `/methodology` (a two-link
+landing, Control Library + Regulatory Content), `/methodology/
+control-library` (list, create), `/methodology/control-library/
+[versionId]` (metadata, controls table, Publish confirmation mirroring
+the Assessment workspace's own Finalize control, "Create New Version"
+when published), `/methodology/control-library/[versionId]/controls/
+new` and `/controls/[controlId]` (create/edit/delete, requirement
+association management), `/methodology/regulatory-content`
+(references/requirements, simple always-available create forms). Every
+write action is additionally gated server-side by
+`canManageMethodology` — the UI's own conditional rendering is a
+convenience, never the authorization boundary, per instruction. The
+"Methodology" nav link (`components/shell/nav.tsx`) is now shown to
+every signed-in user, matching how "Organisations" is already shown —
+the real gate is each page's own server-side check.
+
+**Reference-engagement fixture refactor (§11):** `tests/app/reference-
+engagement-fixture.ts`'s demo Control Library construction now calls
+the real domain functions above (via `withRequestDb(leadUserId, ...)`,
+the same "Ananya Krishnan" Practice Partner persona who already held
+the right Role) instead of the raw-SQL fixture helpers it used before
+this slice — the minimal refactor instructions §11 asked for, not a
+rewrite of the rest of the fixture. `REFERENCE_ENGAGEMENT.md`'s own
+Gap Matrix DPDP Controls row moved from `PARTIAL` to `YES`/`YES`/`YES`/
+`None`, re-verified against real evidence (a live domain-layer read,
+not a raw query) rather than "artificially improved," per instruction.
+
+**Tests (`tests/app/control-library-authoring.test.ts`, new, 25
+tests):** real PostgreSQL, real domain functions, no mocked
+authorization — authorization (6: Practice Partner and Platform
+Administrator both succeed; a Tenant member with a permission-less
+custom Role fails; an Engagement-Manager-only user with no
+TenantMembership at all fails; a Client Administrator fails; cross-
+tenant authoring fails), draft lifecycle (5: create/edit, requirement
+association plus idempotent re-association, cross-tenant association
+rejected, duplicate code/label guards, empty-input guards), publishing
+(4: valid draft publishes, zero-Control version can still publish — no
+invented minimum, double-publish rejected, published Controls/
+associations immutable at the domain layer), a dedicated raw-SQL
+immutability check independent of the domain layer, versioning (3:
+clone produces a draft with copied Controls/associations reusing the
+same Requirements, the published source is provably untouched
+afterward, cloning a still-draft source is rejected), the Assessment-
+integrity acceptance criterion (1, the scenario described above), and
+tenant isolation (3: a direct raw-SQL RLS check — note the narrowed
+UPDATE policy's own USING clause makes an unauthorized UPDATE affect
+zero rows rather than throw, unlike the INSERT case, which does throw —
+a genuine RLS-shape finding this slice's own testing made; a cross-
+tenant read-isolation check; an anonymous-caller check). Full
+regression: 758 tests pass (63 files), run twice for stability, zero
+regressions against the Reference Engagement Dataset baseline of
+733/62.
+
+**Documentation.** DECISIONS.md R-130 through R-132 (permission-role
+resolution; the deliberate read-access scope limit; the clone-reuses-
+Requirements decision, itself a restatement of the already-existing
+R-42/R-43). `REFERENCE_ENGAGEMENT.md` updated: new "Control Library
+Authoring (Slice D1)" section, Gap Matrix row corrected with evidence,
+"End-to-end status" and "Highest-priority gaps" both re-ranked now that
+this gap is closed.
+
+No Data Landscape, Processing Activities/ROPA, Applicability/Scope,
+Maturity, Client Portal, Billing, SSO, MFA, AI, notifications,
+dashboards, custom report builder, malware scanning, workflow
+automation, white-labeling, multi-framework UI, or advanced methodology
+workflow. STOP after D1 per explicit instruction.
 
 ## Reference Engagement Dataset (Session 28, 2026-09-02)
 

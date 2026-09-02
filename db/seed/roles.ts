@@ -35,6 +35,17 @@ const ROLES: Array<{ name: string; scope: "tenant" | "organisation" | "engagemen
 // capabilities Engagement Manager gets beyond an ordinary Consultant —
 // the same distinct-permission shape `membership.manage` already used
 // for the second one (Slice C7.2), applied here for the first.
+//
+// Slice D1 (Control Library Authoring) adds `methodology.manage` —
+// resolved from PRODUCT_UX_BLUEPRINT.md §8's own Permission Matrix,
+// whose "Methodology (Control Library / Risk Model / Maturity
+// Methodology)" row gives the "Tenant" column full R,C,E,F, and whose
+// own legend maps "Tenant" to exactly "Platform Administrator, Practice
+// Partner" — not a new ownership model, the existing one (methodology
+// is Tenant/practice-owned, migration 0007), given its first dedicated
+// permission rather than the coarse `is_active_tenant_member` check
+// every tenant-scope Role previously shared undifferentiated (see
+// migration 0026 and DECISIONS.md).
 const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "tenant.manage", description: "Manage tenant-level settings." },
   { key: "organisation.create", description: "Onboard a new client organisation under the tenant." },
@@ -45,6 +56,7 @@ const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "user.manage", description: "Manage user profiles and status." },
   { key: "audit_log.read", description: "Read the audit log." },
   { key: "assessment.finalize", description: "Finalize an Assessment, freezing its responses/tests/evidence permanently." },
+  { key: "methodology.manage", description: "Author and publish the practice's regulatory content and control library." },
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -58,8 +70,9 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "user.manage",
     "audit_log.read",
     "assessment.finalize",
+    "methodology.manage",
   ],
-  "Practice Partner": ["organisation.create", "engagement.create", "engagement.manage", "audit_log.read"],
+  "Practice Partner": ["organisation.create", "engagement.create", "engagement.manage", "audit_log.read", "methodology.manage"],
   "Engagement Manager": ["engagement.manage", "membership.manage", "assessment.finalize"],
   "Client Administrator": ["membership.manage", "user.manage"],
 };
