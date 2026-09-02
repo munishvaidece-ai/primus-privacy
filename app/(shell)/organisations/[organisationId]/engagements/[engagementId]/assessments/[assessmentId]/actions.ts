@@ -8,6 +8,7 @@ import { withRequestDb } from "@/lib/db/request-client";
 import {
   updateAssessmentResponse,
   createControlTest,
+  finalizeAssessment,
   AssessmentFinalizedError,
 } from "@/lib/domain/assessments";
 import {
@@ -529,4 +530,68 @@ export async function createRiskAction(formData: FormData): Promise<void> {
 
   revalidatePath(basePath);
   redirect(withQueryFlag(returnTo, "saved", "1"));
+}
+
+const finalizeAssessmentSchema = z.object({
+  organisationId: z.string().uuid(),
+  engagementId: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+});
+
+/**
+ * Slice C7.3: the one, terminal `draft → finalized` transition. Browser
+ * → Server Action → authenticate → `finalizeAssessment` (lib/domain/
+ * assessments.ts) re-derives the Assessment's own authoritative
+ * Engagement/Organisation and authorizes against the caller's real
+ * `assessment.finalize` permission there — never trusting this form's
+ * own `organisationId`/`engagementId` fields as proof, the same
+ * discipline every other action in this file already follows. A plain
+ * `<form>` submit with a native browser confirm prompt (instructions
+ * §16: "a minimal confirmation mechanism," not a multi-step approval
+ * flow) is the only client-side gate; the server never trusts it.
+ */
+export async function finalizeAssessmentAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+
+  const raw = {
+    organisationId: formData.get("organisationId"),
+    engagementId: formData.get("engagementId"),
+    assessmentId: formData.get("assessmentId"),
+  };
+  const basePath =
+    typeof raw.organisationId === "string" && typeof raw.engagementId === "string" && typeof raw.assessmentId === "string"
+      ? basePathFor(raw.organisationId, raw.engagementId, raw.assessmentId)
+      : "/organisations";
+
+  const parsed = finalizeAssessmentSchema.safeParse(raw);
+  if (!parsed.success) {
+    redirect(withQueryFlag(basePath, "error", parsed.error.issues[0]?.message ?? "Invalid input."));
+  }
+
+  let errorMessage: string | null = null;
+  try {
+    await withRequestDb(user.id, (db) =>
+      finalizeAssessment(db, user.id, {
+        organisationId: parsed.data.organisationId,
+        engagementId: parsed.data.engagementId,
+        assessmentId: parsed.data.assessmentId,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof AssessmentFinalizedError) {
+      errorMessage = err.message;
+    } else if (err instanceof NotFoundOrForbiddenError) {
+      errorMessage = "You do not have access to finalize this assessment.";
+    } else {
+      console.error("finalizeAssessmentAction failed", err);
+      errorMessage = "Something went wrong finalizing this assessment. Please try again.";
+    }
+  }
+
+  if (errorMessage) {
+    redirect(withQueryFlag(basePath, "error", errorMessage));
+  }
+
+  revalidatePath(basePath);
+  redirect(withQueryFlag(basePath, "saved", "1"));
 }

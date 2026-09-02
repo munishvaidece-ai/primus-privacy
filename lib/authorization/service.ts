@@ -360,3 +360,34 @@ export async function requireEngagementMembershipManageAccess(
     throw new NotFoundOrForbiddenError();
   }
 }
+
+/**
+ * Slice C7.3: "who may finalize this Assessment" — mirrors
+ * `canManageEngagementMembership`'s exact shape, applied to the new
+ * `assessment.finalize` permission (DECISIONS.md R-117) instead of
+ * `membership.manage`. Resolved from PRODUCT_UX_BLUEPRINT.md §8's own
+ * explicit "Engagement Manager additionally gets finalize/
+ * membership-manage" — the same distinct-permission treatment
+ * `membership.manage` already got in Slice C7.2, applied here to the
+ * other capability that same table sentence names.
+ */
+export async function canFinalizeAssessment(
+  db: RequestDb,
+  userId: string,
+  engagementId: string,
+  organisationId: string,
+): Promise<boolean> {
+  if (await hasEngagementPermission(db, userId, engagementId, "assessment.finalize")) return true;
+  return hasOrganisationPermission(db, userId, organisationId, "assessment.finalize");
+}
+
+export async function requireAssessmentFinalizeAccess(
+  db: RequestDb,
+  userId: string,
+  engagementId: string,
+  organisationId: string,
+): Promise<void> {
+  if (!(await canFinalizeAssessment(db, userId, engagementId, organisationId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}

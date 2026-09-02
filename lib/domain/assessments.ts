@@ -15,7 +15,7 @@ import {
   engagements,
   users,
 } from "@/db/schema";
-import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, requireEngagementAccess, requireAssessmentFinalizeAccess } from "@/lib/authorization/service";
 
 export class AssessmentFinalizedError extends Error {
   constructor(message = "This assessment is finalized and can no longer be edited.") {
@@ -237,6 +237,107 @@ export async function createAssessment(
   }
 
   return { id: assessmentId };
+}
+
+// --- Assessment finalization (Slice C7.3) -----------------------------------
+
+/**
+ * The one, terminal `draft → finalized` transition (instructions §4):
+ * Browser → Server Action → authenticate → load the authoritative
+ * Assessment → derive its Engagement → authorize
+ * (`requireAssessmentFinalizeAccess`) → pre-check current state → the
+ * transition itself → audit (existing trigger) → return. No completeness
+ * requirement is enforced — none is documented anywhere in
+ * PRODUCT_SPEC.md/PRODUCT_UX_BLUEPRINT.md/DATA_MODEL.md (checked fresh
+ * this slice; instructions §9 forbid inventing one where none exists),
+ * so an Assessment with zero responses can be finalized exactly as
+ * validly as a fully-answered one — the MVP permits finalization
+ * according to the documented model, not a stricter one this slice
+ * would otherwise be guessing at.
+ *
+ * **Authorization (instructions §2/§8):** `requireAssessmentFinalizeAccess`
+ * (lib/authorization/service.ts) — the caller must hold the
+ * `assessment.finalize` permission (DECISIONS.md R-117), resolved from
+ * PRODUCT_UX_BLUEPRINT.md §8's own explicit "Engagement Manager
+ * additionally gets finalize/membership-manage."
+ *
+ * **Immutability (instructions §6):** this function does not build any
+ * new immutability mechanism — `assessments_prevent_finalized_
+ * tampering`/`assessment_controls_enforce_draft_mutable`/
+ * `assessment_responses_enforce_draft_mutable`/`control_tests_enforce_
+ * draft_mutable`/`enforce_evidence_link_draft_mutable` (migrations
+ * 0009/0011) already fully freeze Assessment, AssessmentControl,
+ * AssessmentResponse, ControlTest (when tied to this Assessment), and
+ * EvidenceLink (for an assessment_response/control_test subject) the
+ * moment this transition commits — re-verified fresh this slice by
+ * direct inspection, not re-built. Risk/Finding/RemediationAction/
+ * ValidationRecord are deliberately NOT frozen — no trigger anywhere
+ * references Assessment finalization for any of them (the same,
+ * already-repeatedly-confirmed absence DECISIONS.md R-98/R-103/R-105
+ * document) — the governance work downstream of a finalized Assessment
+ * continues exactly as it already did.
+ *
+ * **Idempotency/state (instructions §12):** pre-checked here for a
+ * clean, named `AssessmentFinalizedError` — the SAME error class this
+ * module already uses for "you tried to edit a finalized assessment"
+ * (finalizing an already-finalized Assessment is, structurally, exactly
+ * that: an attempted mutation of an immutable row). The database's own
+ * `assessments_prevent_finalized_tampering` trigger is the real,
+ * unconditional enforcement against a concurrent-finalization race;
+ * this function's `catch` only translates its raw exception into the
+ * same clean error, the identical pattern `updateAssessmentResponse`/
+ * `createControlTest` already established.
+ *
+ * **Reopening (instructions §13):** not implemented — DATA_MODEL.md §6
+ * and PRODUCT_SPEC.md principle 6 both explicitly describe finalization
+ * as one-way ("historical assessments are immutable once finalized;
+ * corrections create a new assessment period rather than rewriting
+ * history"), so building a reopen path would contradict the documented
+ * model, not merely go beyond it.
+ *
+ * **Metadata (instructions §10):** no new `finalized_at`/`finalized_by`
+ * columns were added — `updated_at`/`updated_by`, set on this exact
+ * transition, already serve that purpose permanently and unambiguously,
+ * because `assessments_prevent_finalized_tampering` guarantees this is
+ * THE LAST update this row can ever receive; `audit_log` independently
+ * records the same actor/timestamp/before-after a second way.
+ */
+export async function finalizeAssessment(
+  db: RequestDb,
+  userId: string,
+  input: { organisationId: string; engagementId: string; assessmentId: string },
+): Promise<void> {
+  const [assessment] = await db
+    .select({
+      id: assessments.id,
+      status: assessments.status,
+      engagementId: assessments.engagementId,
+      organisationId: assessments.organisationId,
+    })
+    .from(assessments)
+    .where(eq(assessments.id, input.assessmentId))
+    .limit(1);
+  if (!assessment || assessment.organisationId !== input.organisationId || assessment.engagementId !== input.engagementId) {
+    throw new NotFoundOrForbiddenError();
+  }
+
+  await requireAssessmentFinalizeAccess(db, userId, assessment.engagementId, assessment.organisationId);
+
+  if (assessment.status === "finalized") {
+    throw new AssessmentFinalizedError("This assessment is already finalized.");
+  }
+
+  try {
+    await db
+      .update(assessments)
+      .set({ status: "finalized", updatedBy: userId, updatedAt: new Date() })
+      .where(eq(assessments.id, assessment.id));
+  } catch (err) {
+    if (err instanceof Error && /finalized/i.test(err.message)) {
+      throw new AssessmentFinalizedError();
+    }
+    throw err;
+  }
 }
 
 // --- Assessment list (Slice C1, PHASE C instructions §5) -------------------

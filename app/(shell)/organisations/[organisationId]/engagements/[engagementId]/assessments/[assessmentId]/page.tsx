@@ -9,7 +9,7 @@ import {
 } from "@/lib/domain/assessments";
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { listRisksForControl } from "@/lib/domain/risks";
-import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, canFinalizeAssessment } from "@/lib/authorization/service";
 import { Badge, statusTone, riskRatingTone, riskStatusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,7 @@ import {
   reviewEvidenceAction,
   unlinkEvidenceAction,
   createRiskAction,
+  finalizeAssessmentAction,
 } from "./actions";
 
 const RATING_OPTIONS = ["low", "medium", "high", "critical"] as const;
@@ -63,6 +64,15 @@ export default async function AssessmentWorkspacePage({
   }
 
   const finalized = assessment.status === "finalized";
+
+  // Slice C7.3: the server independently re-decides whether to render
+  // the Finalize control at all — never inferred from the client, and
+  // re-checked again by finalizeAssessmentAction/finalizeAssessment
+  // itself regardless of what this render decided (instructions §4: the
+  // browser must not be trusted to submit `status = finalized`).
+  const canFinalize = !finalized
+    ? await withRequestDb(user.id, (db) => canFinalizeAssessment(db, user.id, assessment.engagementId, assessment.organisationId))
+    : false;
 
   // Basic PostgreSQL-backed filtering/search (instructions §22) applied
   // over the already-fetched, bounded control list — see
@@ -153,8 +163,28 @@ export default async function AssessmentWorkspacePage({
 
       {finalized ? (
         <p role="status" className="mt-4 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700">
-          This assessment is finalized. Responses, rationale, and control tests are locked and cannot be edited.
+          This assessment is finalized. Responses, rationale, control tests, and evidence links are permanently
+          locked. A correction is made by creating a new assessment, never by editing this one.
         </p>
+      ) : canFinalize ? (
+        <details className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-amber-900">Finalize this assessment…</summary>
+          <div className="mt-2 space-y-2">
+            <p className="text-sm text-amber-800">
+              Finalizing is permanent. Responses, rationale, control tests, and evidence links become locked and can
+              never be edited again — a correction after this point means starting a new assessment. Risks,
+              findings, remediation, and validation are not affected and continue normally.
+            </p>
+            <form action={finalizeAssessmentAction}>
+              <input type="hidden" name="organisationId" value={params.organisationId} />
+              <input type="hidden" name="engagementId" value={params.engagementId} />
+              <input type="hidden" name="assessmentId" value={params.assessmentId} />
+              <Button type="submit" variant="destructive" size="sm">
+                Finalize assessment
+              </Button>
+            </form>
+          </div>
+        </details>
       ) : null}
       {searchParams.saved === "1" ? (
         <p role="status" className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">

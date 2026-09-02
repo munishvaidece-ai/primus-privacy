@@ -3256,3 +3256,124 @@ therefore what this slice preserves, not a gap. This is a real,
 deliberate, and now-documented behavior: a solo Engagement Manager
 genuinely can revoke themselves down to zero managers on their own
 engagement, tested directly (`tests/app/engagement-membership.test.ts`).
+
+### R-117 — Finalization authority: a new, distinct `assessment.finalize` permission, granted to Engagement Manager (Slice C7.3)
+
+**Decision:** `finalizeAssessment` (`lib/domain/assessments.ts`) is
+gated on a new `canFinalizeAssessment` check
+(`lib/authorization/service.ts`), mirroring `canManageEngagementMembership`'s
+exact shape: the caller holds `assessment.finalize` via an active
+EngagementMembership on the specific engagement or an active
+OrganisationMembership on its organisation. `assessment.finalize` is a
+genuinely new row in `db/seed/roles.ts`'s `PERMISSIONS` array, granted
+to Engagement Manager (and, following the same "Platform Administrator
+holds every permission" pattern already established for every other
+permission in the catalogue, also to Platform Administrator) — additive
+seed data only, no schema change (`permissions`/`role_permissions`
+already existed since Milestone 1).
+**Why a new permission rather than reusing `engagement.manage`:**
+`engagement.manage`'s own seed description ("Edit an existing
+engagement's details/status") is about the `Engagement` entity's own
+fields — finalizing an `Assessment` is a different entity, a different,
+far more consequential and irreversible action, and folding it into an
+existing, differently-scoped permission would blur exactly the kind of
+granularity PRODUCT_UX_BLUEPRINT.md §8's own permission-mapping table
+already treats as distinct: "Engagement Manager additionally gets
+finalize/membership-manage" names "finalize" and "membership-manage" as
+two separate capabilities, the second of which (`membership.manage`,
+Slice C7.2) already got its own dedicated permission key rather than
+being folded into something broader — the identical treatment is
+applied here to the first. SECURITY.md §2's own illustrative example
+(`assessment_response.write`) independently confirms this
+`<entity>.<action>` naming convention is the documented intended shape
+of this system's permission catalogue, not an invention.
+**Known, deliberate limitation carried from C7.2 unchanged:** like
+`canManageEngagementMembership`, `canFinalizeAssessment` checks only
+engagement-scope and organisation-scope permission, never tenant-scope
+— Platform Administrator's own `assessment.finalize` grant is seeded
+faithfully (matching its existing "holds everything" pattern) but is
+currently dormant unless that user also happens to hold a narrower
+engagement/organisation membership, since no `hasTenantPermission`
+check exists anywhere in this codebase yet. This is not a new gap this
+slice introduces — it is the exact same architectural boundary Slice
+C7.2 already drew and documented, applied consistently rather than
+solved here.
+
+### R-118 — Assessment finalization builds no new immutability mechanism; migration 0025 only narrows who may perform the transition (Slice C7.3)
+
+**Decision:** No new trigger was added anywhere. Direct, fresh
+inspection of migrations 0009/0011 this slice confirmed `assessments_
+prevent_finalized_tampering`, `assessment_controls_enforce_draft_
+mutable`, `assessment_responses_enforce_draft_mutable`, `control_tests_
+enforce_draft_mutable`, and `enforce_evidence_link_draft_mutable`
+already fully and unconditionally freeze Assessment, AssessmentControl,
+AssessmentResponse, ControlTest (when tied to the Assessment), and
+EvidenceLink (for an assessment_response/control_test subject) the
+moment `status` becomes `finalized` — built in Milestone 5/6, dormant
+only because nothing ever set that status through the application
+before this slice. Migration 0025's only change is a narrowing of the
+pre-existing, previously-unused `assessments_update` RLS policy: its
+`WITH CHECK` now additionally requires `assessment.finalize` when the
+new row's `status` is `finalized` (the coarse `can_access_engagement`
+clause remains, for the general case) — closing a real, live gap this
+slice's own testing confirmed: before this migration, ANY engagement
+member could raw-SQL flip an Assessment's `status` to `finalized`,
+bypassing the new permission-gated application check entirely.
+**Rationale:** matches SECURITY.md §2's two-layer model exactly — the
+application layer decides the business rule (`assessment.finalize`);
+RLS independently backstops it, narrowed rather than duplicated wholly.
+Both raw-SQL security tests
+(`tests/app/assessment-finalization.test.ts`) confirm the two layers
+agree: an unauthorized role's raw UPDATE is rejected by RLS, and an
+already-finalized row's raw UPDATE is rejected by the pre-existing
+trigger, independently of each other.
+
+### R-119 — No completeness requirement, no reopening, no new finalization-metadata columns — the existing model is preserved, not extended (Slice C7.3)
+
+**Decision:** Finalization has no precondition beyond "the caller holds
+`assessment.finalize` and the Assessment is currently `draft`" — an
+Assessment with zero recorded responses may be finalized exactly as
+validly as a fully-answered one, tested directly. No reopening path was
+built. No `finalized_at`/`finalized_by` columns were added.
+**Rationale:** none of PRODUCT_SPEC.md/PRODUCT_UX_BLUEPRINT.md/
+DATA_MODEL.md documents any completeness precondition for finalization
+— grepped fresh this slice, confirmed absent — and instructions §9
+explicitly forbid inventing one "merely because it seems logical."
+DATA_MODEL.md §6 and PRODUCT_SPEC.md principle 6 both explicitly
+describe finalization as one-way ("corrections create a new assessment
+period rather than rewriting history") — building a reopen path would
+contradict the documented model, not merely go beyond it, so instead of
+guessing at who-may-reopen semantics this is recorded as correctly
+out of scope, matching the model as documented. `updated_at`/
+`updated_by`, set on the finalizing transition, already serve as a
+permanent, unambiguous "when/who finalized" record precisely because
+`assessments_prevent_finalized_tampering` guarantees this transition is
+the LAST update the row can ever receive — no dedicated column is
+needed to answer a question the generic columns already answer
+permanently by construction, and `audit_log` independently records the
+same fact a second way.
+
+### R-120 — Fixed a real, narrow bug in `unlinkEvidence`'s trigger-exception translation, discovered by this slice's own testing (Slice C7.3)
+
+**Decision:** `lib/domain/evidence.ts`'s `unlinkEvidence` now checks
+both `err.message` and `err.cause`'s message (`errorMessageIncludes`,
+new small helper) before deciding whether a caught exception is the
+finalization-immutability trigger, rather than `err.message` alone.
+**Why:** direct testing this slice (attempting to unlink evidence from
+a control whose Assessment had just been finalized — the exact scenario
+this function's own pre-existing docstring already described but had
+never actually been exercised against, since nothing could reach
+`finalized` status before this slice) found that drizzle-orm's
+node-postgres driver wraps a `.delete()` failure's real Postgres error
+message on `err.cause`, not on `err.message` itself — unlike
+`.insert()`/`.update()` failures, which this project's other,
+identically-shaped catch blocks (`updateAssessmentResponse`,
+`createControlTest`, `uploadEvidence`) translate correctly today,
+confirmed by this slice's own passing tests for each of them. Without
+this fix, a consultant attempting to unlink evidence from a finalized
+assessment would see a raw, unfriendly database error rather than the
+same clean `AssessmentFinalizedError` every other write path in this
+application already shows — a real, user-facing regression this
+slice's own testing caught before it could reach anyone. This is a
+narrow, minimal fix (one function, one new small helper) — not a
+broader audit or rewrite of every other catch block in the codebase.

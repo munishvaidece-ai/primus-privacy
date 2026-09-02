@@ -1,44 +1,221 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C7.2 (Engagement Membership Management)
-COMPLETE (Session 25): fixes the C7 review's own second P0 finding —
-before this slice, no function anywhere in the codebase could add a
-second user to an Engagement or Organisation, so any real multi-person
-or client-involving engagement was impossible without a database
-script. `lib/domain/engagement-memberships.ts` is new
-(`addEngagementMember`/`revokeEngagementMember`/`listEngagementMembers`/
-`listEligibleUsersForEngagement`/`listEngagementRoles`), embedded as a
-"Members" section on the Engagement detail page. Authorization is the
-first fine-grained Role/Permission check in this codebase: the caller
-must hold the already-seeded `membership.manage` permission
-(`db/seed/roles.ts`, granted to Engagement Manager and Client
-Administrator since Milestone 1) — not invented, finally read
-(DECISIONS.md R-114). Migration 0024 extends the pre-existing
-`engagement_memberships_insert` RLS policy additively (a real, necessary
-fix: an ordinary Engagement Manager, who holds only one
-`engagement_memberships` row on their own engagement, would otherwise be
-rejected by RLS even after the application layer approved them) and
-adds its first-ever UPDATE policy plus a reparenting guard. Direct
-testing this slice discovered — and the same migration fixes — a
-second, real structural gap: `users_select`'s own RLS makes a
-not-yet-connected candidate user, and a revoked member's own identity,
-genuinely invisible to an ordinary query; three new, narrowly-gated
-SECURITY DEFINER functions resolve this the same way this codebase's
-existing resolver-function pattern already does (DECISIONS.md R-115).
-Eligibility (tenant match + client-organisation match, preserving
-tenant-wide consultant staffing) and self-protection (no invariant
-found anywhere in the product documents, so none is invented — a
-manager can revoke themselves; DECISIONS.md R-116) are both resolved
-from the existing repository, not invented. 667 tests pass (59 files,
-+30 new in `tests/app/engagement-membership.test.ts`), run twice for
-stability, with zero regressions in the pre-existing
-`engagement-onboarding.test.ts` RLS/tenant-isolation coverage. Per
-explicit instruction, no invitation/email/registration system, no
-Client Portal, no Assessment finalization, no evidence download, no
-Engagement editing, no Maturity, no Reporting — those remain exactly
-where the C7 review's own recommended sequence puts them. Full details
-in the "Slice C7.2" section below. STOP after C7.2 per explicit
+Status: 2026-09-01 — Slice C7.3 (Assessment Finalization) COMPLETE
+(Session 26): establishes the real, enforceable lifecycle boundary
+between an editable and a finalized Assessment. `finalizeAssessment`
+(new, `lib/domain/assessments.ts`) is the one, terminal `draft →
+finalized` transition, gated on a new `assessment.finalize` permission
+(`canFinalizeAssessment`, `lib/authorization/service.ts`) — a genuinely
+new, distinct permission (not `engagement.manage`), granted to
+Engagement Manager, resolved from PRODUCT_UX_BLUEPRINT.md §8's own
+explicit "Engagement Manager additionally gets finalize/membership-
+manage" (DECISIONS.md R-117). No new immutability mechanism was built —
+direct, fresh inspection of migrations 0009/0011 confirmed Assessment,
+AssessmentControl, AssessmentResponse, ControlTest, and EvidenceLink
+were already fully frozen by Milestone 5/6's own existing triggers the
+moment `status` becomes `finalized`, dormant only because nothing ever
+set that status before this slice (DECISIONS.md R-118). Migration 0025
+narrows the pre-existing, previously-unused `assessments_update` RLS
+policy so only an `assessment.finalize` holder may perform the
+transition — closing a real, live gap this slice's own testing
+confirmed (any engagement member could otherwise raw-SQL flip the
+status). No completeness requirement, no reopening path, and no new
+`finalized_at`/`finalized_by` columns — none is documented anywhere in
+the product's own specification, and `updated_at`/`updated_by` already
+serve as a permanent record of who/when by construction, since the
+finalizing transition is guaranteed to be the row's own last update
+ever (DECISIONS.md R-119). Risk/Finding/Remediation/Validation all
+remain fully editable after finalization, tested directly end to end —
+no trigger anywhere connects Assessment finalization to any of them.
+This slice's own testing also caught and fixed a real, narrow,
+pre-existing bug: `unlinkEvidence` failed to translate a `.delete()`-
+time trigger exception into a clean error (DECISIONS.md R-120). 691
+tests pass (60 files, +24 new in
+`tests/app/assessment-finalization.test.ts`), run twice for stability,
+zero regressions. Per explicit instruction, no Maturity, Reporting,
+Client Portal, evidence download, Engagement editing, ROPA, AI,
+billing, reopening, comparison, previous-assessment workflows, new
+approval/sign-off, notifications, or digital signatures. Full details
+in the "Slice C7.3" section below. STOP after C7.3 per explicit
 instruction.
+
+## Slice C7.3 — Assessment Finalization (Session 26, 2026-09-01)
+
+**Scope:** exactly what the C7.3 brief instructed — a clear,
+enforceable lifecycle boundary between an editable Assessment and a
+finalized one. Explicitly NOT built this slice, per instruction:
+Maturity, Reporting, Client Portal, evidence download, Engagement
+editing, ROPA/Data Landscape, AI, billing, reopening (unless the model
+required it — it doesn't), Assessment comparison, previous-assessment
+workflows, a new approval/sign-off workflow, notifications/email,
+digital signatures.
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, every
+Assessment-adjacent schema file, migrations 0008/0009/0011 in full,
+the existing Assessment domain module/workspace/Server Actions, the
+existing role/permission model (`hasEngagementPermission`,
+`requireEngagementMembershipManageAccess`, C7.2's own authorization
+helpers), and existing Assessment/audit tests fresh from disk before
+writing anything, per instruction.
+
+### 1. Existing Assessment lifecycle model discovered
+
+`assessments.status`: exactly two values, `draft`/`finalized`
+(`assessment_status` enum) — no four-state draft/in-progress/under-
+review/finalized workflow exists anywhere, confirmed by DATA_MODEL.md
+§6's own explicit clarification ("'in progress' is simply an Assessment
+that is still DRAFT"). `previous_assessment_id` exists but is read/
+written by no application code anywhere (before or after this slice).
+Milestone 5/6's own security migrations (0009/0011) already carry five
+triggers that together fully freeze every Assessment-owned record the
+instant `status = 'finalized'`:
+`assessments_prevent_finalized_tampering` (the Assessment row itself —
+ANY update, even a no-op, once already finalized),
+`assessment_controls_enforce_draft_mutable` (INSERT/DELETE),
+`assessment_responses_enforce_draft_mutable` (INSERT/UPDATE/DELETE),
+`control_tests_enforce_draft_mutable` (INSERT/UPDATE/DELETE, only when
+`assessment_id IS NOT NULL`), and `enforce_evidence_link_draft_mutable`
+(INSERT/DELETE, for `assessment_response`/`control_test` subjects) —
+all re-verified fresh by direct migration inspection this slice, not
+assumed from a prior report. Before this slice, no application code
+anywhere ever issued an UPDATE against `assessments` at all — these
+triggers had existed, fully built and RLS-enabled, entirely dormant,
+since Milestone 5.
+
+### 2. Finalization authority
+
+PRODUCT_UX_BLUEPRINT.md §8's own permission-mapping table: "Engagement
+Manager additionally gets finalize/membership-manage" — an explicit,
+unambiguous statement. `membership.manage` already received its own
+dedicated permission key in Slice C7.2; the identical treatment is
+applied here for "finalize" (DECISIONS.md R-117) rather than folding it
+into the existing, differently-scoped `engagement.manage`. `db/seed/
+roles.ts` gains one new permission row, `assessment.finalize`, granted
+to Engagement Manager (and Platform Administrator, matching that role's
+existing "holds every permission" pattern) — additive seed data only,
+no schema change.
+
+### 3. Completeness / semantics / metadata / reopening
+
+No completeness precondition is documented anywhere — grepped fresh
+across every product document, confirmed absent — so none is enforced;
+an Assessment with zero recorded responses can be finalized exactly as
+validly as a fully-answered one, tested directly. DATA_MODEL.md §6 and
+PRODUCT_SPEC.md principle 6 both explicitly frame finalization as
+one-way ("corrections create a new assessment period rather than
+rewriting history") — no reopening path was built, matching the
+documented model rather than going beyond it. No `finalized_at`/
+`finalized_by` columns were added — `updated_at`/`updated_by`, set on
+this exact transition, already serve that purpose permanently, since
+`assessments_prevent_finalized_tampering` guarantees this transition is
+the row's own last update ever; `audit_log` independently records the
+same fact a second way (DECISIONS.md R-119).
+
+### 4. The transition itself
+
+`finalizeAssessment` (`lib/domain/assessments.ts`): Browser → Server
+Action (`finalizeAssessmentAction`, added to the existing Assessment
+workspace's own `actions.ts`) → authenticate → load the authoritative
+Assessment → derive its Engagement/Organisation → `requireAssessment
+FinalizeAccess` → pre-check current status (a clean
+`AssessmentFinalizedError` if already finalized, reusing the existing
+error class rather than inventing a parallel one) → the one UPDATE →
+audit (existing `assessments_audit_log` trigger, unchanged) → redirect.
+No browser-supplied `status`, tenant/organisation/engagement id, or
+actor id is ever trusted — every value is re-derived from the
+Assessment's own authoritative row or the caller's own session.
+
+### 5. RLS narrowing — migration 0025
+
+The pre-existing `assessments_update` policy (`WITH CHECK
+(can_access_engagement(...))` alone, unused by any application code
+since Milestone 5) is narrowed: transitioning a row's `status` to
+`finalized` additionally requires `assessment.finalize` (via the
+identical `has_engagement_permission`/`has_organisation_permission`
+mechanism Slice C7.2 already built, applied to the new permission key).
+This closes a real, live gap this slice's own testing confirmed: before
+this migration, any engagement member could raw-SQL flip an
+Assessment's status, bypassing the new application-layer check
+entirely (DECISIONS.md R-118). No GRANT change (UPDATE was already
+granted since migration 0009); no new audit trigger (the existing one
+already fires on UPDATE).
+
+### 6. Downstream continuity, proven not assumed
+
+A dedicated test builds a full Risk→Finding→Remediation→Validation
+chain from a real Assessment, finalizes the Assessment, then performs a
+genuine update/create on all four downstream layers — every one
+succeeds. A second test independently confirms, by direct
+`information_schema.triggers` inspection, that no trigger anywhere
+references Assessment finalization for `risks`/`findings`/
+`remediation_actions`/`validation_records`.
+
+### 7. A real bug found and fixed: `unlinkEvidence`'s error translation
+
+Direct testing this slice — attempting to unlink evidence from a
+finalized Assessment's control, the exact scenario `unlinkEvidence`'s
+own pre-existing docstring already described but had never actually
+been exercised against, since nothing could reach `finalized` before
+this slice — found that drizzle-orm's node-postgres driver wraps a
+`.delete()` failure's real Postgres message on `err.cause`, not
+`err.message` itself, unlike the `.insert()`/`.update()` failures this
+project's other, identically-shaped catches translate correctly. Fixed
+with a small, narrowly-scoped `errorMessageIncludes` helper checking
+both (DECISIONS.md R-120) — without this fix, a consultant would have
+seen a raw database error instead of the same clean
+`AssessmentFinalizedError` every other write path already shows.
+
+### 8. UI
+
+The existing Assessment workspace page already disabled every edit
+form (response, control test, evidence upload/review/unlink) once
+`status = 'finalized'` — built proactively in Slices C1/C2, long before
+finalization was ever reachable. This slice adds: the Finalize control
+itself (a `<details>` reveal with an explicit, permanent-consequence
+warning, gated server-side on `canFinalizeAssessment` and re-checked
+independently by the Server Action regardless of what the page
+rendered) and an updated finalized-state banner naming exactly what's
+locked. No new route — everything lives on the existing workspace URL.
+
+### 9. Test results
+
+`tests/app/assessment-finalization.test.ts` (new, 24 tests) — 24/24
+passing standalone, covering happy path, authorization (including
+Client Administrator, who does NOT hold `assessment.finalize`),
+tenant/organisation/engagement forgery, state-transition idempotency,
+immutability for all five protected record types (both via the real
+domain functions and direct raw SQL), downstream continuity, audit
+attribution, revoked-member access loss, and two standalone raw-SQL
+security invariants. Full `tests/app` — 321/321 passing (15 files), no
+regressions (including `evidence.test.ts`, unaffected by the
+`unlinkEvidence` fix). Full `npm run test:db` — **60 test files, 691
+tests, all passing**, run twice for stability, identical both times.
+`npm run typecheck` clean. `npx eslint .` clean. `npm run build`
+succeeds. Browser bundle grepped for service-role/database-credential
+strings — none found.
+
+### 10. What was NOT built (explicit STOP boundaries honored)
+
+No reopening, no Assessment comparison, no previous-assessment
+carry-forward UI, no new approval/sign-off workflow beyond the single
+Finalize action, no notifications/email, no digital signatures, no
+Maturity, no Reporting, no Client Portal, no evidence download, no
+Engagement editing, no ROPA, no AI, no billing.
+
+### 11. Recommended next slice
+
+Per the C7 review's own ordered sequence, C7.1/C7.2/C7.3 together close
+every P0 gap the review identified in the core Assessment→Risk→
+Finding→Remediation→Validation loop — the loop is now genuinely
+reachable and enforceable end to end by a real consultant without any
+database script. The remaining C7.x items the review named
+(C7.4 — Evidence Download reachability, C7.5 — Engagement Editing) are
+smaller, non-P0 polish; beyond those, the C7 review's own broader
+finding (Data Landscape/ROPA/Client Master Data/Reports/Client Portal
+still absent relative to the full original MVP definition) remains the
+larger, still-open sequencing question for the user to decide. This
+report does not preempt that choice.
 
 ## Slice C7.2 — Engagement Membership Management (Session 25, 2026-09-01)
 

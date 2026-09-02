@@ -26,6 +26,15 @@ const ROLES: Array<{ name: string; scope: "tenant" | "organisation" | "engagemen
 // A small, representative permission set — NOT an exhaustive catalogue
 // (Milestone 1 instructions §3: "Do not overbuild the permission-
 // management UI"). Enough to prove RolePermission works end to end.
+//
+// Slice C7.3 (DECISIONS.md R-117) adds `assessment.finalize` — a
+// genuinely new permission row, additive seed data only (no schema
+// change; `permissions`/`role_permissions` already existed since
+// Milestone 1). PRODUCT_UX_BLUEPRINT.md §8's own permission-mapping
+// table names "finalize" and "membership-manage" as the two distinct
+// capabilities Engagement Manager gets beyond an ordinary Consultant —
+// the same distinct-permission shape `membership.manage` already used
+// for the second one (Slice C7.2), applied here for the first.
 const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "tenant.manage", description: "Manage tenant-level settings." },
   { key: "organisation.create", description: "Onboard a new client organisation under the tenant." },
@@ -35,6 +44,7 @@ const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "membership.manage", description: "Grant or revoke tenant/organisation/engagement memberships." },
   { key: "user.manage", description: "Manage user profiles and status." },
   { key: "audit_log.read", description: "Read the audit log." },
+  { key: "assessment.finalize", description: "Finalize an Assessment, freezing its responses/tests/evidence permanently." },
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -47,9 +57,10 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "membership.manage",
     "user.manage",
     "audit_log.read",
+    "assessment.finalize",
   ],
   "Practice Partner": ["organisation.create", "engagement.create", "engagement.manage", "audit_log.read"],
-  "Engagement Manager": ["engagement.manage", "membership.manage"],
+  "Engagement Manager": ["engagement.manage", "membership.manage", "assessment.finalize"],
   "Client Administrator": ["membership.manage", "user.manage"],
 };
 

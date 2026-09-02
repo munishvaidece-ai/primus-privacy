@@ -546,6 +546,16 @@ export interface UnlinkEvidenceInput {
  * evidence whose subject belongs to a finalized assessment; the
  * `catch` below only turns its raw exception into the same clean error
  * every other write path in this project already uses.
+ *
+ * Slice C7.3 fix: drizzle-orm's node-postgres driver wraps a `.delete()`
+ * failure's real Postgres message on `err.cause`, not `err.message`
+ * itself (unlike the `.insert()`/`.update()` failures this project's
+ * other trigger-translating catches already handle correctly) —
+ * confirmed by direct testing this slice against the now-real
+ * finalization trigger this catch was written for but had never
+ * actually been exercised against before finalization existed.
+ * `errorMessageIncludes` checks both, so this translation works
+ * regardless of which layer drizzle put the real message on.
  */
 export async function unlinkEvidence(db: RequestDb, userId: string, input: UnlinkEvidenceInput): Promise<void> {
   await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
@@ -562,11 +572,21 @@ export async function unlinkEvidence(db: RequestDb, userId: string, input: Unlin
   try {
     await db.delete(evidenceLinks).where(eq(evidenceLinks.id, input.evidenceLinkId));
   } catch (err) {
-    if (err instanceof Error && /finalized/i.test(err.message)) {
+    if (errorMessageIncludes(err, /finalized/i)) {
       throw new AssessmentFinalizedError();
     }
     throw err;
   }
+}
+
+/** Checks a caught error's message for `pattern`, including the real
+ * underlying Postgres message when drizzle-orm has wrapped it on
+ * `err.cause` rather than `err.message` itself (observed for
+ * `.delete()` failures specifically — Slice C7.3). */
+function errorMessageIncludes(err: unknown, pattern: RegExp): boolean {
+  if (err instanceof Error && pattern.test(err.message)) return true;
+  const cause = err instanceof Error ? err.cause : undefined;
+  return cause instanceof Error && pattern.test(cause.message);
 }
 
 export interface ReviewEvidenceInput {
