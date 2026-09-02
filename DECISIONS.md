@@ -4064,3 +4064,115 @@ finalize`), M2 §3 treats "compute" and "finalize" as one atomic action
 with no separate human-review step (R-144) — so, unlike D3's
 `scope.lock`/`assessment.finalize` split, there is no second capability
 here needing its own permission.
+
+### R-150 — Four new dedicated permissions (`validation.perform`, `risk.manage`, `finding.manage`, `evidence.review`) close the P2 self-validation/over-broad-write gap — granted only to Engagement Manager and Consultant (Slice P2A)
+
+**Decision:** `createValidationRecord`, `createRisk`/`updateRiskStatus`,
+`createFinding`/`updateFinding`, and `reviewEvidence` each now require a
+dedicated permission (`lib/authorization/service.ts`'s new
+`requireValidationPerformAccess`/`requireRiskManageAccess`/
+`requireFindingManageAccess`/`requireEvidenceReviewAccess`), replacing
+the broad `requireEngagementAccess` check (satisfied identically by any
+`EngagementMembership`/`OrganisationMembership`, client-side roles
+included) each of these functions used before P2A. All four permissions
+are seeded (`db/seed/roles.ts`) only to Engagement Manager and
+Consultant — not Auditor (PRODUCT_UX_BLUEPRINT.md §8's own pre-existing,
+approved Permission Matrix gives "Reviewer" read-only access across
+every one of these rows, pending the separate, not-yet-built
+`QualityReview` workflow) and not any client-side role (Business
+Owner/IT-CISO/Procurement/Legal/Client Administrator/Privacy
+Officer/CXO), matching that same matrix's CV(-only)/no-write columns for
+Risk/Finding/Validation. Migration 0031 narrows the matching RLS write
+path (`risks_insert`/`_update`, `findings_insert`/`_update`,
+`validation_records_insert`, `evidence_update`) to the same permissions,
+mirroring migration 0030's own `maturity.compute` narrowing exactly.
+**Rationale:** P2 discovery's own explicit finding (P2_FIRST_CUSTOMER_
+WORKFLOW_DISCOVERY.md) — every one of these writes was reachable by a
+client-side `EngagementMembership`/`OrganisationMembership` holder
+identically to a consultant, most seriously letting a client validate
+(self-approve) its own remediation. The P2A brief's own load-bearing
+requirement: "a client must NOT be able to self-validate its own
+remediation," resolved with the repository's own established dedicated-
+permission pattern (D3's `scope.lock`, M2's `maturity.compute`) rather
+than a new authorization framework or a new Client role.
+
+### R-151 — `validation_records_update`, `RemediationAction.status = "validated"`, and Remediation writes generally are deliberately left untouched (Slice P2A)
+
+**Decision:** P2A does not narrow `validation_records_update` (no
+domain code writes through it — it exists only for a future, narrow
+reassessment-trigger transition per its own migration 0013 comment;
+`createValidationRecord`'s INSERT is the actual, and only, self-
+validation vector, and that is what R-150 closes). It also does not
+touch `remediation_actions_insert`/`_update` RLS, nor add a permission
+check to `lib/domain/remediation.ts` at all — `updateRemediationAction`
+still accepts `status = "validated"` from anyone with ordinary
+engagement access, a second, narrower theoretical self-validation
+surface distinct from `ValidationRecord` creation.
+**Rationale:** the P2A brief's own explicit Part 4 instruction: "Do not
+over-restrict client participation... CLIENT: provide remediation
+information / evidence / completion input... Do not invent additional
+lifecycle states." Closing `RemediationAction.status = "validated"` too
+would require either inventing a new lifecycle state (a status a client
+CAN set that isn't literally the string `"validated"`) or removing
+client write access to `remediation_actions` generally, both explicitly
+out of scope. This is a deliberate, documented, accepted P1 limitation
+(mirroring D3's own R-142 precedent of naming a gap rather than silently
+expanding scope) — not an oversight. See PROGRESS.md's "Known
+limitations" for the tracked follow-up.
+
+### R-152 — Evidence visibility (`consultant_internal`/`client_visible`) is now enforced server-side, auto-computed at upload time from the uploader's own `evidence.review` permission — never a client-supplied value (Slice P2A)
+
+**Decision:** `uploadEvidence`/`createEvidenceForVersion` compute
+`visibility` themselves — `consultant_internal` if the uploading user
+holds `evidence.review` (i.e. is engagement/consultant staff),
+`client_visible` otherwise — rather than accepting it as caller input.
+Every read path that can return `consultant_internal` Evidence now
+takes an explicit `canSeeInternal: boolean` parameter, computed once per
+caller via `canReviewEvidence` and threaded through
+(`getEvidenceSummaryForControl`/`ForRemediationAction`/
+`ForValidationRecord`/`ForValidationRecords`), excluding
+`consultant_internal` rows entirely from the returned set for a caller
+who lacks it — never merely hidden by the UI. `getEvidenceDownloadUrl`
+independently re-checks the same permission against the specific
+`evidenceId` requested, BEFORE any signed URL is issued — the load-
+bearing check, since it is the only path that returns retrievable file
+bytes; a client cannot bypass it by supplying a different (correct)
+evidence id, cross-tenant id, or cross-engagement id (all three
+independently tested, `tests/app/authorization-hardening.test.ts`).
+`evidence.review` is reused, not duplicated, as the read-side "may see
+consultant_internal Evidence" signal — the same permission that lets
+someone accept/reject an internal item is the one that lets them see it.
+**Rationale:** the P2A brief's own Part 5, marked critical: "Do NOT
+merely hide a UI element. Authorization must be enforced server-side. A
+client must not be able to retrieve consultant-internal evidence by
+changing an ID or URL." `evidence.visibility` has existed in the schema
+since Milestone 6 but was never read by any query before this slice
+(P2 discovery's own finding) — this closes that gap without adding a
+new column or changing the enum.
+
+### R-153 — `evidence_select` (and every other Evidence/Risk/Finding/RemediationAction SELECT RLS policy) is deliberately NOT narrowed by P2A (Slice P2A)
+
+**Decision:** Migration 0031 narrows only `risks_insert`/`_update`,
+`findings_insert`/`_update`, `validation_records_insert`, and
+`evidence_update`. No SELECT policy is touched — `evidence_select`
+included, which stays the same broad `can_access_engagement`/
+`can_access_organisation` check it has always had. Evidence visibility
+(R-152) is enforced at the application layer only.
+**Rationale:** three independent reasons, each sufficient on its own:
+(1) `db/schema/evidence.ts`'s own pre-existing schema comment already
+documents `visibility` as deliberately not an RLS condition, a
+Milestone-6-era decision this slice inherits rather than reverses; (2) a
+broad SELECT-policy change carries meaningfully higher regression risk
+than an INSERT/UPDATE narrowing — dozens of pre-existing tests across
+`tests/evidence/`, `tests/app/evidence.test.ts`, and every Risk/Finding/
+Remediation detail page read Evidence rows, and SELECT is the one policy
+every one of them depends on; (3) the actually sensitive action — real
+file-byte retrieval — runs entirely through `getEvidenceDownloadUrl`,
+which R-152 already gates server-side before any signed URL is issued,
+independently satisfying the P2A brief's own specific "cannot bypass by
+changing ID" requirement without touching SELECT RLS at all. This is
+consistent with the brief's own Part 7 instruction ("Do not weaken
+existing SELECT policies") read together with Part 15's "use the
+smallest migration possible" — RLS remains the backstop for every write
+this slice narrows; it was never asked to become the mechanism for
+visibility filtering specifically.

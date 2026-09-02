@@ -488,7 +488,7 @@ describe("Application layer — Validation (Slice C6)", () => {
         file: textFile(),
       }),
     );
-    const rows = await withRequestDb(userA, (db) => getEvidenceSummaryForValidationRecord(db, v));
+    const rows = await withRequestDb(userA, (db) => getEvidenceSummaryForValidationRecord(db, v, true));
     expect(rows.some((r) => r.title === "Evidence for scoped summary check")).toBe(true);
   });
 
@@ -535,7 +535,7 @@ describe("Application layer — Validation (Slice C6)", () => {
     await expect(
       withRequestDb(userB, (db) => getRemediationActionDetail(db, userB, { organisationId: orgA, engagementId: engagementA, remediationActionId: chainRemediation })),
     ).rejects.toThrow(NotFoundOrForbiddenError);
-    const tenantBEvidence = await withRequestDb(userB, (db) => getEvidenceSummaryForValidationRecord(db, chainValidation));
+    const tenantBEvidence = await withRequestDb(userB, (db) => getEvidenceSummaryForValidationRecord(db, chainValidation, true));
     expect(tenantBEvidence).toHaveLength(0);
   });
 

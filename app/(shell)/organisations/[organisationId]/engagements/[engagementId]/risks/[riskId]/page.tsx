@@ -6,7 +6,7 @@ import { getRiskDetail } from "@/lib/domain/risks";
 import { getControlTestsForControl } from "@/lib/domain/assessments";
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { listFindingsForRisk } from "@/lib/domain/findings";
-import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, canManageRisk, canManageFinding, canReviewEvidence } from "@/lib/authorization/service";
 import { Badge, riskRatingTone, riskStatusTone, findingStatusTone, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { updateRiskStatusAction, createFindingAction } from "../actions";
@@ -45,13 +45,33 @@ export default async function RiskDetailPage({
 
   if (!risk) notFound();
 
+  // P2A: server-independent re-decision of whether to render the
+  // consultant-only "save status" / "create finding" controls and
+  // consultant-internal evidence, mirroring the Assessment workspace
+  // page's own pattern. updateRiskStatus/createFinding/
+  // getEvidenceSummaryForControl re-check the same permissions
+  // regardless of what this render decided.
+  const [canManageRiskResult, canManageFindingResult, canReviewEvidenceResult] = await withRequestDb(user.id, async (db) => {
+    const [manageRisk, manageFinding, reviewEv] = await Promise.all([
+      canManageRisk(db, user.id, risk.engagementId, risk.organisationId),
+      canManageFinding(db, user.id, risk.engagementId, risk.organisationId),
+      canReviewEvidence(db, user.id, risk.engagementId, risk.organisationId),
+    ]);
+    return [manageRisk, manageFinding, reviewEv] as const;
+  });
+
   const primaryControl = risk.sourceControls[0] ?? null;
 
   const [controlTestRows, evidenceRows] =
     risk.sourceAssessment && primaryControl
       ? await withRequestDb(user.id, async (db) => {
           const tests = await getControlTestsForControl(db, risk.sourceAssessment!.id, primaryControl.id);
-          const ev = await getEvidenceSummaryForControl(db, risk.sourceAssessmentResponse?.id ?? null, tests.map((t) => t.id));
+          const ev = await getEvidenceSummaryForControl(
+            db,
+            risk.sourceAssessmentResponse?.id ?? null,
+            tests.map((t) => t.id),
+            canReviewEvidenceResult,
+          );
           return [tests, ev] as const;
         })
       : ([[], []] as const);
@@ -141,6 +161,7 @@ export default async function RiskDetailPage({
 
         <section className="rounded-md border border-slate-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-slate-900">Status &amp; ownership</h2>
+          {canManageRiskResult ? (
           <form action={updateRiskStatusAction} className="mt-2 flex items-end gap-2">
             <input type="hidden" name="organisationId" value={params.organisationId} />
             <input type="hidden" name="engagementId" value={params.engagementId} />
@@ -166,6 +187,11 @@ export default async function RiskDetailPage({
               Save status
             </Button>
           </form>
+          ) : (
+            <p className="mt-2 text-sm text-slate-700">
+              <Badge tone={riskStatusTone(risk.status)}>{risk.status}</Badge>
+            </p>
+          )}
           <dl className="mt-4 space-y-2 text-sm">
             <div>
               <dt className="text-xs font-medium text-slate-600">Owner</dt>
@@ -301,6 +327,7 @@ export default async function RiskDetailPage({
             </ul>
           )}
 
+          {canManageFindingResult ? (
           <form action={createFindingAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
             <input type="hidden" name="organisationId" value={params.organisationId} />
             <input type="hidden" name="engagementId" value={params.engagementId} />
@@ -339,6 +366,7 @@ export default async function RiskDetailPage({
               Create finding
             </Button>
           </form>
+          ) : null}
         </section>
       </div>
 

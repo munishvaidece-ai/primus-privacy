@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
 import { risks, findings, findingRisks, users } from "@/db/schema";
-import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, requireEngagementAccess, requireFindingManageAccess } from "@/lib/authorization/service";
 
 // Slice C4 (PHASE C — FINDINGS) — the Findings domain module: turns an
 // existing Risk into a structured, traceable Finding, using the EXACT
@@ -101,7 +101,12 @@ export async function createFinding(
     .limit(1);
   if (!risk) throw new NotFoundOrForbiddenError();
 
-  await requireEngagementAccess(db, userId, risk.engagementId, risk.organisationId);
+  // P2A (Authorization & Confidentiality Hardening): gated by the
+  // dedicated `finding.manage` permission, not the broad
+  // `requireEngagementAccess` this function used before P2A — matches
+  // PRODUCT_UX_BLUEPRINT.md §8's own pre-existing permission matrix
+  // (Finding create/manage is Consultant-only). See DECISIONS.md.
+  await requireFindingManageAccess(db, userId, risk.engagementId, risk.organisationId);
 
   const id = randomUUID();
   await db.insert(findings).values({
@@ -161,7 +166,8 @@ export interface UpdateFindingInput {
  * caller's own id, or cleared entirely; never an arbitrary target user.
  */
 export async function updateFinding(db: RequestDb, userId: string, input: UpdateFindingInput): Promise<void> {
-  await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
+  // P2A: same `finding.manage` gate as `createFinding`.
+  await requireFindingManageAccess(db, userId, input.engagementId, input.organisationId);
 
   if (!input.title.trim()) {
     throw new InvalidFindingInputError("Title is required.");

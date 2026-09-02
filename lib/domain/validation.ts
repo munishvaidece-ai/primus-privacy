@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
 import { remediationActions, validationRecords, users } from "@/db/schema";
-import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, requireEngagementAccess, requireValidationPerformAccess, canReviewEvidence } from "@/lib/authorization/service";
 import { getEvidenceSummaryForValidationRecord, type EvidenceSummaryRow } from "@/lib/domain/evidence";
 
 // Slice C6 (PHASE C — VALIDATION) — the Validation domain module: turns
@@ -94,6 +94,14 @@ export interface CreateValidationRecordInput {
  * only to a RemediationAction), so finalization is structurally not
  * applicable here — mirrors `resolveLinkSubject`'s identical
  * `remediation_action` conclusion in lib/domain/evidence.ts.
+ *
+ * **P2A (Authorization & Confidentiality Hardening):** gated by the
+ * dedicated `validation.perform` permission, not the broad
+ * `requireEngagementAccess` this function used before P2A — the load-
+ * bearing fix that slice exists for: a client must never be able to
+ * self-validate its own remediation. Granted only to Engagement Manager
+ * and Consultant (`db/seed/roles.ts`) — no client-side role holds it.
+ * See DECISIONS.md.
  */
 export async function createValidationRecord(
   db: RequestDb,
@@ -119,7 +127,7 @@ export async function createValidationRecord(
     .limit(1);
   if (!remediation) throw new NotFoundOrForbiddenError();
 
-  await requireEngagementAccess(db, userId, remediation.engagementId, remediation.organisationId);
+  await requireValidationPerformAccess(db, userId, remediation.engagementId, remediation.organisationId);
 
   const id = randomUUID();
   await db.insert(validationRecords).values({
@@ -283,7 +291,10 @@ export async function getValidationRecordDetail(
     throw new NotFoundOrForbiddenError();
   }
 
-  const evidenceRows = await getEvidenceSummaryForValidationRecord(db, row.id);
+  // P2A: server-side evidence-visibility enforcement — see
+  // lib/domain/evidence.ts's own P2A notes.
+  const canSeeInternal = await canReviewEvidence(db, userId, input.engagementId, input.organisationId);
+  const evidenceRows = await getEvidenceSummaryForValidationRecord(db, row.id, canSeeInternal);
 
   return {
     id: row.id,

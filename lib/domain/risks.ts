@@ -12,7 +12,7 @@ import {
   riskControls,
   users,
 } from "@/db/schema";
-import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, requireEngagementAccess, requireRiskManageAccess } from "@/lib/authorization/service";
 
 // Slice C3 (PHASE C — RISK) — the Risk Engine. Turns Assessment results
 // into a structured, traceable Risk register entry, using the EXACT
@@ -152,7 +152,13 @@ export async function createRisk(
     .limit(1);
   if (!assessment) throw new NotFoundOrForbiddenError();
 
-  await requireEngagementAccess(db, userId, assessment.engagementId, assessment.organisationId);
+  // P2A (Authorization & Confidentiality Hardening): gated by the
+  // dedicated `risk.manage` permission, not the broad
+  // `requireEngagementAccess` this function used before P2A — matches
+  // PRODUCT_UX_BLUEPRINT.md §8's own pre-existing, approved permission
+  // matrix (Risk create/score is Consultant-only; every client-side
+  // role gets CV/no write at all). See DECISIONS.md.
+  await requireRiskManageAccess(db, userId, assessment.engagementId, assessment.organisationId);
 
   // Proves the Control is genuinely in scope for this Assessment — see
   // this function's own docstring above.
@@ -226,7 +232,10 @@ export interface UpdateRiskStatusInput {
  * PROGRESS.md's "Known limitations").
  */
 export async function updateRiskStatus(db: RequestDb, userId: string, input: UpdateRiskStatusInput): Promise<void> {
-  await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
+  // P2A: same `risk.manage` gate as `createRisk` — status is the one
+  // supported post-creation edit, still a consultant judgment call, not
+  // client-editable (see that function's own P2A note).
+  await requireRiskManageAccess(db, userId, input.engagementId, input.organisationId);
 
   const [risk] = await db
     .select({ id: risks.id, organisationId: risks.organisationId, engagementId: risks.engagementId })

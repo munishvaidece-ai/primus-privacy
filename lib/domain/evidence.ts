@@ -18,7 +18,7 @@ import {
   auditLog,
   users,
 } from "@/db/schema";
-import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, requireEngagementAccess, canReviewEvidence, requireEvidenceReviewAccess } from "@/lib/authorization/service";
 import { AssessmentFinalizedError } from "@/lib/domain/assessments";
 import {
   getEvidenceStorageAdapter,
@@ -286,6 +286,20 @@ export interface UploadEvidenceInput {
  * below — deleting the just-uploaded object — is what instructions §7
  * ask for instead, so a rolled-back database write never leaves a
  * permanently orphaned Storage object behind.
+ *
+ * **P2A (Authorization & Confidentiality Hardening):** upload access
+ * itself remains unchanged and broad (`requireEngagementAccess`) —
+ * client uploads are a legitimate, preserved capability (P2A's own
+ * explicit "do not over-restrict client participation"). What changes is
+ * `evidence.visibility`, now genuinely computed rather than left at its
+ * schema default unconditionally: `consultant_internal` when the
+ * uploader holds `evidence.review` (a consultant-side upload — their own
+ * working notes/internal test evidence, restrictive by default, matching
+ * this column's own pre-existing doc comment), `client_visible`
+ * otherwise (a client-side upload — hiding a client's own just-uploaded
+ * item from them would be a functional regression, not a security
+ * improvement). Never a caller-supplied value — no new form field, no
+ * new UI (P2A §11) — purely server-determined by role. See DECISIONS.md.
  */
 export async function uploadEvidence(
   db: RequestDb,
@@ -296,6 +310,9 @@ export async function uploadEvidence(
 
   await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
   const { tenantId } = await resolveEngagementScope(db, input.engagementId, input.organisationId);
+  const visibility = (await canReviewEvidence(db, userId, input.engagementId, input.organisationId))
+    ? "consultant_internal"
+    : "client_visible";
 
   const subject = await resolveLinkSubject(db, input.linkTo, input.engagementId, input.organisationId, tenantId);
   if (subject.assessmentStatus === "finalized") {
@@ -355,6 +372,7 @@ export async function uploadEvidence(
       documentVersionId,
       title: input.title,
       evidenceType: input.evidenceType,
+      visibility,
       createdBy: userId,
       updatedBy: userId,
     });
@@ -480,6 +498,12 @@ export async function createEvidenceForVersion(
 ): Promise<{ evidenceId: string }> {
   await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
   const { tenantId } = await resolveEngagementScope(db, input.engagementId, input.organisationId);
+  // P2A: same visibility rule as `uploadEvidence` — see that function's
+  // own note. No UI currently calls this function; kept consistent
+  // anyway rather than leaving a latent gap for when one does.
+  const visibility = (await canReviewEvidence(db, userId, input.engagementId, input.organisationId))
+    ? "consultant_internal"
+    : "client_visible";
 
   const [version] = await db
     .select({ tenantId: documentVersions.tenantId, organisationId: documentVersions.organisationId, engagementId: documentVersions.engagementId })
@@ -505,6 +529,7 @@ export async function createEvidenceForVersion(
       documentVersionId: input.documentVersionId,
       title: input.title,
       evidenceType: input.evidenceType,
+      visibility,
       createdBy: userId,
       updatedBy: userId,
     });
@@ -607,14 +632,16 @@ export interface ReviewEvidenceInput {
  * expiry-sweep job exists anywhere in this project). Rejecting without
  * a rationale is refused server-side (instructions §24: "If rejected:
  * Require review rationale"), not merely a required-attribute on the
- * form. No fine-grained "reviewer" permission distinct from ordinary
- * engagement access exists in the current Role/Permission catalogue
- * (the same R-84/R-93 posture already established) — any engagement
- * member may review, matching how any engagement member may respond to
- * an AssessmentResponse.
+ * form.
+ *
+ * **P2A (Authorization & Confidentiality Hardening):** the R-84/R-93
+ * "any engagement member may review" posture this docstring originally
+ * described is superseded — gated by the new, dedicated `evidence.review`
+ * permission instead, so a client can no longer review/accept-or-reject
+ * their own (or anyone else's) uploaded evidence. See DECISIONS.md.
  */
 export async function reviewEvidence(db: RequestDb, userId: string, input: ReviewEvidenceInput): Promise<void> {
-  await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
+  await requireEvidenceReviewAccess(db, userId, input.engagementId, input.organisationId);
 
   if (input.reviewStatus === "rejected" && !input.reviewRationale?.trim()) {
     throw new ReviewRationaleRequiredError();
@@ -666,6 +693,16 @@ export interface GetEvidenceDownloadUrlInput {
  * distinguishing an access event from an actual Evidence row
  * creation/update (`action = 'insert'` on both, since inserting this
  * row IS the event, not a claim that the Evidence row itself changed).
+ *
+ * **P2A (Authorization & Confidentiality Hardening):** the authorization
+ * decision happens BEFORE the sensitive storage retrieval — `visibility`
+ * is resolved from the database and checked immediately after the row
+ * lookup, and only if it passes does this function ever call
+ * `storage.createSignedUrl` at all. A `consultant_internal` item is
+ * rejected with the same generic `NotFoundOrForbiddenError` every other
+ * authorization failure in this codebase uses — a client cannot
+ * distinguish "does not exist" from "exists but is internal" by
+ * guessing/changing the evidence id in the URL. See DECISIONS.md.
  */
 export async function getEvidenceDownloadUrl(
   db: RequestDb,
@@ -680,12 +717,16 @@ export async function getEvidenceDownloadUrl(
       tenantId: evidence.tenantId,
       organisationId: evidence.organisationId,
       engagementId: evidence.engagementId,
+      visibility: evidence.visibility,
     })
     .from(evidence)
     .innerJoin(documentVersions, eq(documentVersions.id, evidence.documentVersionId))
     .where(eq(evidence.id, input.evidenceId))
     .limit(1);
   if (!row || row.organisationId !== input.organisationId || row.engagementId !== input.engagementId) {
+    throw new NotFoundOrForbiddenError();
+  }
+  if (row.visibility === "consultant_internal" && !(await canReviewEvidence(db, userId, input.engagementId, input.organisationId))) {
     throw new NotFoundOrForbiddenError();
   }
 
@@ -737,12 +778,20 @@ export async function getEvidenceSummaryForControl(
   db: RequestDb,
   assessmentResponseId: string | null,
   controlTestIds: string[],
+  canSeeInternal: boolean,
 ): Promise<EvidenceSummaryRow[]> {
   if (!assessmentResponseId && controlTestIds.length === 0) return [];
 
   const conditions = [];
   if (assessmentResponseId) conditions.push(eq(evidenceLinks.assessmentResponseId, assessmentResponseId));
   if (controlTestIds.length > 0) conditions.push(inArray(evidenceLinks.controlTestId, controlTestIds));
+  const subjectCondition = or(...conditions);
+  // P2A: `consultant_internal` Evidence is excluded from this result
+  // entirely for a caller who lacks `evidence.review` — never merely
+  // hidden by the UI (lib/authorization/service.ts's `canReviewEvidence`
+  // resolves `canSeeInternal`, computed once by each caller). See
+  // DECISIONS.md.
+  const whereClause = canSeeInternal ? subjectCondition : and(subjectCondition, eq(evidence.visibility, "client_visible"));
 
   const rows = await db
     .select({
@@ -766,7 +815,7 @@ export async function getEvidenceSummaryForControl(
     .innerJoin(evidence, eq(evidence.id, evidenceLinks.evidenceId))
     .innerJoin(documentVersions, eq(documentVersions.id, evidence.documentVersionId))
     .leftJoin(users, eq(users.id, evidence.reviewedBy))
-    .where(or(...conditions))
+    .where(whereClause)
     .orderBy(desc(evidence.collectedAt));
 
   // The WHERE clause above only ever matches assessment_response/
@@ -818,6 +867,13 @@ export async function getEvidenceSummaryForEngagement(
   input: { organisationId: string; engagementId: string },
 ): Promise<EngagementEvidenceRow[]> {
   await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
+  // P2A: this function already independently resolves userId/engagement/
+  // organisation, so `canSeeInternal` is computed here directly rather
+  // than threaded in by the caller (unlike the positional-argument
+  // getEvidenceSummaryFor* functions below, which don't otherwise take a
+  // userId). See DECISIONS.md.
+  const canSeeInternal = await canReviewEvidence(db, userId, input.engagementId, input.organisationId);
+  const scopeCondition = and(eq(evidence.engagementId, input.engagementId), eq(evidence.organisationId, input.organisationId));
 
   const rows = await db
     .select({
@@ -836,7 +892,7 @@ export async function getEvidenceSummaryForEngagement(
     .from(evidence)
     .innerJoin(documentVersions, eq(documentVersions.id, evidence.documentVersionId))
     .leftJoin(users, eq(users.id, evidence.reviewedBy))
-    .where(and(eq(evidence.engagementId, input.engagementId), eq(evidence.organisationId, input.organisationId)))
+    .where(canSeeInternal ? scopeCondition : and(scopeCondition, eq(evidence.visibility, "client_visible")))
     .orderBy(desc(evidence.collectedAt));
 
   return rows;
@@ -854,7 +910,9 @@ export async function getEvidenceSummaryForEngagement(
 export async function getEvidenceSummaryForRemediationAction(
   db: RequestDb,
   remediationActionId: string,
+  canSeeInternal: boolean,
 ): Promise<EvidenceSummaryRow[]> {
+  const scopeCondition = eq(evidenceLinks.remediationActionId, remediationActionId);
   const rows = await db
     .select({
       id: evidence.id,
@@ -877,7 +935,7 @@ export async function getEvidenceSummaryForRemediationAction(
     .innerJoin(evidence, eq(evidence.id, evidenceLinks.evidenceId))
     .innerJoin(documentVersions, eq(documentVersions.id, evidence.documentVersionId))
     .leftJoin(users, eq(users.id, evidence.reviewedBy))
-    .where(eq(evidenceLinks.remediationActionId, remediationActionId))
+    .where(canSeeInternal ? scopeCondition : and(scopeCondition, eq(evidence.visibility, "client_visible")))
     .orderBy(desc(evidence.collectedAt));
 
   return rows as EvidenceSummaryRow[];
@@ -894,8 +952,9 @@ export async function getEvidenceSummaryForRemediationAction(
 export async function getEvidenceSummaryForValidationRecord(
   db: RequestDb,
   validationRecordId: string,
+  canSeeInternal: boolean,
 ): Promise<EvidenceSummaryRow[]> {
-  const rows = await getEvidenceSummaryForValidationRecords(db, [validationRecordId]);
+  const rows = await getEvidenceSummaryForValidationRecords(db, [validationRecordId], canSeeInternal);
   return rows.filter((r) => r.validationRecordId === validationRecordId);
 }
 
@@ -915,9 +974,11 @@ export interface ValidationEvidenceSummaryRow extends EvidenceSummaryRow {
 export async function getEvidenceSummaryForValidationRecords(
   db: RequestDb,
   validationRecordIds: string[],
+  canSeeInternal: boolean,
 ): Promise<ValidationEvidenceSummaryRow[]> {
   if (validationRecordIds.length === 0) return [];
 
+  const scopeCondition = inArray(evidenceLinks.validationRecordId, validationRecordIds);
   const rows = await db
     .select({
       id: evidence.id,
@@ -941,7 +1002,7 @@ export async function getEvidenceSummaryForValidationRecords(
     .innerJoin(evidence, eq(evidence.id, evidenceLinks.evidenceId))
     .innerJoin(documentVersions, eq(documentVersions.id, evidence.documentVersionId))
     .leftJoin(users, eq(users.id, evidence.reviewedBy))
-    .where(inArray(evidenceLinks.validationRecordId, validationRecordIds))
+    .where(canSeeInternal ? scopeCondition : and(scopeCondition, eq(evidence.visibility, "client_visible")))
     .orderBy(desc(evidence.collectedAt));
 
   return rows as ValidationEvidenceSummaryRow[];

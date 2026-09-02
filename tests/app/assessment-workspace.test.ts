@@ -300,7 +300,7 @@ describe("Application layer — Assessment Workspace + Control Assessment (Slice
   });
 
   it("Evidence summary: evidence linked to this control's response is shown", async () => {
-    const ev = await withRequestDb(userA1, (db) => getEvidenceSummaryForControl(db, responseA1_1, [controlTestA1_1]));
+    const ev = await withRequestDb(userA1, (db) => getEvidenceSummaryForControl(db, responseA1_1, [controlTestA1_1], true));
     expect(ev.some((e) => e.id === evidenceA)).toBe(true);
   });
 
@@ -413,7 +413,7 @@ describe("Application layer — Assessment Workspace + Control Assessment (Slice
     );
     const responseBId = evB.rows[0]!.assessment_response_id as string;
 
-    const result = await withRequestDb(userA1, (db) => getEvidenceSummaryForControl(db, responseBId, []));
+    const result = await withRequestDb(userA1, (db) => getEvidenceSummaryForControl(db, responseBId, [], true));
     expect(result).toHaveLength(0);
   });
 

@@ -516,8 +516,8 @@ describe("Application layer — Remediation Actions (Slice C5)", () => {
 
     const [tests, indirectEvidence, directEvidence] = await withRequestDb(userA, async (db) => {
       const t = await getControlTestsForControl(db, riskDetail.sourceAssessment!.id, riskDetail.sourceControls[0]!.id);
-      const indirect = await getEvidenceSummaryForControl(db, riskDetail.sourceAssessmentResponse!.id, t.map((x) => x.id));
-      const direct = await getEvidenceSummaryForRemediationAction(db, chainRemediation);
+      const indirect = await getEvidenceSummaryForControl(db, riskDetail.sourceAssessmentResponse!.id, t.map((x) => x.id), true);
+      const direct = await getEvidenceSummaryForRemediationAction(db, chainRemediation, true);
       return [t, indirect, direct] as const;
     });
     void tests;
@@ -535,7 +535,7 @@ describe("Application layer — Remediation Actions (Slice C5)", () => {
     await expect(
       withRequestDb(userB, (db) => getRiskDetail(db, userB, { organisationId: orgA, engagementId: engagementA, riskId: chainRisk })),
     ).rejects.toThrow(NotFoundOrForbiddenError);
-    const tenantBDirectEvidence = await withRequestDb(userB, (db) => getEvidenceSummaryForRemediationAction(db, chainRemediation));
+    const tenantBDirectEvidence = await withRequestDb(userB, (db) => getEvidenceSummaryForRemediationAction(db, chainRemediation, true));
     expect(tenantBDirectEvidence).toHaveLength(0);
   });
 

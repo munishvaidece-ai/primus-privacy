@@ -7,7 +7,7 @@ import { getFindingDetail } from "@/lib/domain/findings";
 import { getRiskDetail } from "@/lib/domain/risks";
 import { getControlTestsForControl } from "@/lib/domain/assessments";
 import { getEvidenceSummaryForControl, getEvidenceSummaryForRemediationAction, getEvidenceSummaryForValidationRecords } from "@/lib/domain/evidence";
-import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, canReviewEvidence, canPerformValidation } from "@/lib/authorization/service";
 import { Badge, riskRatingTone, findingStatusTone, remediationStatusTone, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { updateRemediationActionAction, uploadRemediationEvidenceAction, createValidationRecordAction, uploadValidationEvidenceAction } from "../actions";
@@ -90,17 +90,31 @@ export default async function RemediationActionDetailPage({
 
   const primaryControl = risk?.sourceControls[0] ?? null;
 
+  // P2A: server-independent re-decision of whether to render the
+  // consultant-only "record validation" control and consultant-internal
+  // evidence, mirroring the Assessment workspace page's own pattern.
+  // createValidationRecord/the evidence read functions re-check the same
+  // permissions regardless of what this render decided.
+  const [canReviewEvidenceResult, canPerformValidationResult] = await withRequestDb(user.id, async (db) => {
+    const [reviewEv, performValidation] = await Promise.all([
+      canReviewEvidence(db, user.id, remediation.engagementId, remediation.organisationId),
+      canPerformValidation(db, user.id, remediation.engagementId, remediation.organisationId),
+    ]);
+    return [reviewEv, performValidation] as const;
+  });
+
   const [controlTestRows, indirectEvidenceRows, directEvidenceRows, validationEvidenceRows] = await withRequestDb(user.id, async (db) => {
     const tests =
       risk?.sourceAssessment && primaryControl ? await getControlTestsForControl(db, risk.sourceAssessment.id, primaryControl.id) : [];
     const indirect =
       risk?.sourceAssessment && primaryControl
-        ? await getEvidenceSummaryForControl(db, risk.sourceAssessmentResponse?.id ?? null, tests.map((t) => t.id))
+        ? await getEvidenceSummaryForControl(db, risk.sourceAssessmentResponse?.id ?? null, tests.map((t) => t.id), canReviewEvidenceResult)
         : [];
-    const direct = await getEvidenceSummaryForRemediationAction(db, remediation.id);
+    const direct = await getEvidenceSummaryForRemediationAction(db, remediation.id, canReviewEvidenceResult);
     const validationEvidence = await getEvidenceSummaryForValidationRecords(
       db,
       remediation.validationRecords.map((v) => v.id),
+      canReviewEvidenceResult,
     );
     return [tests, indirect, direct, validationEvidence] as const;
   });
@@ -449,6 +463,7 @@ export default async function RemediationActionDetailPage({
             </ul>
           )}
 
+          {canPerformValidationResult ? (
           <form action={createValidationRecordAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
             <input type="hidden" name="organisationId" value={params.organisationId} />
             <input type="hidden" name="engagementId" value={params.engagementId} />
@@ -474,6 +489,7 @@ export default async function RemediationActionDetailPage({
               Record validation
             </Button>
           </form>
+          ) : null}
         </section>
       </div>
     </div>

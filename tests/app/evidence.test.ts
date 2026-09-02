@@ -367,7 +367,7 @@ describe("Application layer — Evidence Storage + Review (Slice C2)", () => {
       }),
     );
 
-    const summary = await withRequestDb(userA, (db) => getEvidenceSummaryForControl(db, responseA1, []));
+    const summary = await withRequestDb(userA, (db) => getEvidenceSummaryForControl(db, responseA1, [], true));
     const row = summary.find((e) => e.id === evidenceId);
     expect(row).toMatchObject({ title: "Summary check", evidenceType: "screenshot", documentId, documentVersionId, linkedVia: "assessment_response" });
 

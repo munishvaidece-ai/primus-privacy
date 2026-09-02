@@ -553,7 +553,7 @@ describe("Application layer — Risk Engine (Slice C3)", () => {
     // Under Tenant A's own session, ask for the evidence summary using
     // Tenant B's real assessment_response_id — RLS filters it to empty,
     // never leaking Tenant B's evidence through this read path.
-    const rows = await withRequestDb(userA, (db) => getEvidenceSummaryForControl(db, tenantBResponseId, []));
+    const rows = await withRequestDb(userA, (db) => getEvidenceSummaryForControl(db, tenantBResponseId, [], true));
     expect(rows).toHaveLength(0);
   });
 
@@ -784,7 +784,7 @@ describe("Application layer — Risk Engine (Slice C3)", () => {
     const primaryControl = detail.sourceControls[0]!;
     const [tests, evidence] = await withRequestDb(userA, async (db) => {
       const t = await getControlTestsForControl(db, detail.sourceAssessment!.id, primaryControl.id);
-      const e = await getEvidenceSummaryForControl(db, detail.sourceAssessmentResponse!.id, t.map((x) => x.id));
+      const e = await getEvidenceSummaryForControl(db, detail.sourceAssessmentResponse!.id, t.map((x) => x.id), true);
       return [t, e] as const;
     });
     void tests;

@@ -66,6 +66,28 @@ const ROLES: Array<{ name: string; scope: "tenant" | "organisation" | "engagemen
 // MaturityAssessment`, lib/domain/maturity.ts) with no separate human
 // review step for MVP, so a single permission covers both — there is no
 // second "maturity.finalize" permission to seed.
+//
+// P2A (Authorization & Confidentiality Hardening) adds `validation.perform`,
+// `risk.manage`, `finding.manage`, and `evidence.review` — four dedicated
+// permissions closing the exact gap P2 discovery identified: every write
+// to Risk/Finding/ValidationRecord, and Evidence's own review action, was
+// previously gated only by the broad `requireEngagementAccess` check,
+// which any `EngagementMembership` holder (client-side roles included)
+// satisfied identically to a Consultant. Granted to Engagement Manager
+// AND Consultant (both practice-side, engagement-scoped roles that
+// actually perform this work day to day) — NOT to Auditor (PRODUCT_UX_
+// BLUEPRINT.md §8's own pre-existing, approved permission matrix gives
+// "Reviewer" read-only access across every one of these rows, pending
+// the separate, not-yet-built `QualityReview` workflow) and NOT to any
+// client-side role (Business Owner/IT-CISO/Procurement/Legal/Client
+// Administrator/Privacy Officer/CXO), matching that same matrix's own
+// CV(-only)/no-write columns for Risk/Finding/Validation, and the
+// explicit, load-bearing requirement that a client must never be able to
+// self-validate its own remediation. `evidence.review` is additionally
+// reused (not duplicated) as the read-side signal for "may see
+// consultant_internal Evidence" — the same permission that lets someone
+// accept/reject an internal item is the one that lets them see it in the
+// first place; see DECISIONS.md.
 const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "tenant.manage", description: "Manage tenant-level settings." },
   { key: "organisation.create", description: "Onboard a new client organisation under the tenant." },
@@ -79,6 +101,10 @@ const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "methodology.manage", description: "Author and publish the practice's regulatory content and control library." },
   { key: "scope.lock", description: "Permanently lock an Engagement's Applicability & Scope determination." },
   { key: "maturity.compute", description: "Compute and finalize a MaturityAssessment for a finalized Assessment." },
+  { key: "validation.perform", description: "Create a ValidationRecord — independently verify a RemediationAction." },
+  { key: "risk.manage", description: "Create a Risk and update its status." },
+  { key: "finding.manage", description: "Create and update a Finding." },
+  { key: "evidence.review", description: "Review (accept/reject) Evidence, and view consultant-internal Evidence." },
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -95,7 +121,18 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "methodology.manage",
   ],
   "Practice Partner": ["organisation.create", "engagement.create", "engagement.manage", "audit_log.read", "methodology.manage"],
-  "Engagement Manager": ["engagement.manage", "membership.manage", "assessment.finalize", "scope.lock", "maturity.compute"],
+  "Engagement Manager": [
+    "engagement.manage",
+    "membership.manage",
+    "assessment.finalize",
+    "scope.lock",
+    "maturity.compute",
+    "validation.perform",
+    "risk.manage",
+    "finding.manage",
+    "evidence.review",
+  ],
+  "Consultant": ["validation.perform", "risk.manage", "finding.manage", "evidence.review"],
   "Client Administrator": ["membership.manage", "user.manage"],
 };
 

@@ -7,7 +7,7 @@ import { getRiskDetail } from "@/lib/domain/risks";
 import { getControlTestsForControl } from "@/lib/domain/assessments";
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { listRemediationActionsForFinding } from "@/lib/domain/remediation";
-import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, canManageFinding, canReviewEvidence } from "@/lib/authorization/service";
 import { Badge, riskRatingTone, findingStatusTone, remediationStatusTone, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { updateFindingAction, createRemediationActionAction } from "../actions";
@@ -48,6 +48,19 @@ export default async function FindingDetailPage({
 
   if (!finding) notFound();
 
+  // P2A: server-independent re-decision of whether to render the
+  // consultant-only "edit finding" control and consultant-internal
+  // evidence, mirroring the Assessment workspace page's own pattern.
+  // updateFinding/getEvidenceSummaryForControl re-check the same
+  // permissions regardless of what this render decided.
+  const [canManageFindingResult, canReviewEvidenceResult] = await withRequestDb(user.id, async (db) => {
+    const [manageFinding, reviewEv] = await Promise.all([
+      canManageFinding(db, user.id, finding.engagementId, finding.organisationId),
+      canReviewEvidence(db, user.id, finding.engagementId, finding.organisationId),
+    ]);
+    return [manageFinding, reviewEv] as const;
+  });
+
   const primaryRisk = finding.sourceRisks[0] ?? null;
 
   const risk = primaryRisk
@@ -71,7 +84,12 @@ export default async function FindingDetailPage({
     risk?.sourceAssessment && primaryControl
       ? await withRequestDb(user.id, async (db) => {
           const tests = await getControlTestsForControl(db, risk.sourceAssessment!.id, primaryControl.id);
-          const ev = await getEvidenceSummaryForControl(db, risk.sourceAssessmentResponse?.id ?? null, tests.map((t) => t.id));
+          const ev = await getEvidenceSummaryForControl(
+            db,
+            risk.sourceAssessmentResponse?.id ?? null,
+            tests.map((t) => t.id),
+            canReviewEvidenceResult,
+          );
           return [tests, ev] as const;
         })
       : ([[], []] as const);
@@ -108,6 +126,7 @@ export default async function FindingDetailPage({
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Edit finding</h2>
+          {canManageFindingResult ? (
           <form action={updateFindingAction} className="mt-2 space-y-2">
             <input type="hidden" name="organisationId" value={params.organisationId} />
             <input type="hidden" name="engagementId" value={params.engagementId} />
@@ -165,6 +184,16 @@ export default async function FindingDetailPage({
               Save finding
             </Button>
           </form>
+          ) : (
+            <div className="mt-2 text-sm text-slate-700">
+              <p>
+                <span className="font-medium">Description:</span> {finding.description ?? "—"}
+              </p>
+              <p className="mt-1">
+                <span className="font-medium">Owner:</span> {finding.ownerEmail ?? "unassigned"}
+              </p>
+            </div>
+          )}
           <dl className="mt-4 grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500 sm:grid-cols-2">
             <div>
               <dt className="font-medium text-slate-600">Recorded</dt>

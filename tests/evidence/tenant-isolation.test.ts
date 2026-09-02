@@ -42,6 +42,7 @@ describe("Evidence & Document tenant/organisation/engagement isolation and write
   let documentB: string, versionB: string;
 
   let orgWideUserA1: string; // OrganisationMembership on orgA1 only
+  let reviewerA1: string; // EngagementMembership on engagementA1, holds `evidence.review`
   let userB: string;
   let outsiderUser: string;
 
@@ -59,6 +60,15 @@ describe("Evidence & Document tenant/organisation/engagement isolation and write
 
       orgWideUserA1 = await createUser(client, { tenantId: tenantA, clientOrgId: orgA1 });
       await grantOrganisationMembership(client, orgWideUserA1, orgA1);
+
+      // P2A (Authorization & Confidentiality Hardening): evidence_update
+      // is now narrowed to `evidence.review` (migration 0031) — a plain
+      // organisation-wide "Client Administrator" member (orgWideUserA1's
+      // own role) can still INSERT Evidence but can no longer UPDATE it
+      // (that permission gates the review/accept-reject decision, the
+      // sole writer of this table's UPDATE path). A Consultant can.
+      reviewerA1 = await createUser(client, { tenantId: tenantA });
+      await grantEngagementMembership(client, reviewerA1, engagementA1, "Consultant");
 
       documentA1 = await createDocument(client, { tenantId: tenantA, organisationId: orgA1, engagementId: engagementA1, title: "Tenant A Engagement 1 document" });
       const va1 = await uploadDocumentVersion(client, { documentId: documentA1, tenantId: tenantA, organisationId: orgA1, engagementId: engagementA1, content: "Tenant A content.", uploadedBy: orgWideUserA1 });
@@ -177,7 +187,7 @@ describe("Evidence & Document tenant/organisation/engagement isolation and write
     );
     expect(insertResult.rows).toHaveLength(1);
 
-    const updateResult = await asUser(orgWideUserA1, (c) =>
+    const updateResult = await asUser(reviewerA1, (c) =>
       c.query("UPDATE evidence SET title = 'Updated Title' WHERE id = $1 RETURNING title", [evidenceA1]),
     );
     expect(updateResult.rows[0]!.title).toBe("Updated Title");

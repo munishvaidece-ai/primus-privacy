@@ -10,7 +10,7 @@ import {
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { listRisksForControl } from "@/lib/domain/risks";
 import { getMaturityAssessmentForAssessment } from "@/lib/domain/maturity";
-import { NotFoundOrForbiddenError, canFinalizeAssessment, canComputeMaturity } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, canFinalizeAssessment, canComputeMaturity, canReviewEvidence, canManageRisk } from "@/lib/authorization/service";
 import { Badge, statusTone, riskRatingTone, riskStatusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -76,6 +76,21 @@ export default async function AssessmentWorkspacePage({
     ? await withRequestDb(user.id, (db) => canFinalizeAssessment(db, user.id, assessment.engagementId, assessment.organisationId))
     : false;
 
+  // P2A (Authorization & Confidentiality Hardening): the server independently
+  // re-decides whether to render the consultant-only evidence-review and
+  // risk-management controls at all — never inferred from the client. This
+  // mirrors `canFinalize` above; the domain functions (reviewEvidence,
+  // createRisk) re-check the same permission regardless of what this render
+  // decided, so hiding the control here is a UX courtesy, not the security
+  // boundary.
+  const [canReviewEvidenceResult, canManageRiskResult] = await withRequestDb(user.id, async (db) => {
+    const [reviewEv, manageRisk] = await Promise.all([
+      canReviewEvidence(db, user.id, assessment.engagementId, assessment.organisationId),
+      canManageRisk(db, user.id, assessment.engagementId, assessment.organisationId),
+    ]);
+    return [reviewEv, manageRisk] as const;
+  });
+
   // M2 (Maturity Implementation, approval §25): maturity is only ever
   // relevant once the Assessment is finalized (lib/domain/maturity.ts's
   // own precondition) — no query, no permission check, and no section
@@ -120,7 +135,7 @@ export default async function AssessmentWorkspacePage({
     ? await withRequestDb(user.id, async (db) => {
         const reqs = await getControlRequirements(db, selected.controlId);
         const tests = await getControlTestsForControl(db, assessment.id, selected.controlId);
-        const ev = await getEvidenceSummaryForControl(db, selected.response?.id ?? null, tests.map((t) => t.id));
+        const ev = await getEvidenceSummaryForControl(db, selected.response?.id ?? null, tests.map((t) => t.id), canReviewEvidenceResult);
         const risks = await listRisksForControl(db, { engagementId: params.engagementId, controlId: selected.controlId });
         return [reqs, tests, ev, risks] as const;
       })
@@ -577,7 +592,7 @@ export default async function AssessmentWorkspacePage({
                               View / download
                             </a>
 
-                            {!finalized && e.reviewStatus === "pending_review" ? (
+                            {!finalized && e.reviewStatus === "pending_review" && canReviewEvidenceResult ? (
                               <>
                                 <form action={reviewEvidenceAction}>
                                   <input type="hidden" name="organisationId" value={params.organisationId} />
@@ -731,6 +746,7 @@ export default async function AssessmentWorkspacePage({
                     </ul>
                   )}
 
+                  {canManageRiskResult ? (
                   <form action={createRiskAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
                     <input type="hidden" name="organisationId" value={params.organisationId} />
                     <input type="hidden" name="engagementId" value={params.engagementId} />
@@ -845,6 +861,7 @@ export default async function AssessmentWorkspacePage({
                       Create risk
                     </Button>
                   </form>
+                  ) : null}
                 </section>
               </div>
             )}

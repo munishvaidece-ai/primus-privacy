@@ -17,6 +17,7 @@ import {
   createTenant,
   createUser,
   createValidationRecord,
+  grantEngagementMembership,
   grantOrganisationMembership,
   linkRiskControl,
   pool,
@@ -33,6 +34,15 @@ describe("Risk, Findings & Remediation auditability", () => {
       engagement = await createEngagement(client, tenant, org, "R&F audit test engagement");
       user = await createUser(client, { tenantId: tenant, clientOrgId: org });
       await grantOrganisationMembership(client, user, org);
+      // P2A (Authorization & Confidentiality Hardening): findings_insert
+      // is now narrowed to `finding.manage` (migration 0031) — this
+      // user's plain "Client Administrator" organisation membership
+      // alone no longer qualifies. The attribution-check test below
+      // performs a direct-SQL Finding insert, so also grant an engagement-
+      // scoped "Consultant" membership (which holds `finding.manage`) —
+      // every other test in this file uses `asFixtureSetup` (bypasses
+      // RLS entirely) and is unaffected.
+      await grantEngagementMembership(client, user, engagement, "Consultant");
       const library = await createControlLibraryVersion(client, { tenantId: tenant, versionLabel: "R&F Audit Library" });
       control = await createControl(client, { tenantId: tenant, controlLibraryVersionId: library, code: "AUD1", title: "R&F audit control" });
       await publishControlLibraryVersion(client, library);

@@ -33,6 +33,7 @@ describe("Risk, Findings & Remediation tenant/organisation/engagement isolation 
   let riskA1: string, findingA1: string, remediationA1: string, validationA1: string;
 
   let orgWideUserA1: string;
+  let consultantA1: string;
   let userB: string;
   let outsiderUser: string;
 
@@ -58,6 +59,14 @@ describe("Risk, Findings & Remediation tenant/organisation/engagement isolation 
 
       orgWideUserA1 = await createUser(client, { tenantId: tenantA, clientOrgId: orgA1 });
       await grantOrganisationMembership(client, orgWideUserA1, orgA1);
+
+      // P2A (Authorization & Confidentiality Hardening): risks_insert/
+      // findings_update are now narrowed to `risk.manage`/`finding.manage`
+      // (migration 0031) — a plain organisation-wide "Client Administrator"
+      // member (orgWideUserA1's own role) genuinely no longer qualifies as
+      // "authorized" to write Risk/Finding. A Consultant does.
+      consultantA1 = await createUser(client, { tenantId: tenantA });
+      await grantEngagementMembership(client, consultantA1, engagementA1, "Consultant");
 
       userB = await createUser(client, { tenantId: tenantB, clientOrgId: orgB });
       await grantOrganisationMembership(client, userB, orgB);
@@ -162,7 +171,7 @@ describe("Risk, Findings & Remediation tenant/organisation/engagement isolation 
   });
 
   it("an authorized user CAN write (INSERT/UPDATE) their own Risk/Finding/RemediationAction — proving the blocks above are real access control, not a broken pipe", async () => {
-    const insertResult = await asUser(orgWideUserA1, (c) =>
+    const insertResult = await asUser(consultantA1, (c) =>
       c.query(
         `INSERT INTO risks (engagement_id, organisation_id, tenant_id, risk_scoring_model_id, title, likelihood, impact, inherent_rating) VALUES ($1, $2, $3, $4, 'New Risk', 2, 2, 'low') RETURNING id`,
         [engagementA1, orgA1, tenantA, scoringModelA],
@@ -170,7 +179,7 @@ describe("Risk, Findings & Remediation tenant/organisation/engagement isolation 
     );
     expect(insertResult.rows).toHaveLength(1);
 
-    const updateResult = await asUser(orgWideUserA1, (c) =>
+    const updateResult = await asUser(consultantA1, (c) =>
       c.query("UPDATE findings SET status = 'in_progress' WHERE id = $1 RETURNING status", [findingA1]),
     );
     expect(updateResult.rows[0]!.status).toBe("in_progress");

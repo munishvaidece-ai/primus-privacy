@@ -1,5 +1,50 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-02 — Slice P2A (Authorization & Confidentiality
+Hardening) COMPLETE (Session 33): implementation-only hardening slice
+closing four gaps a design-only discovery pass (P2 —
+`P2_FIRST_CUSTOMER_WORKFLOW_DISCOVERY.md`, no code) had identified: (1)
+Risk/Finding/ValidationRecord writes, and Evidence review, were gated
+only by the broad `requireEngagementAccess` check, satisfied identically
+by any `EngagementMembership`/`OrganisationMembership` holder including
+every client-side role — most seriously, letting a client validate
+(self-approve) its own remediation; (2) `evidence.visibility`
+(`consultant_internal`/`client_visible`) has existed in the schema since
+Milestone 6 but was never read by any query. Fixed with four new,
+dedicated permissions (`validation.perform`, `risk.manage`,
+`finding.manage`, `evidence.review`), granted only to Engagement Manager
+and Consultant — the repository's own established dedicated-permission
+pattern (D3's `scope.lock`, M2's `maturity.compute`), never a new Client
+role or authorization framework. Evidence visibility is now auto-
+computed at upload time from the uploader's own `evidence.review`
+permission and enforced server-side on every read path, most critically
+`getEvidenceDownloadUrl` (the only path returning retrievable file
+bytes), gated BEFORE any signed URL is issued — a client cannot bypass
+it by supplying a different, cross-tenant, or cross-engagement evidence
+id. One new, minimal migration (0031) narrows exactly six RLS policies
+(`risks_insert`/`_update`, `findings_insert`/`_update`,
+`validation_records_insert`, `evidence_update`) to the matching
+permissions — no SELECT policy touched, `evidence_select` included (see
+DECISIONS.md R-153), and `remediation_actions`/`validation_records_
+update` deliberately left alone (R-151) per the brief's own "do not
+over-restrict client participation" / "do not invent additional
+lifecycle states" instructions. Four existing Assessment/Risk/Finding/
+Remediation workspace pages gained minimal, server-independently-
+re-decided UI gating (hide, never merely disable, a now-forbidden
+action) — no new UI, no new routes. 26 new focused tests
+(`tests/app/authorization-hardening.test.ts`) plus three pre-existing
+RLS positive-control tests updated to use a properly-permissioned actor
+now that the policies they exercise are intentionally narrower (a plain
+organisation-wide "Client Administrator" test fixture that previously
+stood in for "any authorized user" genuinely no longer qualifies —
+that is the fix, not a regression). 848 tests pass (67 files),
+typecheck/lint/build all clean, every check run twice for stability,
+zero unrelated regressions. Full details in the "Authorization &
+Confidentiality Hardening" section below. Per explicit instruction, STOP
+after P2A — no client invitation, Client Portal, Supabase Storage, DPDP
+content, comments, notifications, or P2B without further explicit
+direction.
+
 Status: 2026-09-02 — Slice M2 (Maturity Implementation) COMPLETE
 (Session 32): the calculation engine and application layer for
 Maturity, closing the #1 gap D3's own closing review re-ranked to top
@@ -54,6 +99,156 @@ expected-YES). Full details in the "Maturity Implementation" section
 below and in `REFERENCE_ENGAGEMENT.md`. Per explicit instruction, STOP
 after M2 — no Client Portal, trends, dashboards, comparison, AI, or any
 other feature without further explicit direction.
+
+## Authorization & Confidentiality Hardening (Session 33, 2026-09-02)
+
+**Scope:** exactly what the P2A implementation brief instructed — on
+top of a design-only discovery pass (P2 —
+`P2_FIRST_CUSTOMER_WORKFLOW_DISCOVERY.md`, no code) that traced the
+full first-customer workflow and flagged four authorization/
+confidentiality gaps for a follow-up hardening slice. Explicitly NOT
+built, per instruction: client invitation, client account provisioning,
+Client Portal, dashboard, comments, notifications, production Supabase,
+Storage migration, DPDP content, any new workflow feature, AI, or a new
+role architecture.
+
+**Gap 1 — Risk/Finding/Validation writes were authorized too broadly.**
+`createRisk`/`updateRiskStatus`, `createFinding`/`updateFinding`, and
+`createValidationRecord` were each gated only by the broad
+`requireEngagementAccess` check — satisfied identically by ANY active
+`EngagementMembership`/`OrganisationMembership` holder, client-side
+roles included. Most seriously, this meant a client could call
+`createValidationRecord` against its own `RemediationAction` and
+self-approve its own remediation. Fixed with four new, dedicated
+permissions — `validation.perform`, `risk.manage`, `finding.manage`,
+`evidence.review` — added to `db/seed/roles.ts`'s `PERMISSIONS` array
+and granted only to Engagement Manager and Consultant (a brand-new
+`ROLE_PERMISSIONS` entry — Consultant previously had zero seeded
+permissions at all). No client-side role holds any of the four. See
+DECISIONS.md R-150.
+
+**Gap 2 — Finding/Risk consultant/client boundary.** Resolved as part
+of Gap 1: PRODUCT_UX_BLUEPRINT.md §8's own pre-existing, already-
+approved Permission Matrix gives every client-side role CV(-only)/no-
+write for Risk/Finding/Validation, and Reviewer (Auditor) read-only —
+`risk.manage`/`finding.manage`/`validation.perform` granted exactly per
+that matrix, not a new boundary invented for this slice.
+
+**Gap 3 — Evidence visibility existed in the schema but was never
+enforced.** `evidence.visibility` (`consultant_internal`/
+`client_visible`) has existed since Milestone 6 but no query anywhere
+read it before this slice. Fixed in two parts: (1) `uploadEvidence`/
+`createEvidenceForVersion` now auto-compute `visibility` from the
+uploader's own `evidence.review` permission at insert time — never a
+caller-supplied value; (2) every read path that can return
+`consultant_internal` Evidence (`getEvidenceSummaryForControl`/
+`ForRemediationAction`/`ForValidationRecord`/`ForValidationRecords`) now
+takes an explicit `canSeeInternal: boolean` and excludes those rows
+entirely, server-side, when the caller lacks it. `getEvidenceDownloadUrl`
+independently re-checks the same permission against the specific
+requested `evidenceId`, BEFORE calling `storage.createSignedUrl` —
+proven directly (`tests/app/authorization-hardening.test.ts`) that a
+client cannot retrieve consultant-internal evidence via its own correct
+ID, a cross-tenant ID, or a cross-engagement ID. See DECISIONS.md R-152.
+
+**Gap 4 — Evidence review authorship.** `reviewEvidence` (accept/
+reject) is now gated by the same `evidence.review` permission — a
+client can no longer review/accept-or-reject its own or anyone else's
+uploaded evidence, while consultant/Engagement Manager review still
+works unchanged.
+
+**Deliberately NOT touched, and why (see DECISIONS.md R-151):**
+`lib/domain/remediation.ts` — no permission check added anywhere in it;
+a client retains full ability to provide remediation progress/
+completion input and submit evidence directly against a
+`RemediationAction`, per the brief's own explicit "do not over-restrict
+client participation." `RemediationAction.status = "validated"`
+(settable via the ordinary, unchanged `updateRemediationAction`) and
+`validation_records_update` RLS remain untouched — a second, narrower,
+theoretical self-validation surface distinct from the one this slice
+closes (`ValidationRecord` creation) — left as a documented, accepted P1
+limitation rather than inventing a new lifecycle state or restricting
+client remediation writes generally, both explicitly out of scope.
+`evidence_select` (and every other SELECT RLS policy) is also
+deliberately untouched — see DECISIONS.md R-153 for the full three-part
+reasoning (pre-existing SECURITY.md documentation, regression risk,
+and the fact that the truly sensitive action — file-byte retrieval — is
+already fully gated server-side).
+
+**Migration 0031 (hand-written, smallest possible):** narrows exactly
+six RLS policies — `risks_insert`/`_update`, `findings_insert`/`_update`,
+`validation_records_insert`, `evidence_update` — from the broad
+`can_access_engagement` to `has_engagement_permission(...) OR
+has_organisation_permission(...)` against the matching new permission,
+mirroring migration 0030's own `maturity.compute` narrowing exactly. No
+new table, no new column, no membership-architecture change.
+
+**UI gating (existing pages only, no new UI/routes):** the Assessment
+workspace, Finding detail, Risk detail, and Remediation Action detail
+pages each now compute the relevant `can*` result server-side (mirroring
+the existing `canFinalize`/`canComputeMaturityResult` pattern) and hide
+— never merely disable — a now-forbidden action: the evidence Accept/
+Reject buttons and "Create Risk" form (Assessment workspace), "Edit
+finding" (Finding detail, replaced with a read-only summary when
+absent), "Save status" and "Create finding" (Risk detail), "Record a new
+validation" (Remediation Action detail). Every domain function still
+independently re-checks the same permission regardless of what the page
+decided to render — the hiding is a UX courtesy, the check is the real
+boundary.
+
+**Security matrix (the 13 P2A Part 9 actions, current behavior):**
+
+| Action | Engagement Manager | Consultant | Client Administrator | Other Client Member | Unauthorized |
+|---|---|---|---|---|---|
+| View client-visible evidence | Yes | Yes | Yes | Yes | No |
+| View consultant-internal evidence | Yes | Yes | No | No | No |
+| Upload evidence | Yes (→ consultant_internal) | Yes (→ consultant_internal) | Yes (→ client_visible) | Yes (→ client_visible) | No |
+| Review (accept/reject) evidence | Yes | Yes | No | No | No |
+| Create Risk | Yes | Yes | No | No | No |
+| Edit Risk (status) | Yes | Yes | No | No | No |
+| Create Finding | Yes | Yes | No | No | No |
+| Edit Finding | Yes | Yes | No | No | No |
+| Create Remediation | Yes* | Yes* | Yes* | Yes* | No |
+| Edit Remediation (progress/status) | Yes* | Yes* | Yes* | Yes* | No |
+| Validate Remediation | Yes | Yes | No | No | No |
+| View Validation | Yes | Yes | Yes | Yes | No |
+| Edit Validation | N/A — append-only, no UPDATE by any role | | | | |
+
+*Remediation create/edit is deliberately unchanged by P2A (still the
+broad, pre-existing `requireEngagementAccess`/`can_access_engagement`
+check) — every engagement/organisation member, client-side roles
+included, retains this access by design (R-151).
+
+**Testing:** 26 new focused tests in
+`tests/app/authorization-hardening.test.ts`, covering all 14 required
+P2A Part 10 scenarios (self-validation blocked for both a Client
+Administrator and an Other-Client-Member persona; unauthorized/
+authorized Risk/Finding/Validation writes; consultant-internal evidence
+invisible to a client via its own ID, a cross-tenant ID, and a
+cross-engagement ID; client-visible evidence remains fully accessible;
+RLS independently rejects a direct-SQL Risk insert from both a client
+role and an outsider while still permitting one from a Consultant; a
+same-tenant/different-engagement consultant cannot validate another
+engagement's remediation; the full consultant workflow — risk → finding
+→ remediation → evidence → review → validation — still completes end to
+end). Three pre-existing RLS positive-control tests
+(`tests/risk-remediation/tenant-isolation.test.ts`,
+`tests/risk-remediation/audit.test.ts`,
+`tests/evidence/tenant-isolation.test.ts`) were updated to perform their
+"an authorized user CAN write" assertions as a Consultant instead of a
+plain organisation-wide Client Administrator — that fixture genuinely no
+longer qualifies as "authorized" under the new policies, which is
+exactly the fix, not a regression. 848 tests pass (67 files),
+typecheck/lint/build all clean, every check run twice for stability.
+
+**Not built, deliberately, per the brief's own STOP condition:** client
+invitation, client account provisioning, Client Portal, dashboard,
+comments, notifications, production Supabase, Storage migration, DPDP
+content, or P2B. `REFERENCE_ENGAGEMENT.md` was evaluated and found not
+to need an update — both `leadUserId` (Engagement Manager) and
+`secondUserId` (Consultant) in that fixture already hold every one of
+the four new permissions, so its own Risk/Finding/Validation/Evidence
+calls are unaffected.
 
 ## Maturity Implementation (Session 32, 2026-09-02)
 

@@ -517,3 +517,67 @@ export async function requireMaturityComputeAccess(db: RequestDb, userId: string
     throw new NotFoundOrForbiddenError();
   }
 }
+
+/**
+ * P2A (Authorization & Confidentiality Hardening): "who may create a
+ * ValidationRecord" — mirrors `canFinalizeAssessment`/`canComputeMaturity`'s
+ * exact shape, applied to the new, DEDICATED `validation.perform`
+ * permission. The load-bearing check this slice exists for: a client
+ * must never be able to self-validate its own remediation, and
+ * `requireEngagementAccess` alone (what `createValidationRecord` used
+ * before this slice) cannot express that distinction — see DECISIONS.md.
+ */
+export async function canPerformValidation(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<boolean> {
+  if (await hasEngagementPermission(db, userId, engagementId, "validation.perform")) return true;
+  return hasOrganisationPermission(db, userId, organisationId, "validation.perform");
+}
+
+export async function requireValidationPerformAccess(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<void> {
+  if (!(await canPerformValidation(db, userId, engagementId, organisationId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
+/** P2A: "who may create a Risk, or change its status" — the new,
+ * dedicated `risk.manage` permission, mirroring the same shape. */
+export async function canManageRisk(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<boolean> {
+  if (await hasEngagementPermission(db, userId, engagementId, "risk.manage")) return true;
+  return hasOrganisationPermission(db, userId, organisationId, "risk.manage");
+}
+
+export async function requireRiskManageAccess(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<void> {
+  if (!(await canManageRisk(db, userId, engagementId, organisationId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
+/** P2A: "who may create or update a Finding" — the new, dedicated
+ * `finding.manage` permission, mirroring the same shape. */
+export async function canManageFinding(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<boolean> {
+  if (await hasEngagementPermission(db, userId, engagementId, "finding.manage")) return true;
+  return hasOrganisationPermission(db, userId, organisationId, "finding.manage");
+}
+
+export async function requireFindingManageAccess(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<void> {
+  if (!(await canManageFinding(db, userId, engagementId, organisationId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
+/**
+ * P2A: "who may review (accept/reject) Evidence, and who may see
+ * `consultant_internal` Evidence" — the new, dedicated `evidence.review`
+ * permission, deliberately reused for both: the same authority that lets
+ * someone judge an internal item is the authority that lets them see it
+ * in the first place, not two separate grants to keep in sync.
+ */
+export async function canReviewEvidence(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<boolean> {
+  if (await hasEngagementPermission(db, userId, engagementId, "evidence.review")) return true;
+  return hasOrganisationPermission(db, userId, organisationId, "evidence.review");
+}
+
+export async function requireEvidenceReviewAccess(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<void> {
+  if (!(await canReviewEvidence(db, userId, engagementId, organisationId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}

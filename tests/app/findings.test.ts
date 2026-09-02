@@ -374,7 +374,7 @@ describe("Application layer — Findings Management (Slice C4)", () => {
         file: textFile(),
       }),
     );
-    const rows = await withRequestDb(userA, (db) => getEvidenceSummaryForControl(db, tenantBResponseId, []));
+    const rows = await withRequestDb(userA, (db) => getEvidenceSummaryForControl(db, tenantBResponseId, [], true));
     expect(rows).toHaveLength(0);
   });
 
@@ -437,7 +437,7 @@ describe("Application layer — Findings Management (Slice C4)", () => {
 
     const [tests, evidence] = await withRequestDb(userA, async (db) => {
       const t = await getControlTestsForControl(db, riskDetail.sourceAssessment!.id, riskDetail.sourceControls[0]!.id);
-      const e = await getEvidenceSummaryForControl(db, riskDetail.sourceAssessmentResponse!.id, t.map((x) => x.id));
+      const e = await getEvidenceSummaryForControl(db, riskDetail.sourceAssessmentResponse!.id, t.map((x) => x.id), true);
       return [t, e] as const;
     });
     void tests;
