@@ -157,6 +157,29 @@ export default async function EngagementDetailPage({
       </section>
 
       <section className="mt-8">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Reports</h2>
+        {engagement.assessments.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            An Engagement Report requires at least one Assessment. Create an Assessment first.
+          </p>
+        ) : (
+          <>
+            <p className="mt-3 text-sm text-slate-600">
+              Generates a PDF covering this Engagement&rsquo;s most recent Assessment (
+              {engagement.assessments[0]!.periodLabel}) and its current Risks, Findings, Remediation, Validation and
+              Evidence.
+            </p>
+            <a
+              href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/reports`}
+              className="mt-2 inline-block text-sm font-medium text-slate-900 underline"
+            >
+              Generate Engagement Report (PDF)
+            </a>
+          </>
+        )}
+      </section>
+
+      <section className="mt-8">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Members</h2>
         {members.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">No members yet.</p>

@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
 import { remediationActions, validationRecords, users } from "@/db/schema";
 import { NotFoundOrForbiddenError, requireEngagementAccess } from "@/lib/authorization/service";
@@ -171,6 +171,57 @@ export async function listValidationRecordsForRemediation(
     .from(validationRecords)
     .leftJoin(users, eq(users.id, validationRecords.validatedBy))
     .where(eq(validationRecords.remediationActionId, remediationActionId))
+    .orderBy(desc(validationRecords.validatedAt));
+
+  return rows;
+}
+
+export interface EngagementValidationRecordRow extends ValidationRecordListRow {
+  remediationActionId: string;
+  remediationActionTitle: string;
+}
+
+/**
+ * The FULL ValidationRecord history for an entire Engagement (Slice R1
+ * — the Engagement Report's own Validation section, PHASE R1
+ * instructions §11). Mirrors `listRisksForEngagement`/
+ * `listFindingsForEngagement`/`listRemediationActionsForEngagement`'s
+ * identical "one batched query, engagement-wide, real data, no
+ * dashboard" shape (Slices C3/C4/C5) — added here, alongside
+ * `listValidationRecordsForRemediation` above, rather than as an ad hoc
+ * query inside the report module itself, so this list stays the one
+ * place engagement-scoped Validation reads live. Scoped directly off
+ * `validation_records.engagement_id`/`organisation_id` (both NOT NULL —
+ * see db/schema/validation-records.ts) rather than joining through
+ * RemediationAction for scope, though RemediationAction is still joined
+ * for its title (the report must show what each validation validated).
+ * Same "never collapses to latest" posture as the per-RemediationAction
+ * list: every historical record for every RemediationAction in the
+ * Engagement is returned, most recent first.
+ */
+export async function listValidationRecordsForEngagement(
+  db: RequestDb,
+  userId: string,
+  input: { organisationId: string; engagementId: string },
+): Promise<EngagementValidationRecordRow[]> {
+  await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
+
+  const rows = await db
+    .select({
+      id: validationRecords.id,
+      outcome: validationRecords.outcome,
+      validatedByEmail: users.email,
+      validatedAt: validationRecords.validatedAt,
+      rationale: validationRecords.rationale,
+      triggersControlTestId: validationRecords.triggersControlTestId,
+      triggersAssessmentResponseId: validationRecords.triggersAssessmentResponseId,
+      remediationActionId: remediationActions.id,
+      remediationActionTitle: remediationActions.title,
+    })
+    .from(validationRecords)
+    .innerJoin(remediationActions, eq(remediationActions.id, validationRecords.remediationActionId))
+    .leftJoin(users, eq(users.id, validationRecords.validatedBy))
+    .where(and(eq(validationRecords.engagementId, input.engagementId), eq(validationRecords.organisationId, input.organisationId)))
     .orderBy(desc(validationRecords.validatedAt));
 
   return rows;

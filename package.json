@@ -29,6 +29,7 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "next": "14.2.35",
+    "pdfkit": "^0.20.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "server-only": "0.0.1",
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@types/node": "20.14.10",
+    "@types/pdfkit": "^0.17.6",
     "@types/pg": "8.11.6",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
@@ -46,11 +48,28 @@
     "drizzle-orm": "0.45.2",
     "eslint": "8.57.0",
     "eslint-config-next": "14.2.35",
+    "pdfjs-dist": "^5.4.296",
     "pg": "8.12.0",
     "postcss": "8.5.26",
     "tailwindcss": "3.4.19",
     "tsx": "4.16.2",
     "typescript": "5.5.3",
     "vitest": "2.0.5"
-  }
+  },
+  "main": "postcss.config.js",
+  "directories": {
+    "lib": "lib",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/munishvaidece-ai/primus-privacy.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/munishvaidece-ai/primus-privacy/issues"
+  },
+  "homepage": "https://github.com/munishvaidece-ai/primus-privacy#readme"
 }

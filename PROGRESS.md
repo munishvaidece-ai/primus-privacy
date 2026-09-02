@@ -1,6 +1,238 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C7.3 (Assessment Finalization) COMPLETE
+Status: 2026-09-02 — Slice R1 (Basic Engagement Report) COMPLETE
+(Session 27): PRIMUS can now generate one real, professional,
+client-facing PDF Engagement Report directly from live governance-loop
+data, closing the MVP Gap Review's own recommended next slice. A new
+`Reports` section on the Engagement detail page links to
+`.../reports` — a Route Handler (`app/.../reports/route.ts`, mirroring
+the Evidence-download route's exact GET-returns-binary shape from
+Slice C2) that authorizes via the same `requireEngagementAccess` every
+other Engagement screen uses (DECISIONS.md R-125 — no new
+report-specific permission was invented), loads one coherent snapshot
+of data (`getEngagementReportData`, new `lib/domain/reports.ts`), and
+renders it to PDF (`renderEngagementReportPdf`, new
+`lib/reports/engagement-report-pdf.ts`, built on a newly-added `pdfkit`
+dependency, chosen and verified as a mature, minimal, pure-JS
+dependency with no headless browser or native compile step —
+DECISIONS.md R-121). Every section reuses this codebase's own existing
+read models (`getEngagementDetail`, `getAssessmentDetail`,
+`listRisksForEngagement`, `listFindingsForEngagement`,
+`listRemediationActionsForEngagement`, and two small new
+engagement-wide list functions added to their existing peer modules —
+`listValidationRecordsForEngagement` in `validation.ts`,
+`getEvidenceSummaryForEngagement` in `evidence.ts`, both mirroring the
+identical shape their per-Finding/per-RemediationAction siblings
+already use) — no new report-only query set, no snapshot table. The
+Engagement's most recently created Assessment is selected automatically
+(`created_at DESC, id DESC`, the user's own explicit, precise
+instruction — DECISIONS.md R-122), with no picker UI, and its type/
+period/status/ID are shown on the cover, the Assessment Results header,
+and the Appendix. Draft and finalized Assessments are both reportable —
+no finalization requirement was invented (DECISIONS.md R-124). No new
+database table: report generation is audited via a direct `audit_log`
+write, reusing the exact `getEvidenceDownloadUrl` (Slice C2) precedent
+rather than designing the `generated_reports` table PRODUCT_UX_
+BLUEPRINT.md itself calls only a speculative "candidate" (DECISIONS.md
+R-123). Evidence is summarized as metadata only — no storage path, no
+signed URL, tested directly. No Maturity section, no ROPA/Data
+Landscape section, no AI narrative, no charts, per explicit instruction.
+This slice's own mandatory manual inspection of the actual generated
+PDF (not just unit tests) found and fixed a real pdfkit pagination bug —
+a footer positioned just past the printable area was silently forcing
+an extra, near-blank page after every section (DECISIONS.md R-126),
+now fixed and covered by a tightened, exact page-count test. 717 tests
+pass (61 files, +26 new in `tests/app/engagement-report.test.ts`,
+including real PDF-structure verification via `pdfjs-dist`, a new
+dev-only dependency), run twice for stability, zero regressions. Full
+details in the "Slice R1" section below. STOP after R1 per explicit
+instruction — no DPDP content authoring, real Storage provisioning,
+Data Landscape, ROPA, Maturity, Client Portal, C7.4, or C7.5 without
+further explicit direction.
+
+## Slice R1 — Basic Engagement Report (Session 27, 2026-09-02)
+
+**Scope:** exactly what the R1 brief instructed — one strong,
+exportable, client-facing Engagement Report generated from the live
+governance-loop data that already exists, following the brief's own
+five-critical-semantics-before-coding discipline. Of the five, four
+were resolved directly from repository evidence without asking:
+
+- **Output format — PDF.** PRODUCT_UX_BLUEPRINT.md §5 row 18 ("Generate
+  PDF/export") and §15's Server/API Boundary table ("Route Handler —
+  returns a binary/PDF stream") both say so explicitly.
+- **Audited — yes, via a direct `audit_log` write, no new table.**
+  PRODUCT_UX_BLUEPRINT.md §7 frames `generated_reports` as a mere
+  "candidate... not yet designed," while separately requiring the
+  *event* itself be audited — the exact situation Slice C2's
+  `getEvidenceDownloadUrl` already solved once (DECISIONS.md R-123).
+- **Draft vs. finalized eligibility — both allowed.** PRODUCT_SPEC.md
+  §5 and PRODUCT_UX_BLUEPRINT.md §7 both describe the report as a
+  live/point-in-time artifact, with no finalization gate documented
+  anywhere (DECISIONS.md R-124).
+- **Exact contents — the brief's own default 10-section structure**
+  (Cover, Executive Summary, Engagement Overview, Assessment Results,
+  Risk Register, Findings, Remediation, Validation, Evidence Summary,
+  Appendix), since PRODUCT_UX_BLUEPRINT.md specifies no different one.
+
+The fifth — **which Assessment to report on, given an Engagement can
+have more than one** — was genuinely ambiguous and put to the user
+directly via `AskUserQuestion` rather than guessed at. The user chose
+"most recent," specifying the exact deterministic ordering
+(`created_at DESC, id DESC`) and requiring the selected Assessment's
+type/period/status/ID be clearly shown in the report, with no picker UI
+in this slice (DECISIONS.md R-122) — implemented exactly as specified.
+
+Explicitly NOT built this slice, per instruction: a dashboard, an
+analytics platform, cross-client reporting, scheduled/emailed reports,
+report history, a template marketplace, a custom report builder/
+designer, AI-generated narrative, charts (none were judged genuinely
+useful for this MVP), PowerPoint/Excel/multiple export formats, Client
+Portal, ROPA/Data Landscape, Maturity, C7.4, C7.5.
+
+**Data aggregation (`lib/domain/reports.ts`, new).**
+`getEngagementReportData(db, userId, {organisationId, engagementId})`
+is the report's one coherent read: loads the Engagement
+(`getEngagementDetail`, cross-checking the caller-supplied
+`organisationId` against the Engagement's own authoritative one — never
+trusting the browser, mirroring `finalizeAssessment`'s identical
+posture), selects the most recent Assessment
+(`ORDER BY created_at DESC, id DESC LIMIT 1`, a new small query — throws
+`NoAssessmentForEngagementError` if the Engagement has none yet), loads
+that Assessment's full detail (`getAssessmentDetail`, reused unchanged),
+then reads Risks/Findings/RemediationActions/ValidationRecords/Evidence
+for the whole Engagement. Two small new list functions were added,
+each mirroring an existing sibling's exact shape rather than being
+designed fresh: `listValidationRecordsForEngagement`
+(`lib/domain/validation.ts`, alongside the existing per-RemediationAction
+`listValidationRecordsForRemediation`) and
+`getEvidenceSummaryForEngagement` (`lib/domain/evidence.ts`, alongside
+the existing per-Control/per-RemediationAction/per-ValidationRecord
+`getEvidenceSummaryFor*` functions — this one starts `FROM evidence`
+directly rather than `FROM evidence_links`, since one Evidence row is
+one report line regardless of how many subjects it happens to be linked
+to). Every sub-read still independently re-authorizes via its own
+existing `requireEngagementAccess` call — the same defense-in-depth
+posture every prior slice has used, not weakened here for convenience.
+Queries run sequentially, not via `Promise.all`, matching every other
+multi-read domain function's style against the one shared
+`PoolClient` `withRequestDb` provides per request.
+
+**PDF rendering (`lib/reports/engagement-report-pdf.ts`, new).**
+`renderEngagementReportPdf(data, meta)` is a pure function — no
+database access, no I/O of its own — from `EngagementReportData` to an
+in-memory PDF `Buffer`, built with `pdfkit` (new dependency, chosen and
+verified against instructions §17's "mature, minimal dependency...
+works reliably in the existing Vercel serverless architecture" bar:
+pure JavaScript throughout, no headless browser, no native compilation
+— DECISIONS.md R-121). Visual identity reuses the existing UI's own
+Tailwind palette (slate for structure/text, blue-600 as the one accent)
+rather than inventing a new one, per instructions §15/§16. Produces the
+brief's own 10-section default structure; every enum/status value is
+rendered exactly as the schema stores it (no relabeling table), matching
+how every existing screen already displays these same values. This
+slice's own mandatory manual/visual inspection of the actual generated
+PDF (instructions §36 — not just unit tests) caught a real pdfkit
+pagination bug: a footer Y-position placed just past pdfkit's own
+printable-area boundary was silently treated as page overflow, forcing
+a spurious near-blank page after every section (19 pages instead of 10)
+— fixed, re-verified by re-rendering and re-inspecting the demonstration
+PDF page-by-page, and locked in by tightening the test's page-count
+assertion from a loose bound to an exact `toBe(10)` plus a per-page
+non-empty-content check (DECISIONS.md R-126).
+
+**Route Handler (`app/(shell)/organisations/[organisationId]/
+engagements/[engagementId]/reports/route.ts`, new).** A plain GET,
+mirroring the Evidence-download route's exact shape (Slice C2) so the
+Engagement page's "Generate Engagement Report" entry point is a compact
+`<a>` link needing no client-side JavaScript: authenticate → load report
+data (which independently authorizes) → render PDF → write one
+`audit_log` row (`entity_type: "engagement"`, `reason:
+"engagement_report_generated"`, `field_changes` naming only which
+Assessment was selected — never any Risk/Finding/Remediation/Evidence
+content, per instructions §31's confidentiality requirement) → return
+the PDF as `application/pdf` with `Content-Disposition: attachment`.
+`NotFoundOrForbiddenError` → 404; `NoAssessmentForEngagementError` → a
+clean 400; anything else → a generic 500, full detail server-logged
+only (never the report's own content).
+
+**UI entry point.** A new "Reports" section on the Engagement detail
+page (`app/.../engagements/[engagementId]/page.tsx`), placed after
+Remediation and before Members: shows which Assessment will be reported
+on and a "Generate Engagement Report (PDF)" link when the Engagement
+has at least one Assessment, or an explanatory note when it does not.
+No separate `/reports` page, no report list, no history — the route
+itself is the whole feature surface, per instructions §37's explicit
+"do not build... report history."
+
+**Tests (`tests/app/engagement-report.test.ts`, new, 26 tests).** Real
+PostgreSQL, real domain functions, no mocked authorization — 5
+authorization scenarios (active member succeeds for both an Engagement
+Manager and a plain Consultant, an unrelated tenant member is rejected,
+a cross-tenant actor is rejected, an anonymous caller is rejected) plus
+a forged-`organisationId` check; a draft-vs-finalized state check (the
+same Assessment, reported on both before and after finalizing, both
+succeeding); most-recent-Assessment selection including a genuine
+`created_at`/`id` tie-break scenario (two Assessments forced to the
+identical `created_at`, asserting the tie-break `id DESC` ordering
+actually decides the winner) and a zero-Assessment
+`NoAssessmentForEngagementError` check; 8 data-correctness checks against
+a real, deliberately varied fixture (multiple control-response states
+including "not yet responded," a Risk with both inherent and residual
+ratings, a Finding, two RemediationActions, a ValidationRecord, two
+Evidence items) verifying every field the report surfaces matches the
+real underlying rows, including that Evidence rows carry no
+`storagePath`/`url`/`signedUrl` field; 2 isolation checks (canary
+Risk/Finding/Evidence rows planted on a sibling Engagement in the same
+Organisation, asserted absent from the report); 4 output checks against
+the actual rendered PDF bytes, parsed back into real per-page text via
+`pdfjs-dist` (new dev-only dependency — chosen specifically because
+instructions §27 forbids "just string-search[ing]" the raw buffer;
+zero runtime dependencies of its own, used only for text extraction,
+never its canvas-rendering path) — exact page count, the selected
+Assessment's type/period/status/ID all present verbatim, real fixture
+content present (title strings compared via a whitespace/hyphen-
+normalizing helper to tolerate pdfkit's own legitimate table-cell word
+wrapping), and confirmation that no storage path, signed URL, or
+cross-Engagement canary content ever appears in the rendered bytes.
+Per instructions §36, a real deterministic-fixture PDF was also written
+to disk and manually inspected page-by-page (via `pdftoppm`, installed
+for this purpose) — the pagination bug above was found this way, not
+by the automated assertions alone. Full regression: 717 tests pass (61
+files), run twice for stability, zero regressions against the C7.3
+baseline of 691/60.
+
+**Documentation.** DECISIONS.md R-121 through R-126 (PDF library choice
+and test-verification library choice; Assessment-selection semantics as
+specified by the user; no new `generated_reports` table; draft/
+finalized eligibility; no new report-specific permission; the real
+pagination bug found and fixed).
+
+No Maturity, ROPA/Data Landscape, AI narrative, charts, dashboard,
+analytics platform, cross-client reporting, scheduled/emailed reports,
+report history, template marketplace, custom report builder, PowerPoint/
+Excel/multiple export formats, Client Portal, C7.4, or C7.5. STOP after
+R1 per explicit instruction.
+
+## Slice C7.3 — Assessment Finalization (Session 26, 2026-09-01)
+
+**Scope:** exactly what the C7.3 brief instructed — a clear,
+enforceable lifecycle boundary between an editable Assessment and a
+finalized one. Explicitly NOT built this slice, per instruction:
+Maturity, Reporting, Client Portal, evidence download, Engagement
+editing, ROPA/Data Landscape, AI, billing, reopening (unless the model
+required it — it doesn't), Assessment comparison, previous-assessment
+workflows, a new approval/sign-off workflow, notifications/email,
+digital signatures.
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`, every
+Assessment-adjacent schema file, migrations 0008/0009/0011 in full,
+the existing Assessment domain module/workspace/Server Actions, the
+existing role/permission model (`hasEngagementPermission`,
+`requireEngagementMembershipManageAccess`, C7.2's own authorization
+helpers), and existing Assessment/audit tests fresh from disk before
+writing anything, per instruction.
 (Session 26): establishes the real, enforceable lifecycle boundary
 between an editable and a finalized Assessment. `finalizeAssessment`
 (new, `lib/domain/assessments.ts`) is the one, terminal `draft →

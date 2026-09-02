@@ -780,6 +780,69 @@ export async function getEvidenceSummaryForControl(
 }
 
 /**
+ * The Evidence summary for an entire Engagement (Slice R1 — the
+ * Engagement Report's own Evidence section, PHASE R1 instructions §12:
+ * "metadata only... no confidential file embedding, no signed URLs
+ * exposed"). Unlike every `getEvidenceSummaryFor*` function above —
+ * each of which starts `FROM evidence_links` for a specific subject,
+ * since a subject can have zero, one, or several linked Evidence rows
+ * — this one starts `FROM evidence` directly, scoped by `evidence`'s
+ * own `engagement_id`/`organisation_id` columns (both queried
+ * elsewhere in this file, e.g. `getEvidenceDownloadUrl`). One Evidence
+ * row is one line in the report's Evidence Summary regardless of how
+ * many subjects it happens to be linked to (an EvidenceLink row is not
+ * itself report-worthy content — what it's linked to already appears
+ * in the report's own Assessment/Remediation/Validation sections); this
+ * avoids the row-multiplication a join through `evidence_links` would
+ * introduce for any Evidence linked to more than one subject. Still
+ * read-only metadata — no `storage_path`, no signed URL, no file
+ * bytes.
+ */
+export interface EngagementEvidenceRow {
+  id: string;
+  title: string;
+  evidenceType: string;
+  reviewStatus: string;
+  qualityRating: string | null;
+  reviewedByEmail: string | null;
+  reviewedAt: Date | null;
+  validUntil: Date | null;
+  collectedAt: Date;
+  documentId: string;
+  originalFilename: string;
+}
+
+export async function getEvidenceSummaryForEngagement(
+  db: RequestDb,
+  userId: string,
+  input: { organisationId: string; engagementId: string },
+): Promise<EngagementEvidenceRow[]> {
+  await requireEngagementAccess(db, userId, input.engagementId, input.organisationId);
+
+  const rows = await db
+    .select({
+      id: evidence.id,
+      title: evidence.title,
+      evidenceType: evidence.evidenceType,
+      reviewStatus: evidence.reviewStatus,
+      qualityRating: evidence.qualityRating,
+      reviewedByEmail: users.email,
+      reviewedAt: evidence.reviewedAt,
+      validUntil: evidence.validUntil,
+      collectedAt: evidence.collectedAt,
+      documentId: documentVersions.documentId,
+      originalFilename: documentVersions.originalFilename,
+    })
+    .from(evidence)
+    .innerJoin(documentVersions, eq(documentVersions.id, evidence.documentVersionId))
+    .leftJoin(users, eq(users.id, evidence.reviewedBy))
+    .where(and(eq(evidence.engagementId, input.engagementId), eq(evidence.organisationId, input.organisationId)))
+    .orderBy(desc(evidence.collectedAt));
+
+  return rows;
+}
+
+/**
  * The Evidence summary for one RemediationAction (Slice C5, PHASE C5
  * instructions §22): the fourth `EvidenceLink` subject type — reuses
  * the identical read shape `getEvidenceSummaryForControl` above already
