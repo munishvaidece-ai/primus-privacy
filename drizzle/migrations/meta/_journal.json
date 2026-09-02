@@ -78,6 +78,13 @@
       "when": 1788347599030,
       "tag": "0029_maturity_compute",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1788367576933,
+      "tag": "0034_invitations_schema",
+      "breakpoints": true
     }
   ]
 }

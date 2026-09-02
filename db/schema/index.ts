@@ -49,3 +49,4 @@ export * from "./maturity-assessments";
 export * from "./maturity-scores";
 export * from "./engagement-scopes";
 export * from "./applicability-determinations";
+export * from "./invitations";

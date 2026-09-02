@@ -1,5 +1,40 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-02 — Slice P2B.1 (Invitation Schema & Lifecycle)
+COMPLETE (Session 36): the first real implementation slice of P2B —
+schema and lifecycle ONLY, per its own explicit brief. A new
+`invitations` table (migration 0034, drizzle-kit generated) plus its
+paired hand-written security migration (0035): a `pending`/`accepted`/
+`revoked` lifecycle (`expired` deliberately NOT a stored enum value,
+per the approved design — every read site computes it instead),
+structural tenant/organisation/engagement integrity via the same
+composite-FK pattern (`(id, organisation_id, tenant_id)`) every other
+engagement-scoped table in this schema already uses (not merely
+application validation), a database-level CHECK enforcing `invited_
+email` is always already lower-cased, two split partial unique indexes
+enforcing "at most one pending invitation per target" correctly across
+the nullable `engagement_id` dimension (a plain composite UNIQUE cannot
+do this — NULL is never equal to NULL in a unique index), only
+`token_hash` ever stored (unique, never the raw token), and a combined
+reparenting + terminal-state-freeze trigger mirroring `engagement_
+memberships_prevent_reparenting`'s own established shape. The audit
+trail is free — `invitations` reuses the EXISTING `log_methodology_
+change()` generic trigger unmodified, capturing both creation and the
+one legitimate status transition automatically. RLS is enabled but
+`authenticated` is granted **nothing at all** on this table yet — no
+domain function, Server Action, token generation, or `SECURITY
+DEFINER` acceptance function exists in this slice, so there is nothing
+yet to justify any particular policy shape; P2B.2 is the slice that
+adds the real `membership.manage`-based authorization layer. 25 new
+focused tests (`tests/rls/invitations-schema.test.ts`, pure schema/
+constraint/trigger-level, run via the fixture-setup superuser
+connection — the only way to reach this table at all right now). 890
+tests pass (69 files), typecheck/lint/build all clean, full DB suite
+run twice. DECISIONS.md R-156/R-157/R-158 record the schema decisions.
+Per explicit instruction, STOP after P2B.1 — no invitation creation/
+acceptance logic, no token generation, no Admin API provisioning, no
+email, no UI, no P2B.2.
+
 Status: 2026-09-02 — Slice P2B.0.2 (Users Identity Integrity Hardening)
 COMPLETE (Session 35): a standalone security hardening fix for a
 pre-existing, empirically-confirmed vulnerability discovered during

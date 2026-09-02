@@ -412,3 +412,18 @@ export const applicabilityDeterminationDecisionEnum = pgEnum("applicability_dete
   "applicable",
   "not_applicable",
 ]);
+
+// Invitation.status (P2B.1, docs/P2B_CLIENT_INVITATION_DESIGN.md §5a,
+// P2B.0 approved decision 6/7) — EXACTLY three stored values, matching
+// P2A.1/`RemediationAction.status = 'validated'`'s own established
+// precedent for "a status value must correspond to something a real
+// write actually does": `expired` is deliberately NOT a member of this
+// enum — no code path ever writes it (there is no scheduled sweep job
+// anywhere in this codebase, and none is being added for this). Every
+// read site computes "is this expired" instead, as
+// `status = 'pending' AND expires_at < now()`.
+export const invitationStatusEnum = pgEnum("invitation_status", [
+  "pending",
+  "accepted",
+  "revoked",
+]);

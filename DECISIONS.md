@@ -4266,3 +4266,85 @@ follow-up. Nothing about P2B's own discovery/design decisions
 (`docs/P2B_CLIENT_INVITATION_DESIGN.md`, `docs/P2B.0.1_SECURITY_
 CLARIFICATIONS.md`) is rewritten by this entry — it records the fix
 those documents already called for.
+
+### R-156 — Invitation table: two split partial unique indexes, not a COALESCE-to-sentinel, enforce "at most one pending invitation per target" across a nullable engagement scope (Slice P2B.1)
+
+**Decision:** `invitations_pending_organisation_scoped_key`
+(`(organisation_id, invited_email) WHERE status = 'pending' AND
+engagement_id IS NULL`) and `invitations_pending_engagement_scoped_key`
+(`(organisation_id, engagement_id, invited_email) WHERE status =
+'pending' AND engagement_id IS NOT NULL`) are two separate partial
+unique indexes, not one index keyed on `COALESCE(engagement_id,
+'<sentinel>'::uuid)`.
+**Rationale:** a plain `UNIQUE(organisation_id, engagement_id,
+invited_email)` constraint cannot enforce the approved invariant on its
+own for the organisation-scoped case — standard SQL/Postgres treats
+every NULL as distinct from every other NULL in a unique index, so two
+organisation-scoped (`engagement_id IS NULL`) pending invitations to the
+same email would never collide under a plain constraint. A
+COALESCE-to-a-magic-UUID index would work too, but requires inventing
+and explaining an arbitrary sentinel value with no other meaning in this
+schema; splitting into two indexes, each scoped to exactly one
+invitation shape, keeps each rule simple and self-documenting on its
+own, with no magic value to reason about, and directly mirrors how the
+approved design (docs/P2B_CLIENT_INVITATION_DESIGN.md §5) already
+treats "organisation-scoped" and "engagement-scoped" as two genuinely
+distinct invitation shapes rather than one shape with an optional field.
+
+### R-157 — `invitations` gets a combined reparenting + terminal-state-freeze trigger; `authenticated` is granted nothing on it at all in this slice (Slice P2B.1)
+
+**Decision:** `prevent_invitation_tampering` (migration 0035) blocks
+ALL further UPDATEs once `status` leaves `'pending'` (full-row freeze,
+stricter than a plain reparenting guard — unlike `validation_records`,
+which allows one narrow, deliberately-scoped exception for its own
+reassessment-trigger columns, `invitations` has no analogous "settable
+once, later" field, so there is no reason to allow anything beyond the
+one legitimate pending→accepted/revoked transition itself), and, while
+still `pending`, blocks changes to every identity-defining column
+(`id`/`tenant_id`/`organisation_id`/`engagement_id`/`invited_email`/
+`role_id`/`token_hash`/`invited_by`/`expires_at`/`created_at`) —
+mirroring `engagement_memberships_prevent_reparenting`'s (migration
+0024) shape, extended. Migration 0035 also enables RLS on `invitations`
+and issues `REVOKE ALL ... FROM PUBLIC, anon`, but grants
+`authenticated` **nothing at all** — no SELECT/INSERT/UPDATE policy of
+any kind exists yet.
+**Rationale:** P2B.1's own explicit scope is schema and lifecycle only
+— no domain function, Server Action, or `SECURITY DEFINER` acceptance
+function exists yet to justify any particular shape of RLS policy for
+the `authenticated` role, and this codebase's own history (migration
+0019's initial, necessarily-broad `engagement_memberships_insert`,
+narrowed by migration 0024 once the real feature arrived) shows that
+opening an interim policy now and narrowing it later is avoidable
+churn, not a neutral default. With no GRANT at all, any
+`authenticated`-role attempt to touch this table fails at the
+privilege-check level before RLS is even evaluated — the identical
+"no GRANT exists for `anon`... fails at the privilege-check level"
+posture this codebase already documents and tests for other tables
+(`tests/rls/tenant-isolation.test.ts`, Test 6b). P2B.2 is the slice
+that adds the real, `membership.manage`-based policies this table will
+actually need.
+
+### R-158 — `invitations` reuses `log_methodology_change()` for its audit trail; `token_hash` is captured openly in `field_changes`, deliberately (Slice P2B.1)
+
+**Decision:** `invitations_audit_log` (migration 0035) attaches the
+EXISTING `log_methodology_change()` trigger function (migration 0007,
+unmodified) rather than `log_membership_change()` or a new function —
+`invitations` carries its own plain `tenant_id` column directly, the
+exact shape `log_methodology_change()` already expects (unlike
+`organisation_memberships`/`engagement_memberships`, which needed
+`log_membership_change()`'s own tenant-resolver logic because neither
+of those two tables has a `tenant_id` column of its own). `token_hash`
+is not excluded from the resulting `field_changes` JSON.
+**Rationale:** no new audit mechanism is needed — this is the same
+"no new audit trigger needed" conclusion migration 0024's own comment
+already reached for an analogous case, applied here to a table whose
+shape happens to match a DIFFERENT existing generic trigger than that
+one used. Excluding `token_hash` from the audit output was
+considered and rejected: `document_versions.checksum_sha256` is
+already captured openly by this same generic-trigger mechanism, for
+every existing Evidence upload, with no prior concern raised — a
+SHA-256 digest is not reversible to the value it was derived from, so
+recording it in the audit trail exposes nothing regardless. The raw
+token itself is never a column on this table at all (docs/P2B_CLIENT_
+INVITATION_DESIGN.md §6), so there is nothing else for this trigger to
+ever leak.
