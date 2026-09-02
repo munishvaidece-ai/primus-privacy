@@ -1,5 +1,73 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-02 — Slice P2B.2 (Invitation Authorization & RLS)
+COMPLETE (Session 38): the authorization/security slice P2B.1/P2B.1.1
+deliberately deferred — "who may create, list/read, or revoke an
+invitation," enforced at BOTH the application layer and RLS, no
+invitation lifecycle actions (token generation, email, acceptance,
+signup) implemented. Reuses the EXISTING `membership.manage` permission
+(the same one already governing `engagement_memberships`, Slice C7.2) —
+not a second authorization model: organisation-scoped invitations
+(`engagement_id IS NULL`) require organisation-level `membership.manage`
+via a NEW, deliberately narrower function, `canManageOrganisationInvitations`
+(no engagement-level fallback — staffing on one engagement must not
+grant authority to invite an organisation-wide administrator);
+engagement-scoped invitations reuse `canManageEngagementMembership`
+directly, unwrapped. A single `canManageInvitation` dispatcher composes
+both, given an invitation's own already-resolved `organisationId`/
+`engagementId` — deliberately no separate `canCreateOrganisationInvitation`/
+`canCreateEngagementInvitation` functions, which would have been pure,
+behavior-free aliases (DECISIONS.md R-161). The approved role allowlist
+(organisation scope: Client Administrator / Privacy Officer / CXO /
+Executive Viewer; engagement scope: Business Owner / IT/CISO /
+Procurement / Legal) is enforced independently at both layers — a
+`roles.name` subquery in a new RLS policy, and
+`isInvitationRoleAllowedForScope`/`canAssignInvitationRole` at the
+application layer — so a caller cannot escalate merely by supplying a
+different `role_id`. One new, purely additive migration (0037,
+`invitations_select`/`_insert`/`_update` policies plus the first
+`authenticated` GRANT this table has ever had — migration 0035
+deliberately left it with none) — no existing policy touched, migration
+0035's own reparenting/terminal-state trigger and 0036's audit
+redaction untouched. `invitations_select` is restricted to
+`membership.manage` actors only, not any broader same-tenant/
+organisation/engagement membership. `invitations_insert` additionally
+requires `invited_by = auth.uid()` and a genuinely-`pending`,
+un-accepted, un-revoked row at creation — closing INSERT-time forgery of
+`invited_by`/`accepted_user_id`/`accepted_at`/`revoked_at` that no prior
+migration constrained. `invitations_update` deliberately permits ONLY
+`pending -> revoked` for an ordinary `membership.manage` actor —
+`pending -> accepted` remains structurally unreachable through this
+policy, reserved for a future SECURITY DEFINER `accept_invitation()`
+function (P2B.4) that will run outside it entirely (DECISIONS.md
+R-163) — proven directly: an otherwise-fully-authorized actor's attempt
+to accept is rejected, while the same actor's revoke succeeds. Every
+protected field migration 0035's trigger already covers (tenant/org/
+engagement/email/role/token_hash/invited_by/expires_at/created_at) was
+re-confirmed to still reject an UPDATE even from an actor RLS newly
+grants raw UPDATE access to — defense-in-depth, not redundant, since
+this is the first slice where `authenticated` can reach this table's
+UPDATE path at all. 52 new focused tests: 38 direct-SQL RLS tests
+(`tests/rls/invitations-authorization.test.ts`, categories A-H — 
+organisation/engagement invitation authorization, role allowlist, scope
+integrity via the existing composite FK, protected-field mutation
+attempts, accept-is-unreachable/revoke-works lifecycle semantics, audit
+still excludes `token_hash` for real `authenticated`-role writes, and
+cross-tenant/cross-org/cross-engagement isolation including anon) plus
+14 direct-function application-layer tests
+(`tests/app/invitation-authorization.test.ts`) — real PostgreSQL
+throughout, no mocks, mirroring `tests/app/authorization.test.ts`'s own
+established pattern. No domain function (createInvitation/
+listInvitations/revokeInvitation), Server Action, token generation,
+email, acceptance flow, or UI was built — deliberately excluded by this
+slice's own scope; `tests/rls/invitations-schema.test.ts` (P2B.1's own
+26 schema/trigger tests, still exercised via the fixture superuser
+connection) is untouched and still green. 943 tests pass (71 files, +2
+new files from 69/891), typecheck/lint/build all clean, full DB suite
+run twice with zero regressions. DECISIONS.md R-160 through R-163
+record the four authorization decisions. Per explicit instruction, STOP
+after P2B.2 — no P2B.3, no invitation acceptance.
+
 Status: 2026-09-02 — Slice P2B.1.1 (Invitation Token Audit Hardening)
 COMPLETE (Session 37): a narrowly-scoped follow-up to P2B.1, before
 P2B.2. P2B.1 attached the existing, fully generic `log_methodology_

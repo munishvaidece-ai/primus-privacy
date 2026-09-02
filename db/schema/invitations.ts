@@ -9,15 +9,35 @@ import { users } from "./users";
 
 // Invitation — P2B.1 (docs/P2B_CLIENT_INVITATION_DESIGN.md,
 // docs/P2B.0.1_SECURITY_CLARIFICATIONS.md): the persistent model for
-// client invitation/account provisioning. This slice is schema and
-// lifecycle ONLY — no domain function, Server Action, token-generation
-// logic, or SECURITY DEFINER acceptance function exists yet (those are
-// later P2B slices, per the approved sequence). No `authenticated`-role
-// GRANT exists on this table at all yet either (migration 0035) — the
-// full `membership.manage`-based authorization layer is P2B.2's own
-// scope, deliberately deferred rather than opened with an interim,
+// client invitation/account provisioning. P2B.1 itself was schema and
+// lifecycle ONLY — no domain function, Server Action, or token-
+// generation logic exists yet (later P2B slices, per the approved
+// sequence); migration 0035 deliberately left `authenticated` with NO
+// GRANT on this table at all, rather than opening an interim,
 // broader-than-necessary policy this codebase's own history (migration
 // 0019 → 0024's narrowing) shows is worth avoiding.
+//
+// P2B.2 (migration 0037, DECISIONS.md R-16x) is that authorization
+// layer: `authenticated` now holds SELECT/INSERT/UPDATE (no DELETE),
+// gated by the SAME `membership.manage` permission that already governs
+// `engagement_memberships` (Slice C7.2) — organisation-scoped
+// invitations require organisation-level `membership.manage` only;
+// engagement-scoped invitations reuse `canManageEngagementMembership`'s
+// existing engagement-OR-organisation-level rule, unchanged. The
+// approved role allowlist (organisation scope: Client Administrator /
+// Privacy Officer / CXO / Executive Viewer; engagement scope: Business
+// Owner / IT/CISO / Procurement / Legal) is enforced in
+// `invitations_insert`'s own WITH CHECK. The UPDATE policy deliberately
+// permits ONLY the pending -> revoked transition for an ordinary
+// `membership.manage` actor — pending -> accepted remains structurally
+// unreachable through this policy, reserved for a future SECURITY
+// DEFINER `accept_invitation()` function (P2B.4) that runs outside it
+// entirely. No SECURITY DEFINER acceptance function, token verification,
+// or acceptance flow exists yet — still later P2B slices. See
+// `drizzle/migrations/0037_invitations_authorization.sql` and
+// `lib/authorization/service.ts` (`canManageOrganisationInvitations`/
+// `canManageInvitation`/`isInvitationRoleAllowedForScope`/
+// `canAssignInvitationRole`) for the full contract.
 //
 // Field provenance, matching the approved design's own field list
 // (docs/P2B_CLIENT_INVITATION_DESIGN.md §5) with one deliberate

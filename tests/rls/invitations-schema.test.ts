@@ -2,11 +2,17 @@
 // tests only — no domain function, Server Action, token-generation
 // logic, or SECURITY DEFINER acceptance function exists yet (later P2B
 // slices). Migration 0035 deliberately grants `authenticated` NOTHING
-// on `invitations` yet (P2B.2's own scope), so every operation here runs
-// via `asFixtureSetup` (the raw superuser connection, bypassing GRANT/
-// RLS entirely) — the same pattern `tests/risk-remediation/crud.test.ts`/
+// on `invitations` (P2B.1's own scope), so every operation here runs via
+// `asFixtureSetup` (the raw superuser connection, bypassing GRANT/RLS
+// entirely) — the same pattern `tests/risk-remediation/crud.test.ts`/
 // `tests/evidence/crud.test.ts` already use for pure schema-level
-// coverage, not a workaround.
+// coverage, not a workaround. This stays true even after P2B.2
+// (migration 0037) grants `authenticated` real SELECT/INSERT/UPDATE
+// access — this file is deliberately left untouched, still exercising
+// the schema/trigger layer alone; the new `membership.manage`-based
+// authorization/RLS coverage lives in its own file,
+// `tests/rls/invitations-authorization.test.ts`, run as real
+// `authenticated` actors (`asUser`/`asAnon`), not the fixture superuser.
 //
 // P2B.1.1 (migration 0036, DECISIONS.md R-159): tests 23/23b updated —
 // `invitations` now uses its own dedicated `log_invitation_change()`

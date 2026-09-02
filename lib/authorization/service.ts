@@ -9,6 +9,7 @@ import {
   users,
   rolePermissions,
   permissions,
+  roles,
 } from "@/db/schema";
 
 // The single centralized application-layer authorization service
@@ -580,4 +581,122 @@ export async function requireEvidenceReviewAccess(db: RequestDb, userId: string,
   if (!(await canReviewEvidence(db, userId, engagementId, organisationId))) {
     throw new NotFoundOrForbiddenError();
   }
+}
+
+/**
+ * P2B.2 (Invitation Authorization & RLS): "who may manage this
+ * ORGANISATION's own invitations" — i.e. create/list/revoke an
+ * organisation-scoped invitation (`engagement_id IS NULL`: Client
+ * Administrator / Privacy Officer / CXO / Executive Viewer). Deliberately
+ * ONLY `hasOrganisationPermission`, with NO engagement-level fallback —
+ * unlike `canManageEngagementMembership` below, an Engagement Manager
+ * staffed on a single engagement of this organisation must not thereby
+ * gain authority to invite an organisation-wide administrator for the
+ * whole client; that authority belongs to Client Administrator
+ * (organisation-scope `membership.manage`) alone. Mirrors migration
+ * 0037's own `invitations_select`/`invitations_insert` RLS policies for
+ * the organisation-scoped case, independently implemented per
+ * SECURITY.md §2's two-layer rule.
+ */
+export async function canManageOrganisationInvitations(
+  db: RequestDb,
+  userId: string,
+  organisationId: string,
+): Promise<boolean> {
+  return hasOrganisationPermission(db, userId, organisationId, "membership.manage");
+}
+
+export async function requireOrganisationInvitationManageAccess(
+  db: RequestDb,
+  userId: string,
+  organisationId: string,
+): Promise<void> {
+  if (!(await canManageOrganisationInvitations(db, userId, organisationId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
+/**
+ * P2B.2: "who may manage THIS invitation" — a single dispatcher over an
+ * invitation's own, already-resolved scope (`organisationId`/
+ * `engagementId` must come from the invitation row itself, via its
+ * database relationships, never from an unvalidated caller-supplied
+ * value — see the module docstring's own "never trust caller-supplied
+ * tenant_id" rule, applied here to organisation/engagement ownership
+ * too). `engagementId: null` routes to `canManageOrganisationInvitations`
+ * above (the organisation-scoped rule); a non-null `engagementId` reuses
+ * `canManageEngagementMembership` DIRECTLY, unwrapped — the EXACT SAME
+ * authority that already governs `addEngagementMember`/
+ * `revokeEngagementMember` (Slice C7.2), not a second, parallel
+ * authorization model invented for invitations. There is deliberately no
+ * separate `canCreateOrganisationInvitation`/`canCreateEngagementInvitation`
+ * pair: both would be pure aliases of the two functions this dispatcher
+ * already composes, with no behavioral difference of their own — adding
+ * them would be a speculative abstraction, not a genuinely useful one.
+ */
+export async function canManageInvitation(
+  db: RequestDb,
+  userId: string,
+  organisationId: string,
+  engagementId: string | null,
+): Promise<boolean> {
+  if (engagementId === null) {
+    return canManageOrganisationInvitations(db, userId, organisationId);
+  }
+  return canManageEngagementMembership(db, userId, engagementId, organisationId);
+}
+
+export async function requireInvitationManageAccess(
+  db: RequestDb,
+  userId: string,
+  organisationId: string,
+  engagementId: string | null,
+): Promise<void> {
+  if (!(await canManageInvitation(db, userId, organisationId, engagementId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
+/**
+ * P2B.2: the approved role allowlist for each invitation scope (P2B.0
+ * Decision 4, DECISIONS.md R-16x) — the SAME two lists migration 0037's
+ * own `invitations_insert` RLS policy independently enforces via a
+ * `roles.name` subquery (SECURITY.md §2: independently implemented, must
+ * independently agree). A malicious caller must not be able to create an
+ * invitation for an arbitrary role merely by supplying another role_id —
+ * this pair is the application-layer half of that guarantee; RLS is the
+ * database-layer backstop underneath it.
+ */
+export const ORGANISATION_SCOPED_INVITATION_ROLE_NAMES = [
+  "Client Administrator",
+  "Privacy Officer",
+  "CXO / Executive Viewer",
+] as const;
+
+export const ENGAGEMENT_SCOPED_INVITATION_ROLE_NAMES = ["Business Owner", "IT/CISO", "Procurement", "Legal"] as const;
+
+/** Pure allowlist check, given a role's own name and the invitation's
+ * scope (`engagementId: null` = organisation-scoped) — no DB access, so
+ * it's trivially testable and reusable by whichever future domain
+ * function/RLS-mirroring test needs it. */
+export function isInvitationRoleAllowedForScope(roleName: string, engagementId: string | null): boolean {
+  const allowlist: readonly string[] =
+    engagementId === null ? ORGANISATION_SCOPED_INVITATION_ROLE_NAMES : ENGAGEMENT_SCOPED_INVITATION_ROLE_NAMES;
+  return allowlist.includes(roleName);
+}
+
+/** DB-aware counterpart: resolves `roleId` to its own `roles.name` (the
+ * `roles` table is globally readable — `roles_select`, migration 0001 —
+ * so this needs no elevated access) and checks it against the allowlist
+ * for `engagementId`'s scope. Returns false (never throws) for an
+ * unknown role id, matching this file's existing "unauthorized ⇒ false,
+ * not an error that leaks whether a row exists" discipline. */
+export async function canAssignInvitationRole(
+  db: RequestDb,
+  roleId: string,
+  engagementId: string | null,
+): Promise<boolean> {
+  const [row] = await db.select({ name: roles.name }).from(roles).where(eq(roles.id, roleId)).limit(1);
+  if (!row) return false;
+  return isInvitationRoleAllowedForScope(row.name, engagementId);
 }

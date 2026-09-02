@@ -18,6 +18,7 @@ export {
   createOrganisation,
   createEngagement,
   createUser,
+  getOrCreateRole,
   grantTenantMembership,
   grantOrganisationMembership,
   grantEngagementMembership,

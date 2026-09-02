@@ -4407,3 +4407,137 @@ do. Every other column on `invitations` remains fully auditable —
 invitation-created, status-changed, accepted, and revoked events are
 all still fully reconstructable from `audit_log` alone; only the one
 credential-verifier value is withheld.
+
+### R-160 — Invitation authorization reuses the existing `membership.manage` model; organisation-scoped invitations get a NEW, deliberately narrower function with no engagement-level fallback (Slice P2B.2)
+
+**Decision:** who may create, list/read, or revoke an invitation is
+governed by the SAME already-seeded `membership.manage` permission that
+already governs `engagement_memberships` create/revoke (Slice C7.2) —
+not a second, invitation-specific authorization model. Two rules, both
+resolved from the existing repository rather than invented:
+organisation-scoped invitations (`engagement_id IS NULL`) require
+organisation-level `membership.manage` via a NEW function,
+`canManageOrganisationInvitations` (`lib/authorization/service.ts`) —
+deliberately with NO engagement-level fallback, unlike every other
+`canManage*`-shaped function in that file. Engagement-scoped invitations
+reuse `canManageEngagementMembership` DIRECTLY, unwrapped — no new
+function was written for that case at all.
+**Rationale:** an Engagement Manager staffed on a single engagement of
+an organisation must not thereby gain authority to invite an
+organisation-wide administrator (Client Administrator / Privacy Officer
+/ CXO / Executive Viewer) for the whole client — that authority belongs
+to organisation-level `membership.manage` (Client Administrator) alone.
+Every other `canManage*` pair in `lib/authorization/service.ts`
+(`canManageEngagementMembership`, `canFinalizeAssessment`,
+`canLockScope`, etc.) deliberately falls back from engagement-level to
+organisation-level permission, because an organisation-wide client
+administrator's authority is meant to reach every engagement under
+their organisation. `canManageOrganisationInvitations` is the first
+function in this file to depart from that shape on purpose: an
+organisation-scoped invitation has no engagement to fall back FROM in
+the first place, and the natural "does this actor hold `membership.
+manage` on the resource's own scope" question has only one honest
+answer — organisation-level, full stop. Tested directly at
+`tests/app/invitation-authorization.test.ts` (functions 1-7) and
+independently, at the database layer, by migration 0037's own
+`invitations_select`/`invitations_insert` policies (SECURITY.md §2: two
+independently-implemented layers that must agree) — see
+`tests/rls/invitations-authorization.test.ts` categories A/B.
+
+### R-161 — No `canCreateOrganisationInvitation`/`canCreateEngagementInvitation` functions; a single `canManageInvitation` dispatcher instead (Slice P2B.2)
+
+**Decision:** P2B.2's own brief suggested `canCreateOrganisationInvitation`/
+`canCreateEngagementInvitation` as candidate names alongside
+`canManageInvitation`/`requireInvitationManageAccess`. Only the latter
+pair was built. `canCreateOrganisationInvitation` would have been a
+pure alias of `canManageOrganisationInvitations` (R-160); `canCreate
+EngagementInvitation` would have been a pure alias of
+`canManageEngagementMembership`. Neither would have added any behavior
+of its own.
+**Rationale:** "Only create functions that are genuinely useful. Avoid
+speculative abstractions" (P2B.2 brief, verbatim) — a same-signature
+alias with no behavioral difference is speculative by definition, not
+genuinely useful; it would exist only to be renamed later if create/
+list/revoke authorization for invitations ever DID need to diverge, at
+which point splitting the dispatcher is a small, local change, not a
+migration. `canManageInvitation(db, userId, organisationId, engagementId:
+string | null)` — a single dispatcher: `null` routes to R-160's
+organisation-scoped function, a real id routes to
+`canManageEngagementMembership` — covers create, list, and (P2B.2's own
+prepared, not-yet-wired) revoke authorization uniformly, for whichever
+of an invitation's own already-resolved `organisationId`/`engagementId`
+values the caller supplies (never a caller-asserted value trusted as-is
+— see R-162).
+
+### R-162 — Role allowlist for invitation creation enforced independently at both the application layer and RLS, via the SAME two role-name lists (Slice P2B.2)
+
+**Decision:** the approved allowlist (organisation scope: Client
+Administrator / Privacy Officer / CXO / Executive Viewer; engagement
+scope: Business Owner / IT/CISO / Procurement / Legal) is enforced
+twice, independently: `lib/authorization/service.ts`'s new
+`ORGANISATION_SCOPED_INVITATION_ROLE_NAMES`/`ENGAGEMENT_SCOPED_
+INVITATION_ROLE_NAMES` constants plus `isInvitationRoleAllowedForScope`
+(pure) / `canAssignInvitationRole` (DB-aware, resolves a `role_id` to
+its `roles.name`) at the application layer; a `roles.name` subquery
+inside migration 0037's `invitations_insert` WITH CHECK at the RLS
+layer. Both lists are hand-written literals in each location, not one
+shared source of truth read by both — the same "independently
+implemented, must independently agree" posture SECURITY.md §2 already
+requires between the application and RLS layers generally.
+**Rationale:** a malicious caller must not be able to create an
+invitation for an arbitrary role merely by supplying another `role_id`
+(P2B.2 brief, verbatim). No domain function exists yet to embed the
+application-layer check in (P2B.2 deliberately does not build one — see
+R-163's own note on scope), so `canAssignInvitationRole` currently has
+no caller of its own within this codebase; it is not speculative in the
+sense R-161 rejects — the role-allowlist requirement is REAL and
+approved (P2B.0 Decision 4), fully tested on its own
+(`tests/app/invitation-authorization.test.ts` tests 8-14), and ready for
+the future domain function to call rather than reimplement. The RLS
+layer's own `roles.name` subquery needs no privilege elevation of its
+own: `roles_select` (migration 0001) is `USING (true)`, globally
+readable.
+
+### R-163 — Invitation UPDATE authorization permits ONLY the pending -> revoked transition for an ordinary `membership.manage` actor; pending -> accepted is structurally reserved for a future SECURITY DEFINER function (Slice P2B.2)
+
+**Decision:** migration 0037's `invitations_update` policy's WITH CHECK
+requires `status = 'revoked'` (in addition to the same `membership.
+manage` check `invitations_select`/`invitations_insert` already use). A
+plain UPDATE that instead sets `status = 'accepted'` — even one issued
+by an actor who genuinely holds `membership.manage` over the
+invitation's own organisation/engagement, and even though migration
+0035's own `prevent_invitation_tampering` trigger (unchanged) does not
+itself block that column change while the row is still `pending` — is
+rejected by this WITH CHECK. `pending -> accepted` remains reachable
+only through a future SECURITY DEFINER `accept_invitation()` function
+(P2B.4, not yet built), which will run with its own owner's privilege
+(the same mechanism `handle_new_auth_user`/`log_invitation_change()`
+already rely on) and so is not bound by this `TO authenticated`-scoped
+policy at all.
+**Rationale:** acceptance is a fundamentally different actor (the
+invitee, authenticated by token possession/email match — a fact this
+policy has no way to check, since RLS only ever sees `auth.uid()`, an
+already-authenticated platform user, never a bearer-token holder who
+may not have a platform identity yet) and a fundamentally different
+authorization basis than "someone who could have created or revoked
+this invitation." Letting any `membership.manage` holder accept on an
+invitee's behalf via a plain UPDATE would let a Client Administrator
+self-grant a colleague's pending invitation to a DIFFERENT user entirely
+(by supplying an arbitrary `accepted_user_id`) merely because they also
+hold the authority to create/revoke — a real privilege-escalation path,
+not a hypothetical one, since `accepted_user_id` determines who the new
+membership eventually attaches to (P2B.3/P2B.4). P2B.2's own explicit
+scope excludes acceptance entirely ("Do not introduce acceptance in
+this slice") — this decision prepares the correct authorization
+boundary for it without implementing it: the trigger-then-RLS
+evaluation order (BEFORE ROW trigger fires first and does not block
+`status` changes while pending; this WITH CHECK then evaluates the
+resulting NEW row) was verified directly by
+`tests/rls/invitations-authorization.test.ts` F1/F4 (a `membership.
+manage` actor's attempted accept is rejected) and F2/F3 (the same
+actor's revoke succeeds). INSERT-time forgery of an already-accepted or
+already-revoked row (`status`/`accepted_at`/`accepted_user_id`/
+`revoked_at` all supplied at creation) is closed by a separate clause in
+the SAME migration's `invitations_insert` policy (`status = 'pending'
+AND accepted_user_id IS NULL AND accepted_at IS NULL AND revoked_at IS
+NULL`), tested by E7/E8.
