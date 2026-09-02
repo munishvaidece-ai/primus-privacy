@@ -1,7 +1,15 @@
 import "server-only";
 import { and, eq, exists } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
-import { tenantMemberships, organisationMemberships, engagementMemberships, engagements, users } from "@/db/schema";
+import {
+  tenantMemberships,
+  organisationMemberships,
+  engagementMemberships,
+  engagements,
+  users,
+  rolePermissions,
+  permissions,
+} from "@/db/schema";
 
 // The single centralized application-layer authorization service
 // (PHASE A instructions §6/§7). Consistent with SECURITY.md §2's
@@ -22,15 +30,28 @@ import { tenantMemberships, organisationMemberships, engagementMemberships, enga
 //
 // Uses the EXACT existing membership model — TenantMembership →
 // OrganisationMembership → EngagementMembership — no new role database,
-// no new permission table. `Role`/`Permission`/`RolePermission`
-// fine-grained action checks (e.g. "can finalize") are intentionally
-// NOT built in this slice: PRODUCT_UX_BLUEPRINT.md §22 already flags the
-// permission catalogue as only 8 illustrative rows, not the full set
-// this would need, and the only mutation this slice performs
-// (AssessmentResponse update) is gated by engagement access plus the
-// database's own finalization trigger (Milestone 5) — a real "can
-// finalize" / "can write this specific field" check is deferred to the
-// slice that actually needs it, not invented ahead of a concrete need.
+// no new permission table. Through Slice C7.1, `Role`/`Permission`/
+// `RolePermission` fine-grained action checks (e.g. "can finalize")
+// were intentionally NOT built: PRODUCT_UX_BLUEPRINT.md §22 flags the
+// permission catalogue as only 8 illustrative rows, not the full set a
+// general permission system would need, and every mutation through C7.1
+// was gated by plain engagement access plus the database's own
+// business-rule triggers — a real "can do X" check was deferred to the
+// slice that actually needed one, not invented ahead of a concrete need.
+//
+// Slice C7.2 is that slice: `hasEngagementPermission`/
+// `hasOrganisationPermission` below are the first fine-grained
+// Role/Permission checks in this codebase, added because managing
+// EngagementMembership is exactly the one existing, already-seeded
+// `membership.manage` permission (`db/seed/roles.ts`, granted to
+// Engagement Manager and Client Administrator) was seeded FOR — using
+// it here is not inventing a new permission, it is finally reading one
+// that has existed, fully seeded, since Milestone 1. Mirrors migration
+// 0024's own `has_engagement_permission`/`has_organisation_permission`
+// SQL functions, independently implemented in TypeScript per
+// SECURITY.md §2's two-layer rule (this is the FIRST, application-layer
+// check; the SQL functions are the SECOND, RLS-layer check — both must
+// independently agree).
 
 export class NotFoundOrForbiddenError extends Error {
   constructor(message = "Not found.") {
@@ -240,6 +261,102 @@ export async function requireEngagementCreateAccess(
   tenantId: string,
 ): Promise<void> {
   if (!(await canCreateEngagement(db, userId, organisationId, tenantId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}
+
+/**
+ * Slice C7.2 (instructions §3): does the CALLING user hold an active
+ * `EngagementMembership` on this specific engagement whose `Role`
+ * grants `permissionKey`, via the existing `RolePermission` table?
+ * Mirrors migration 0024's `has_engagement_permission` SQL function —
+ * independently implemented (never calls it), the same discipline
+ * every other pair in this file already follows.
+ */
+export async function hasEngagementPermission(
+  db: RequestDb,
+  userId: string,
+  engagementId: string,
+  permissionKey: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: rolePermissions.roleId })
+    .from(engagementMemberships)
+    .innerJoin(rolePermissions, eq(rolePermissions.roleId, engagementMemberships.roleId))
+    .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+    .where(
+      and(
+        eq(engagementMemberships.userId, userId),
+        eq(engagementMemberships.engagementId, engagementId),
+        eq(engagementMemberships.status, "active"),
+        eq(permissions.key, permissionKey),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** Slice C7.2: the organisation-scope counterpart — does the calling
+ * user hold an active `OrganisationMembership` on this organisation
+ * whose `Role` grants `permissionKey` (e.g. Client Administrator's own
+ * `membership.manage` grant)? Mirrors migration 0024's
+ * `has_organisation_permission` SQL function. */
+export async function hasOrganisationPermission(
+  db: RequestDb,
+  userId: string,
+  organisationId: string,
+  permissionKey: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: rolePermissions.roleId })
+    .from(organisationMemberships)
+    .innerJoin(rolePermissions, eq(rolePermissions.roleId, organisationMemberships.roleId))
+    .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+    .where(
+      and(
+        eq(organisationMemberships.userId, userId),
+        eq(organisationMemberships.organisationId, organisationId),
+        eq(organisationMemberships.status, "active"),
+        eq(permissions.key, permissionKey),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Slice C7.2: "who may manage this Engagement's membership" — the
+ * single rule `addEngagementMember`/`revokeEngagementMember`
+ * (lib/domain/engagement-memberships.ts) both gate on. Resolved from
+ * the repository, not invented: the caller holds `membership.manage`
+ * either via an active `EngagementMembership` on this specific
+ * engagement (Engagement Manager, per `db/seed/roles.ts`) or via an
+ * active `OrganisationMembership` on the engagement's own organisation
+ * (Client Administrator). Deliberately narrower than migration 0024's
+ * own INSERT policy (which additionally allows plain tenant-/
+ * organisation-wide membership, for Slice B2's own unrelated
+ * self-onboarding-at-creation-time flow) — the application layer is
+ * where this feature's real business rule lives (SECURITY.md §2: RLS
+ * is "a poor fit for the more dynamic parts of the model," this is
+ * exactly that), RLS remains the coarser backstop underneath it.
+ */
+export async function canManageEngagementMembership(
+  db: RequestDb,
+  userId: string,
+  engagementId: string,
+  organisationId: string,
+): Promise<boolean> {
+  if (await hasEngagementPermission(db, userId, engagementId, "membership.manage")) return true;
+  return hasOrganisationPermission(db, userId, organisationId, "membership.manage");
+}
+
+export async function requireEngagementMembershipManageAccess(
+  db: RequestDb,
+  userId: string,
+  engagementId: string,
+  organisationId: string,
+): Promise<void> {
+  if (!(await canManageEngagementMembership(db, userId, engagementId, organisationId))) {
     throw new NotFoundOrForbiddenError();
   }
 }

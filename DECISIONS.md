@@ -3144,3 +3144,115 @@ set's tenant/organisation/engagement/library-version consistency
 database-impossible to violate — re-verified fresh via direct `psql`
 inspection and a dedicated raw-SQL security test this slice, no new
 migration required.
+
+### R-114 — Engagement membership management authorization: the existing, already-seeded `membership.manage` permission, read for the first time (Slice C7.2)
+
+**Decision:** `addEngagementMember`/`revokeEngagementMember`
+(`lib/domain/engagement-memberships.ts`) are gated on a new
+`canManageEngagementMembership` check (`lib/authorization/service.ts`):
+the caller holds `membership.manage` either via an active
+`EngagementMembership` on the specific engagement (Engagement Manager)
+or an active `OrganisationMembership` on the engagement's own
+organisation (Client Administrator). Both are resolved through the
+existing `Role`/`Permission`/`RolePermission` tables and
+`db/seed/roles.ts`'s own already-seeded grant — no new permission, no
+new role. This is the first fine-grained Role/Permission check in this
+codebase; every prior slice's authorization was coarse engagement/
+organisation/tenant membership only (`lib/authorization/service.ts`'s
+own pre-C7.2 file comment explicitly named this as deferred "to the
+slice that actually needs it").
+**Migration 0024 necessity:** the pre-existing `engagement_memberships_
+insert` RLS policy (migration 0019) was scoped to "the same set of
+people who may create an Engagement" (tenant-wide or organisation-wide
+membership) — sufficient for Slice B2's own self-onboarding-at-creation
+flow, but NOT sufficient for this slice's realistic, everyday case: an
+ordinary Engagement Manager who holds ONLY an `engagement_memberships`
+row on their own single engagement (confirmed by direct inspection of
+`createEngagement`, which grants no other membership) would be rejected
+by RLS even after the application layer approved them. Migration 0024
+adds a THIRD, additive OR-clause (permission-based) to the INSERT
+policy — removing none of the existing ones — and a new UPDATE policy
+(previously absent entirely) gated on the permission check alone (the
+tenant-/organisation-wide fallback is deliberately NOT carried into
+UPDATE — see the migration's own comment for why). A `prevent_
+engagement_membership_reparenting` trigger (mirroring every other
+mutable table's identical guard) ensures an authorized UPDATE can only
+ever change `status`, never silently reassign `user_id`/`engagement_
+id`/`role_id`.
+**Rationale:** Instructions §3 explicitly require deriving the answer
+from the repository rather than inventing one, with a STOP fallback
+only if the repository genuinely doesn't answer it — it does:
+`membership.manage`, seeded specifically for Engagement Manager and
+Client Administrator since Milestone 1, is exactly the permission this
+feature needs, confirmed independently by SECURITY.md §14's own threat
+table ("granting oneself or another user a broader membership requires
+a permission of its own, not just write access to the membership
+table"). The RLS extension is additive only (verified: every existing
+`tests/app/engagement-onboarding.test.ts` scenario, including its own
+cross-tenant `engagement_memberships` INSERT rejection tests, still
+passes unchanged) and deliberately narrower at the application layer
+than the full RLS OR-clause (the pre-existing tenant-/organisation-wide
+fallback remains, unchanged, for Slice B2's own unrelated purpose) —
+consistent with SECURITY.md §2's own framing of RLS as the coarser
+backstop and the application layer as where dynamic business rules
+belong.
+
+### R-115 — Eligible-user resolution requires bypassing `users_select`'s own RLS via new, narrowly-gated SECURITY DEFINER functions (Slice C7.2)
+
+**Decision:** Three new SECURITY DEFINER SQL functions (migration
+0024) — `eligible_engagement_members`, `resolve_membership_candidate`,
+`engagement_membership_roster` — each re-checking the caller's own
+authorization internally (via `has_engagement_permission`/
+`has_organisation_permission`/`can_access_engagement`) before returning
+any row. `lib/domain/engagement-memberships.ts` calls all three via
+`db.execute(sql...)` rather than a plain Drizzle `.select()` against
+`users`.
+**Why this was necessary, not a stylistic choice:** direct testing this
+slice discovered that `users_select`'s own RLS policy (migration 0001)
+— `id = auth.uid() OR shares_membership_scope(id)` — makes a candidate
+user who is NOT YET a member of anything shared with the caller
+genuinely invisible to an ordinary query, even to an authorized
+Engagement Manager. This is the exact, structural chicken-and-egg
+problem this feature exists to solve ("find someone not yet connected,
+in order to connect them") colliding with a correct, pre-existing,
+unrelated RLS rule. A second, related instance: `shares_membership_
+scope`'s engagement branch requires BOTH sides' membership to be
+`status = 'active'`, so a revoked member's row silently disappears from
+an ordinary roster JOIN too — contradicting this project's own
+established "show status honestly, never collapse history" posture.
+**Rationale:** the fix reuses the exact SECURITY DEFINER pattern
+already established twice in this codebase (migration 0001's
+`can_access_*` functions, migration 0019's `organisation_tenant_id`
+family) for precisely this class of problem — never a second
+authorization system, never a service-role bypass, never weakening
+`users_select` itself (which would let any authenticated user browse
+their whole tenant's user directory, a materially broader, unrelated
+capability). Each function independently re-derives and re-checks the
+same permission rule `lib/authorization/service.ts`'s own TypeScript
+functions already enforce before ever calling it — an unauthorized
+caller gets zero rows, never a different error that would leak whether
+a candidate user exists.
+
+### R-116 — Membership self-protection: no invariant exists, so none is invented (Slice C7.2)
+
+**Decision:** `revokeEngagementMember` allows any authorized manager to
+revoke any member, including themselves, and including the only other
+remaining manager — no "last manager" protection, no self-revocation
+block, no separate role-change feature (not requested by this slice's
+own brief, which lists only Add and Revoke).
+**Rationale:** instructions §8 explicitly direct deriving self-
+protection semantics from the existing model, flagging a PRODUCT
+DECISION REQUIRED only if the model is silent AND an existing invariant
+would otherwise be violated — with an explicit fallback for the case
+where no invariant exists at all: "preserve the simplest existing
+model." A fresh grep this slice across DATA_MODEL.md, SECURITY.md,
+PRODUCT_SPEC.md, PRODUCT_UX_BLUEPRINT.md, and DECISIONS.md for any
+"last manager"/"at least one"/"cannot revoke" language found nothing.
+No other membership table (`tenant_memberships`, `organisation_
+memberships`) has any such protection either, anywhere in this
+codebase's history. The simplest existing model — a plain, symmetric
+permission check with no special-cased self/last-admin logic — is
+therefore what this slice preserves, not a gap. This is a real,
+deliberate, and now-documented behavior: a solo Engagement Manager
+genuinely can revoke themselves down to zero managers on their own
+engagement, tested directly (`tests/app/engagement-membership.test.ts`).

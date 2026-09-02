@@ -1,36 +1,235 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-01 — Slice C7.1 (Assessment Creation & Control
-Population) COMPLETE (Session 24): fixes the C7 review's own P0
-finding — before this slice, no function anywhere in the codebase
-could ever create an Assessment, so the entire Risk→Finding→
-Remediation→Validation chain, however well-built each of its own
-slices was, was structurally unreachable by a real consultant without
-a database script. `createAssessment` (new, `lib/domain/
-assessments.ts`) derives every scope value (tenant/organisation/pinned
-control library) from the Engagement's own authoritative row, never
-the browser; it creates the Assessment and, in the same transaction,
-populates its `AssessmentControls` from every Control belonging to the
-Engagement's pinned `ControlLibraryVersion` — the one behavior
-DATA_MODEL.md/PRODUCT_UX_BLUEPRINT.md actually document, since no
-applicability-exclusion or manual-selection mechanism exists anywhere
-in the schema (DECISIONS.md R-113). Authorization reuses the exact
-existing `can_access_engagement` rule every other `create*` function in
-this codebase already uses — the C7 review itself found this was
-already the schema's own answer, not an open question. A new route,
-`.../assessments/new`, reachable from both the Assessments list page
-and the Engagement detail page's own empty state — no orphan route, no
-URL the user has to construct by hand. No migration was needed — the
-existing composite FKs (migration 0008) already made a
-cross-tenant/cross-library AssessmentControl database-impossible,
-re-verified via `psql` and a dedicated raw-SQL test this slice. 637
-tests pass (58 files, +22 new in `tests/app/assessment-creation.test.ts`),
-run twice for stability. Per explicit instruction, this slice does
-NOT touch membership management, Assessment finalization, evidence
-download, Engagement editing, Maturity, Client Portal, Reporting, ROPA,
-or AI — those remain exactly where the C7 review's own recommended
-sequence (C7.2 onward) puts them. Full details in the "Slice C7.1"
-section below. STOP after C7.1 per explicit instruction.
+Status: 2026-09-01 — Slice C7.2 (Engagement Membership Management)
+COMPLETE (Session 25): fixes the C7 review's own second P0 finding —
+before this slice, no function anywhere in the codebase could add a
+second user to an Engagement or Organisation, so any real multi-person
+or client-involving engagement was impossible without a database
+script. `lib/domain/engagement-memberships.ts` is new
+(`addEngagementMember`/`revokeEngagementMember`/`listEngagementMembers`/
+`listEligibleUsersForEngagement`/`listEngagementRoles`), embedded as a
+"Members" section on the Engagement detail page. Authorization is the
+first fine-grained Role/Permission check in this codebase: the caller
+must hold the already-seeded `membership.manage` permission
+(`db/seed/roles.ts`, granted to Engagement Manager and Client
+Administrator since Milestone 1) — not invented, finally read
+(DECISIONS.md R-114). Migration 0024 extends the pre-existing
+`engagement_memberships_insert` RLS policy additively (a real, necessary
+fix: an ordinary Engagement Manager, who holds only one
+`engagement_memberships` row on their own engagement, would otherwise be
+rejected by RLS even after the application layer approved them) and
+adds its first-ever UPDATE policy plus a reparenting guard. Direct
+testing this slice discovered — and the same migration fixes — a
+second, real structural gap: `users_select`'s own RLS makes a
+not-yet-connected candidate user, and a revoked member's own identity,
+genuinely invisible to an ordinary query; three new, narrowly-gated
+SECURITY DEFINER functions resolve this the same way this codebase's
+existing resolver-function pattern already does (DECISIONS.md R-115).
+Eligibility (tenant match + client-organisation match, preserving
+tenant-wide consultant staffing) and self-protection (no invariant
+found anywhere in the product documents, so none is invented — a
+manager can revoke themselves; DECISIONS.md R-116) are both resolved
+from the existing repository, not invented. 667 tests pass (59 files,
++30 new in `tests/app/engagement-membership.test.ts`), run twice for
+stability, with zero regressions in the pre-existing
+`engagement-onboarding.test.ts` RLS/tenant-isolation coverage. Per
+explicit instruction, no invitation/email/registration system, no
+Client Portal, no Assessment finalization, no evidence download, no
+Engagement editing, no Maturity, no Reporting — those remain exactly
+where the C7 review's own recommended sequence puts them. Full details
+in the "Slice C7.2" section below. STOP after C7.2 per explicit
+instruction.
+
+## Slice C7.2 — Engagement Membership Management (Session 25, 2026-09-01)
+
+**Scope:** exactly what the C7.2 brief instructed — the second P0 fix
+the C7 review identified: Engagement → Members → Add existing user →
+assign engagement role → revoke membership, managing EXISTING
+authenticated users only. Explicitly NOT built this slice, per
+instruction: Client Portal, Assessment finalization, evidence download,
+Engagement editing, Maturity, Reporting, ROPA/Data Landscape, AI,
+billing, invitation/email workflows, user registration, organisation-
+wide user administration.
+
+Read `PRODUCT_SPEC.md`, `PRODUCT_UX_BLUEPRINT.md`, `ARCHITECTURE.md`,
+`DATA_MODEL.md`, `SECURITY.md`, `DECISIONS.md`, `PROGRESS.md`,
+`db/schema/{users,organisations,engagements,memberships,roles}.ts`,
+the authorization service, `lib/domain/{roles,organisations,
+engagements}.ts`, every membership-related RLS policy (migrations
+0001, 0019), existing membership tests
+(`tests/app/engagement-onboarding.test.ts`,
+`tests/rls/membership-boundaries.test.ts`), the Organisation and
+Engagement detail pages, existing Server Actions, and the audit
+triggers on the membership tables fresh from disk before writing
+anything, per instruction.
+
+### 1. Existing membership architecture discovered
+
+Three parallel membership tables (`tenant_memberships`,
+`organisation_memberships`, `engagement_memberships`, migration 0000):
+each a plain `user_id`/scope-id/`role_id`/`status` junction, with a
+**partial unique index on the active row per (user, scope)** — "at most
+one ACTIVE membership per user per scope, but a revoke-then-regrant is
+a new row, never an overwrite." `status` is `membership_status`
+(`active`/`revoked` only) — confirms soft deactivation, not hard
+delete, as the model's own intended lifecycle (instructions §4). Before
+this slice, `engagement_memberships` had a SELECT policy (migration
+0001) and an INSERT policy scoped to engagement-creation-time
+onboarding only (migration 0019) — no UPDATE policy at all. `users`
+(migration 0000): `tenant_id` NOT NULL, exactly one home tenant per
+user (no multi-tenant users); `client_org_id` nullable — NULL for
+PRIMUS-side (tenant-wide) users, set for client-side users belonging to
+exactly one client Organisation. `roles.scope` ∈ {tenant, organisation,
+engagement} — a role is only ever meant to be granted via the
+membership table matching its own scope (`roles.ts`'s own schema
+comment). `db/seed/roles.ts` already grants `membership.manage` to
+Engagement Manager (engagement-scope) and Client Administrator
+(organisation-scope) — the single most consequential discovery this
+slice made, since it directly answers instructions §3's authorization
+question without needing a STOP.
+
+### 2. Membership-management authorization rule
+
+`canManageEngagementMembership` (new, `lib/authorization/service.ts`):
+the caller holds `membership.manage` via an active EngagementMembership
+on this specific engagement, OR via an active OrganisationMembership on
+the engagement's own organisation. The first fine-grained Role/
+Permission check in this codebase — resolved from the repository's own
+already-seeded grant, not invented (DECISIONS.md R-114). Migration 0024
+extends the RLS layer to match: the existing `engagement_memberships_
+insert` policy gains an additive OR-clause (permission-based), and a
+brand-new UPDATE policy (previously absent) is gated on the permission
+check alone.
+
+### 3. Eligible-user rule
+
+A candidate is eligible for Engagement E (tenant T, organisation O) if:
+same tenant (`users.tenant_id = T`), account `status = 'active'`, and
+either `client_org_id IS NULL` (a PRIMUS-side, tenant-wide consultant —
+eligible for any engagement in the practice, preserving the existing,
+intended cross-organisation consultant-staffing architecture per
+SECURITY.md §3) or `client_org_id = O` (a client-side user belonging to
+this exact client organisation — never another one). Resolved entirely
+from `users.tenant_id`/`users.client_org_id`'s own documented meaning
+(`users.ts`'s own file comment), never invented, and never requiring a
+pre-existing OrganisationMembership (DATA_MODEL.md §2 names no such
+dependency between the three independent membership M2M
+relationships).
+
+### 4. A real gap this slice's own testing discovered: candidate/revoked-member visibility
+
+Not assumed from a prior report — found by running the tests: `users_
+select`'s own RLS policy (`id = auth.uid() OR shares_membership_
+scope(id)`, migration 0001) makes a candidate user who shares no
+membership with the caller — precisely the case this feature exists to
+solve — invisible to an ordinary query. The identical mechanism also
+makes a REVOKED member's own identity disappear from an ordinary roster
+JOIN, since `shares_membership_scope` requires both sides' membership
+to be active. Fixed with three new, narrowly-gated SECURITY DEFINER
+functions (`eligible_engagement_members`, `resolve_membership_
+candidate`, `engagement_membership_roster`, migration 0024) — the same
+resolver-function pattern this codebase already uses twice (migrations
+0001, 0019), each independently re-checking the caller's own
+authorization internally before returning any row, never a widening of
+`users_select` itself (DECISIONS.md R-115).
+
+### 5. Add-member / Revoke workflows
+
+`addEngagementMember`: Browser → Server Action
+(`addEngagementMemberAction`, new `engagements/[engagementId]/
+actions.ts`) → authenticate → load the authoritative Engagement →
+`requireEngagementMembershipManageAccess` → validate the role (must be
+`scope = 'engagement'`, rejecting a Tenant- or Organisation-scoped role
+id with a clean error) → validate the target user's eligibility via
+`resolve_membership_candidate` → duplicate pre-check → insert → audit
+(existing `engagement_memberships_audit_log` trigger) → redirect.
+`revokeEngagementMember`: loads the membership row → derives its
+Engagement → `requireEngagementMembershipManageAccess` → a plain
+`status = 'revoked'` UPDATE (idempotent if already revoked) → the same
+existing audit trigger (already fires on UPDATE too, confirmed —
+migration 0019). Neither trusts a browser-supplied `organisationId`
+beyond cross-checking it against the Engagement's own authoritative
+row.
+
+### 6. Role assignment
+
+Only `Role` rows with `scope = 'engagement'` may be assigned — server-
+validated (`InvalidEngagementRoleError`), never trusting a browser-
+supplied role id; the Add Member form's own dropdown is sourced from
+`listEngagementRoles` (roles filtered to `scope = 'engagement'` only),
+so a Tenant- or Organisation-scoped role never even appears as an
+option.
+
+### 7. Self-protection
+
+No invariant ("at least one manager," "cannot revoke self," "cannot
+revoke another manager") exists anywhere in DATA_MODEL.md/SECURITY.md/
+PRODUCT_SPEC.md/PRODUCT_UX_BLUEPRINT.md/DECISIONS.md — grepped fresh
+this slice, confirmed absent. Per instructions §8's own explicit
+fallback, none is invented: any authorized manager may revoke any
+member, including themselves, tested directly (DECISIONS.md R-116). No
+"change role" feature was built — the brief's own workflow shape lists
+only Add and Revoke.
+
+### 8. Duplicate handling
+
+The existing partial unique index
+(`engagement_memberships_active_user_engagement_key`) already makes a
+second ACTIVE membership for the same (user, engagement) pair database-
+impossible; `addEngagementMember` pre-checks it for a clean
+`DuplicateMembershipError`, then also catches the constraint violation
+as a fallback. A revoked-then-re-added membership succeeds as a genuine
+new row, leaving the earlier revoked row's own history untouched —
+tested directly.
+
+### 9. Database inspection
+
+`psql \d+ engagement_memberships` confirmed: the new additive INSERT
+OR-clause, the new UPDATE policy, the new `engagement_memberships_
+prevent_reparenting` trigger, and the pre-existing `engagement_
+memberships_audit_log` trigger (unchanged, already covers UPDATE) —
+all exactly as designed. GRANTs confirmed: `authenticated` now has
+INSERT/SELECT/UPDATE (still no DELETE) on `engagement_memberships`;
+`organisation_memberships` remains untouched (INSERT/SELECT only, no
+UPDATE) — confirming no organisation-membership administration was
+built, per instruction §18. All three new SECURITY DEFINER functions'
+EXECUTE grants confirmed correct (`authenticated`/`service_role` only).
+
+### 10. Test results
+
+`tests/app/engagement-membership.test.ts` (new, 30 tests) — 30/30
+passing standalone, covering all 19 required scenarios (authorization,
+tenant isolation, eligibility, roles, duplicates, revoke, access,
+audit) plus eligibility-list correctness, idempotent revoke,
+self-revocation, the reparenting guard, and roster visibility across
+revoked members. Full `tests/app` — 297/297 passing (14 files),
+including the pre-existing `engagement-onboarding.test.ts` (26/26
+unchanged) — confirming migration 0024's additive RLS extension broke
+nothing. Full `npm run test:db` — **59 test files, 667 tests, all
+passing**, run twice for stability with identical counts both times.
+`npm run typecheck` clean. `npx eslint .` clean. `npm run build`
+succeeds. Browser bundle grepped for service-role/database-credential
+strings — none found (this slice adds no client-side code or new env
+var usage).
+
+### 11. What was NOT built (explicit STOP boundaries honored)
+
+No invitation/email workflow, no user registration, no organisation-
+wide user-administration UI (only what eligibility resolution strictly
+needed, reusing the existing `organisation_memberships` table, never a
+new admin screen for it), no Client Portal, no Assessment finalization,
+no evidence download, no Engagement editing, no Maturity, no Reporting,
+no ROPA, no AI, no billing, no "change member role" feature.
+
+### 12. Recommended next slice
+
+Per the C7 review's own ordered sequence: **C7.3 — Assessment
+Finalization**, gated on the caller's `Engagement Manager` role — the
+data for this already exists on every `engagement_memberships` row
+(confirmed by the C7 review itself) and this slice's own new
+`hasEngagementPermission` mechanism is directly reusable for it. This
+report does not preempt the user's own choice of which C7.x slice to
+authorize next.
 
 ## Slice C7.1 — Assessment Creation & Control Population (Session 24, 2026-09-01)
 
