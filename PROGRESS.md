@@ -1,44 +1,153 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-02 — Slice D1 (Control Library Authoring) COMPLETE
-(Session 29): closes the single highest-priority gap the Reference
-Engagement Dataset exercise (Session 28) found — the application could
-execute a full engagement (Assessment → Control Testing → Evidence →
-Risk → Finding → Remediation → Validation → Report) but could not
-author the regulatory control library itself, requiring raw SQL/
-developer intervention. A Platform Administrator or Practice Partner
-(the two Tenant-scope Roles PRODUCT_UX_BLUEPRINT.md §8's own Permission
-Matrix maps to full Read/Create/Edit/Finalize on Methodology,
-DECISIONS.md R-130) can now, entirely from `/methodology`: create a
-draft Control Library Version, add/edit/delete Controls, create
-Regulatory References/Requirements, associate Controls with
-Requirements, publish a draft (permanently, immutably), and clone a
-published version into a new draft for corrections — the exact
-Draft → Published → immutable → New Draft lifecycle DATA_MODEL.md/
-migration 0007 already defined, not a second versioning mechanism
-(no schema change beyond one new migration narrowing RLS write
-policies and adding one resolver function — `has_tenant_permission`,
-migration 0026). Authorization is a genuinely new, dedicated
-`methodology.manage` permission, enforced in both the application layer
-(`requireMethodologyManageAccess`) and RLS (narrowed write policies on
-all six Milestone-4 methodology tables) — never a generic admin bypass,
-never inferred from an unrelated existing permission. Tenant isolation
-and Assessment-pin compatibility were both directly, adversarially
-verified: a cross-tenant write attempt is rejected at the RLS layer
-independently of the domain function, and an existing Assessment's
-pinned library version and already-populated AssessmentControls are
-provably untouched after a new version is cloned from and published
-alongside the one it's pinned to. The reference-engagement fixture
-(Session 28) was refactored to build its own demo Control Library
-through this real domain layer instead of raw SQL — the Gap Matrix
-(`REFERENCE_ENGAGEMENT.md`) DPDP Controls row now reads YES/YES/YES/
-None. 758 tests pass (63 files, +25 new in `tests/app/control-library-
-authoring.test.ts`), run twice for stability, zero regressions against
-the Reference Engagement Dataset baseline of 62/733. Full details in
-the "Control Library Authoring" section below and in
-`REFERENCE_ENGAGEMENT.md`. Per explicit instruction, STOP after D1 — no
-Data Landscape/ROPA, Applicability/Scope, Maturity, Client Portal, or
-any other feature without further explicit direction.
+Status: 2026-09-02 — Slice D2 (Data Landscape / Processing Activities /
+ROPA) COMPLETE (Session 30): closes the gap Slice D1's own closing
+review re-ranked to top priority — the application had a real, correct
+SCD2 schema for client master data (Business Units, Systems, Processors,
+Data Stores, Purposes, Personal Data Elements, Data Principal
+Categories) and for Processing Activities + their six version-pinned
+junctions (Milestones 2/3), but no domain module and no route for any
+of it, so a consultant could only build a Data Landscape via raw SQL. A
+consultant can now, entirely from the running application: maintain
+Organisation-level master data at `/organisations/[id]/master-data/
+[category]` (create, and "edit" as a genuine new SCD2 version — never
+an in-place rewrite — for the six versioned categories; direct in-place
+edit for Business Unit, the one entity DATA_MODEL.md §5.1/§5.3 carves
+out of version-pinning); create, edit, and review Engagement-scoped
+Processing Activities at `/organisations/[id]/engagements/[id]/
+data-landscape`, link all six relationship categories (each resolved to
+the linked entity's CURRENT master-data version at the moment of
+linking), and carry an activity forward into a new engagement (re-
+resolving every link to each entity's then-current version, never
+touching the source engagement's own rows); and open a ROPA view at
+`/data-landscape/ropa` — a read composition over Processing Activities
+and their junctions, never a new persisted table. No new migration was
+needed — the entire schema, RLS, triggers, and audit logging already
+existed (Milestones 2/3); this was purely an application-layer slice,
+like D1. No new permission was introduced either — master data and
+Processing Activity writes reuse the SAME broad `requireOrganisation
+Access`/`requireEngagementAccess` checks migrations 0003/0005's own RLS
+policies already used for these exact tables, confirmed against
+PRODUCT_UX_BLUEPRINT.md §8's own Permission Matrix (DECISIONS.md
+R-134) — the opposite conclusion from D1's Methodology slice, and
+correctly so: the evidence pointed opposite ways in each case. Tenant
+isolation and version-pinning historical integrity were both directly,
+adversarially verified: a cross-tenant write attempt is rejected at
+both the application layer and the RLS layer independently; changing a
+System's current version after a Processing Activity has linked to it
+leaves that Processing Activity's own resolved detail unchanged, while
+the System's own master-data list correctly shows the new current
+version — reproducing DATA_MODEL.md §5.5's own worked FY2026→FY2027
+scenario end to end, including carry-forward. The reference-engagement
+fixture (Session 28) was refactored to build its own demo Data
+Landscape (master data + all ten Processing Activities) through this
+real domain layer instead of raw SQL — the Gap Matrix
+(`REFERENCE_ENGAGEMENT.md`) Data Landscape and ROPA/Processing
+Activities rows now both read YES/YES/YES/None; Applicability/Scope
+correctly remains NO/NO/NO (explicitly out of scope, and confirmed not
+blocked by this slice's own model). R1's Engagement Report is
+completely unchanged — re-verified its PDF still contains no Maturity
+or Data Landscape/ROPA section even though this reference engagement
+has real data for both. 784 tests pass (64 files, +26 new in `tests/
+app/data-landscape.test.ts`), typecheck/lint/build all clean, every
+check run twice for stability, zero regressions against the Slice D1
+baseline of 63/758 (delta: +1 file, +26 tests, exactly the new suite).
+Full details in the "Data Landscape / Processing Activities" section
+below and in `REFERENCE_ENGAGEMENT.md`. Per explicit instruction, STOP
+after D2 — no Applicability/Scope, Maturity, Client Portal, or any
+other feature without further explicit direction.
+
+## Data Landscape / Processing Activities (Session 30, 2026-09-02)
+
+**Scope:** exactly what the D2 brief instructed — the minimum viable
+Data Landscape / Processing Activities / ROPA capability, on top of the
+EXACT existing master-data (Milestone 2) and Processing Activity /
+version-pinned-junction (Milestone 3) schema, preserving both entity
+families' ownership model (Organisation-level master data vs.
+Engagement-level Processing Activities), their SCD2 versioning, and
+their existing RLS/authorization boundary unchanged. Explicitly NOT
+built, per instruction: Applicability/Scope, Maturity, Client Portal, a
+visual data-flow diagram, a second ROPA data model, a second PDF/report
+subsystem, or a new permission.
+
+**Inspection findings (§3), before any code was written:** (A) the full
+database schema for both master data and Processing Activities/
+junctions already existed and was correct (Milestones 2/3 — identity +
+SCD2 version tables, `one_current_key` partial unique indexes,
+`close_out_previous_*_version` triggers, composite FKs proving
+organisation/engagement/version consistency, full RLS and audit
+logging). (B) zero application layer existed for any of it — confirmed
+by a repository-wide grep of `lib/domain/*.ts` and `app/` for any
+processing-activity/master-data-touching code, finding none beyond the
+raw-SQL test fixture helpers. (C) everything was reachable only through
+raw SQL (`tests/master-data/helpers.ts`, `tests/processing-activity/
+helpers.ts`, and the reference-engagement fixture's own pre-D2
+construction). (D) exactly a domain module for each scope, plus UI at
+the two routes PRODUCT_UX_BLUEPRINT.md §14 already specified, were
+missing. (E) organisation vs. engagement ownership, (F) what's
+versioned, and (G) what an engagement pins/snapshots were all already
+answered unambiguously by DATA_MODEL.md §5.1-§5.4 and the schema itself
+— see DECISIONS.md R-133.
+
+**Ownership, derived from the repository:** Business Unit/Data
+Principal Category/Personal Data Element/Purpose/System/Data Store/
+Processor = Organisation-level master data (`lib/domain/master-data.ts`).
+Processing Activity + its six junctions = Engagement-level
+(`lib/domain/processing-activities.ts`). Two domain modules because the
+schema itself draws that boundary — see DECISIONS.md R-133.
+
+**Versioning, the existing SCD2 mechanism, unchanged:** no second
+versioning mechanism was built. Master-data "editing" always inserts a
+new version row via the six categories' already-existing `close_out_
+previous_*_version` triggers; a Processing Activity's link to master
+data pins both the identity id and the specific version id current at
+link time (migration 0004, already built). Verified directly:
+`createSystemVersion` after a link was made leaves the Processing
+Activity's own resolved read unchanged while the System's own current
+list correctly reflects the new version; `carryForwardProcessingActivity`
+re-resolves every link to each entity's then-current version in the new
+engagement without touching the source engagement's row.
+
+**Authorization:** no new permission. `requireOrganisationAccess`
+(master data) and `requireEngagementAccess` (Processing Activities) —
+the same broad checks migrations 0003/0005's own RLS already used for
+these exact tables, and the shape PRODUCT_UX_BLUEPRINT.md §8's
+Permission Matrix specifies for these two rows. See DECISIONS.md R-134.
+
+**Tenant isolation:** every write function re-derives the authoritative
+organisation/engagement from the target row itself, never a
+caller-supplied id; verified directly at both the application layer
+(`NotFoundOrForbiddenError`) and RLS (direct raw cross-tenant `SELECT`
+independently returns zero rows) — matching Slice D1's own testing
+discipline.
+
+**ROPA:** `listRopaEntries` — a read view over Processing Activities and
+their six junctions, never a new persisted table (DECISIONS.md R-135),
+matching `db/schema/processing-activities.ts`'s own pre-existing header
+comment. No new export/PDF subsystem — R1 unchanged.
+
+**UI:** `/organisations/[id]/master-data/[category]` (one tabbed screen
+across all seven categories — list, add, and, for the six versioned
+ones, "edit" that creates a new version, plus retire) and
+`/organisations/[id]/engagements/[id]/data-landscape` (Processing
+Activity list, create, detail with all six relationship-link sections
+and a carry-forward action, and the `/ropa` sub-route) — the smallest
+coherent experience, using the existing shadcn/ui-style components and
+Server-Action pattern established since Slice B1/D1, no new design
+system.
+
+**Tests:** `tests/app/data-landscape.test.ts` (new, 26 tests) —
+master-data CRUD/versioning/authorization/tenant-isolation (12),
+Processing Activity CRUD/relationships/versioning/carry-forward/
+authorization/tenant-isolation/ROPA (14) — plus the reference-engagement
+fixture itself now exercising the full Data Landscape path as its own
+real, non-test-only "production" use, and `tests/app/reference-
+engagement.test.ts`'s own STAGE 3 upgraded from PARTIAL-proving to
+YES-proving assertions. Full regression (`npx vitest run`, the complete
+combined application + database suite) run twice: 64 files / 784 tests,
+stable both times, zero regressions against Slice D1's own 63/758
+baseline. `tsc --noEmit`, `eslint .`, and `next build` all clean, each
+run twice.
 
 ## Control Library Authoring (Session 29, 2026-09-02)
 

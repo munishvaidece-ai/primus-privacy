@@ -58,6 +58,23 @@ export default async function OrganisationDetailPage({
 
       <section className="mt-8">
         <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Master Data</h2>
+          <Link
+            href={`/organisations/${organisation.id}/master-data/business-units`}
+            className="text-sm font-medium text-slate-900 underline"
+          >
+            View / edit
+          </Link>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          Business Units, Systems, Processors, Data Stores, Purposes, Personal Data Elements and Data
+          Principal Categories — this client&rsquo;s reusable compliance facts, shared across every
+          engagement.
+        </p>
+      </section>
+
+      <section className="mt-8">
+        <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Engagements</h2>
           {canCreateEng ? (
             <Link

@@ -107,7 +107,11 @@ for free, with the repository's own existing tooling, not a new one.
   communications, Employee HR administration, Recruitment, Vendor
   management, Grievance handling), each linked to a realistic subset of
   the master data above through the real version-pinned junction
-  tables.
+  tables. Since Slice D2, built entirely through the real
+  `lib/domain/master-data.ts`/`lib/domain/processing-activities.ts`
+  domain functions — the exact functions a real consultant would call
+  from `/organisations/[id]/master-data/[category]` and
+  `/organisations/[id]/engagements/[id]/data-landscape` — not raw SQL.
 - **Assessment:** one, `annual`, kept `draft` (not finalized) — 25
   AssessmentControls auto-populated from the pinned library.
 - **Assessment Responses:** 18 of 25 controls responded (a realistic
@@ -200,6 +204,94 @@ anonymous-caller check) — plus the reference-engagement fixture itself
 now exercising the full authoring path as its own real, non-test-only
 "production" use.
 
+## Data Landscape / Processing Activities / ROPA (Slice D2)
+
+The gap this document's own "highest-priority gaps" ranking named first
+after Slice D1 — resolved as its own focused slice, per the same
+discipline as D1.
+
+**Ownership, derived from the repository, not invented:** DATA_MODEL.md
+§5.1/§5.2, the existing schema, and the existing SCD2 pattern together
+draw one boundary, and it is preserved exactly: **Business Units,
+Systems, Processors, Data Stores, Purposes, Personal Data Elements, and
+Data Principal Categories are Organisation-level master data** —
+persistent client facts, reusable across every engagement, six of the
+seven versioned (SCD2: identity row + append-only version history,
+Business Unit deliberately not — DATA_MODEL.md §5.1/§5.3's own
+carve-out). **Processing Activity, and its six version-pinned junctions
+to that master data, are Engagement-level** — created fresh per
+engagement, never mutated by a later one, with `carried_forward_from_id`
+as the explicit, non-destructive continuity mechanism across engagements
+(DATA_MODEL.md §5.4). `lib/domain/master-data.ts` and
+`lib/domain/processing-activities.ts` are two separate domain modules
+precisely because the two entity families sit at two different scopes —
+not a stylistic split.
+
+**Versioning / historical integrity, the critical acceptance
+criterion:** no second SCD2 mechanism was built. The six versioned
+master-data entities keep using the exact identity+version+trigger model
+migrations 0002/0003 already implemented (a version table has no UPDATE
+grant at all — the only way to change what a version says is to create
+a new one). A Processing Activity's link to a piece of master data pins
+BOTH the identity id and the specific version id that was current at
+the moment of linking (migration 0004's version-pinned junctions,
+already built) — proven directly in this slice's own testing: changing
+a System's current version *after* a Processing Activity has linked to
+it leaves that Processing Activity's own resolved detail unchanged
+(still showing the old version's name), while a fresh read of the
+System's own master-data list correctly shows the new current version.
+Carrying a Processing Activity forward into a new engagement creates a
+new row and re-resolves every link to each entity's then-current
+version, without touching the source engagement's row or its own pins —
+also verified directly, reproducing DATA_MODEL.md §5.5's own worked
+FY2026→FY2027 scenario.
+
+**Authorization:** no new permission was introduced. Master data write
+access is `requireOrganisationAccess` and Processing Activity/junction
+write access is `requireEngagementAccess` — the SAME broad
+organisation-/engagement-membership checks migrations 0003 and 0005's
+own RLS policies already used for these exact tables (`can_access_
+organisation`/`can_access_engagement`, no narrower permission), and the
+same shape PRODUCT_UX_BLUEPRINT.md §8's Permission Matrix specifies for
+"Client Master Data" and "Processing Activities / ROPA" (Consultant:
+plain Read/Create/Edit via membership, no dedicated permission column —
+unlike Methodology, which is genuinely Tenant-scoped and DID need
+`methodology.manage` in Slice D1). Introducing a new permission here
+would have been inventing a boundary the repository's own evidence does
+not call for.
+
+**Tenant isolation:** every write function re-derives the authoritative
+organisation/engagement from the target row itself (never a
+caller-supplied id); a forged `organisationId`/`engagementId`, or a
+reference to another organisation's master data, is rejected. Verified
+directly at both layers — the application layer (`NotFoundOrForbidden
+Error`) and RLS (a direct raw cross-tenant `SELECT` against
+`systems`/`processing_activities` independently returns zero rows).
+
+**ROPA:** deliberately NOT a new persisted table — `listRopaEntries`
+(`lib/domain/processing-activities.ts`) is a read view assembling
+Processing Activities and their six junctions, resolved against master
+data, matching `db/schema/processing-activities.ts`'s own pre-existing
+header comment ("ROPA is a future view/workflow over this table and its
+junctions — not a separate dataset"). No new PDF/export subsystem —
+R1's Engagement Report is unchanged and untouched by this slice.
+
+**Applicability/Scope, the explicit future integration point:** not
+built here (out of scope by instruction), and nothing in this slice's
+schema or domain layer blocks it. A future `ApplicabilityDetermination`
+(DATA_MODEL.md §4) would reference `ProcessingActivity` the same way
+`Risk`/`Finding` already do — no schema change to this slice's own
+tables would be required.
+
+**Tests:** `tests/app/data-landscape.test.ts` (new, 26 tests) —
+master-data CRUD/versioning/authorization/tenant-isolation (12),
+Processing Activity CRUD/relationships/versioning/carry-forward/
+authorization/tenant-isolation/ROPA (14) — plus the reference-engagement
+fixture itself now exercising the full Data Landscape path as its own
+real, non-test-only "production" use, and `tests/app/reference-
+engagement.test.ts`'s own STAGE 3 upgraded from PARTIAL-proving to
+YES-proving assertions.
+
 ## Gap Matrix
 
 Recorded from actually attempting each stage against real PostgreSQL —
@@ -212,8 +304,8 @@ table doesn't exist at all).
 |---|---|---|---|---|
 | Organisation | YES | YES | YES | None |
 | Engagement | YES | YES | YES | None |
-| Data Landscape (master data) | YES | NO | NO | No domain module, no UI. Real SCD2 schema (identity + version tables, "one current per identity") works correctly, exercised only via raw SQL fixture helpers, never a real user action. |
-| ROPA / Processing Activities | YES | NO | NO | Same gap as Data Landscape — `ProcessingActivity` and its six version-pinned junction tables (Milestone 3) have no domain module and no route (`/data-landscape` does not exist in `app/`). |
+| Data Landscape (master data) | YES | **YES** | YES | **None (Slice D2).** `lib/domain/master-data.ts` + `/organisations/[id]/master-data/[category]` — a consultant can create/version/retire Business Units, Systems, Processors, Data Stores, Purposes, Personal Data Elements, and Data Principal Categories entirely from the running application; verified directly against real PostgreSQL, including that a new version never rewrites the old one. |
+| ROPA / Processing Activities | YES | **YES** | YES | **None (Slice D2).** `lib/domain/processing-activities.ts` + `/organisations/[id]/engagements/[id]/data-landscape` (+ `/ropa`) — a consultant can create Processing Activities, link all six relationship categories, review the Data Landscape, open the ROPA view, and carry an activity forward into a new engagement, entirely from the running application; verified directly, including that carry-forward re-resolves to current master-data versions without touching the source engagement's rows. |
 | Applicability / Scope | NO | NO | NO | Not built at any layer. DATA_MODEL.md §4 documents `ApplicabilityDetermination`/`ApplicabilityDeterminationRegulatoryReference`; neither table exists — confirmed by a real query against it failing with "relation does not exist," not by inspection alone. |
 | DPDP Controls (Regulatory Content & Control Library) | YES | **YES** | YES | **None (Slice D1).** `lib/domain/control-library.ts` + `/methodology/**` — a Platform Administrator/Practice Partner can create/edit/publish/clone the control library and author regulatory content entirely from the running application; verified directly against real PostgreSQL, including the Assessment-pinning acceptance criterion. |
 | Assessment | YES | YES | YES | None |
@@ -232,49 +324,48 @@ table doesn't exist at all).
 A consultant using only the running application (no database script, no
 developer intervention) can today take a real engagement from
 **Organisation creation, through authoring the DPDP Control Library
-itself, through Assessment → Control Testing → Evidence → Risk →
-Finding → Remediation → Validation → Engagement Report — entirely
-inside PRIMUS.** Slice D1 closed the one link in that chain that still
-required a developer: a Platform Administrator or Practice Partner can
-now draft, populate, and publish a real control library version (and
-create the Regulatory References/Requirements it associates with)
-before a Consultant ever opens an Assessment against it. Re-confirmed
-here against a substantially larger, more varied fixture than any
-single prior slice's own tests used (25 controls, 6 risks, 7 findings,
-8 remediation actions, 9 evidence items).
+itself, through building the client's Data Landscape and Processing
+Activities / ROPA, through Assessment → Control Testing → Evidence →
+Risk → Finding → Remediation → Validation → Engagement Report —
+entirely inside PRIMUS.** Slice D1 closed the control-library gap;
+Slice D2 closes the Data Landscape/ROPA gap that became top-ranked once
+D1 was done: a consultant can now maintain the client's reusable master
+data (Business Units, Systems, Processors, Data Stores, Purposes,
+Personal Data Elements, Data Principal Categories) and record/link/review
+Processing Activities and their ROPA view, all before or during an
+Assessment, with no developer intervention.
 
-They **still cannot**, from inside the running application: build a
-Data Landscape/ROPA record of the client's processing activities,
-record a formal Applicability/Scope determination, or compute a
-Maturity score. Every one of these three remaining gaps was already
-true before Session 28's exercise and remains true after Slice D1 —
-deliberately: this slice's own instructions scoped it to Control
-Library Authoring alone.
+They **still cannot**, from inside the running application: record a
+formal Applicability/Scope determination, or compute a Maturity score.
+Both gaps were already true before Session 28's exercise and remain true
+after Slice D2 — deliberately: this slice's own instructions scoped it
+to Data Landscape/Processing Activities/ROPA alone, explicitly excluding
+Applicability/Scope and Maturity.
 
 ## Highest-priority gaps for a first real consulting engagement
 
 Ranked by what most blocks PRIMUS from delivering a complete first real
-engagement, given the loop itself (Control Library → Assessment → Risk
-→ Finding → Remediation → Validation → Report) now works end to end,
-Control Library Authoring having been resolved by Slice D1:
+engagement, given the loop itself (Control Library → Data Landscape/ROPA
+→ Assessment → Risk → Finding → Remediation → Validation → Report) now
+works end to end, Control Library Authoring and Data Landscape/ROPA
+having been resolved by Slices D1 and D2:
 
-1. **Data Landscape / ROPA.** Now the top-ranked remaining gap. The
-   brief's own workflow, and DATA_MODEL.md §5, treat this as the
-   natural first-conversation deliverable with a client (what data do
-   you process, where, why) — the schema is ready and well-designed;
-   only the application layer is missing.
-2. **Applicability / Scope.** Genuinely unbuilt at the schema level, not
-   just the application level — the smallest in raw effort (one new
-   table plus a junction), but the one with no existing database
-   foundation to build on at all.
-3. **Maturity.** The one area where even the *scoring model* has never
+1. **Applicability / Scope.** Now the top-ranked remaining gap, and
+   genuinely unbuilt at the schema level, not just the application
+   level — the smallest in raw effort (one new table plus a junction),
+   but the one with no existing database foundation to build on at all.
+   Slice D2 confirmed the Data Landscape model does not block adding
+   it: a future `ApplicabilityDetermination` would reference
+   `ProcessingActivity` the same way `Risk`/`Finding` already do.
+2. **Maturity.** The one area where even the *scoring model* has never
    been designed (no algorithm, no domain reasoning) — the largest,
    least-defined gap, and correctly the one this task's own instructions
    forbid starting without further explicit direction.
-4. **Client Portal.** Deliberately last — nothing above depends on it,
+3. **Client Portal.** Deliberately last — nothing above depends on it,
    and PRODUCT_SPEC.md/PRODUCT_UX_BLUEPRINT.md both treat it as a later
    phase once the consultant-side loop is solid, which it now is.
 
-See `PROGRESS.md`'s "Reference Engagement Dataset" and "Control Library
-Authoring" sections, and `DECISIONS.md` R-127 through R-132, for the
+See `PROGRESS.md`'s "Reference Engagement Dataset", "Control Library
+Authoring", and "Data Landscape / Processing Activities" sections, and
+`DECISIONS.md` R-127 through R-132 and the Slice D2 entries, for the
 full session record.

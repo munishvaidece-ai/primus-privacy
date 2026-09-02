@@ -89,6 +89,21 @@ export default async function EngagementDetailPage({
 
       <section className="mt-8">
         <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Data Landscape</h2>
+          <Link
+            href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/data-landscape`}
+            className="text-sm font-medium text-slate-900 underline"
+          >
+            View Data Landscape / ROPA
+          </Link>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          Processing Activities and how personal data actually flows through this engagement.
+        </p>
+      </section>
+
+      <section className="mt-8">
+        <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assessments</h2>
           <Link
             href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/assessments`}

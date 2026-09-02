@@ -71,35 +71,35 @@ import {
   grantTenantMembership,
   createRiskScoringModel,
 } from "./helpers";
+import { withRequestDb } from "@/lib/db/request-client";
+import { createOrganisation } from "@/lib/domain/organisations";
+import { createEngagement } from "@/lib/domain/engagements";
+import { addEngagementMember, listEngagementRoles } from "@/lib/domain/engagement-memberships";
+// Slice D2 — Data Landscape / Processing Activities / ROPA now has a
+// real domain layer (lib/domain/master-data.ts,
+// lib/domain/processing-activities.ts). This fixture builds the demo
+// Data Landscape through it, exactly like every other section of this
+// fixture builds through the real application/domain layer — no raw
+// SQL is required any more (instructions §14).
 import {
   createBusinessUnit,
   createSystem,
-  insertSystemVersion,
   createDataStore,
-  insertDataStoreVersion,
   createProcessor,
-  insertProcessorVersion,
   createPurpose,
-  insertPurposeVersion,
   createPersonalDataElement,
-  insertPersonalDataElementVersion,
   createDataPrincipalCategory,
-  insertDataPrincipalCategoryVersion,
-} from "../master-data/helpers";
+} from "@/lib/domain/master-data";
 import {
   createProcessingActivity,
+  updateProcessingActivity,
   linkSystem,
   linkDataStore,
   linkProcessor,
   linkPurpose,
   linkPersonalDataElement,
   linkDataPrincipalCategory,
-} from "../processing-activity/helpers";
-
-import { withRequestDb } from "@/lib/db/request-client";
-import { createOrganisation } from "@/lib/domain/organisations";
-import { createEngagement } from "@/lib/domain/engagements";
-import { addEngagementMember, listEngagementRoles } from "@/lib/domain/engagement-memberships";
+} from "@/lib/domain/processing-activities";
 import {
   createAssessment,
   getAssessmentDetail,
@@ -385,101 +385,77 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
   const organisationName = "ABC Fintech Private Limited";
   const { id: organisationId } = await withRequestDb(leadUserId, (db) => createOrganisation(db, leadUserId, { name: organisationName }));
 
-  // Data Landscape / ROPA master data (raw SQL — organisation now
-  // exists). See the module-level comment: no domain module exists for
-  // any of this, so it is built the same way every processing-activity
-  // test fixture in this repository already builds it.
-  const md = await asFixtureSetup(async (client: PoolClient) => {
-    const businessUnitRetail = await createBusinessUnit(client, organisationId, "Retail Banking Operations");
-    const businessUnitDigital = await createBusinessUnit(client, organisationId, "Digital Products & Technology");
-    const businessUnitHR = await createBusinessUnit(client, organisationId, "Human Resources");
+  // Data Landscape / ROPA master data — Slice D2's real domain layer
+  // (lib/domain/master-data.ts), acting as `leadUserId` (already an
+  // organisation member — `createOrganisation` above granted it). No
+  // raw SQL: every entity below is created exactly as a consultant
+  // would create it through the application.
+  const businessUnitRetail = (await withRequestDb(leadUserId, (db) => createBusinessUnit(db, leadUserId, organisationId, { name: "Retail Banking Operations", parentBusinessUnitId: null }))).id;
+  const businessUnitDigital = (await withRequestDb(leadUserId, (db) => createBusinessUnit(db, leadUserId, organisationId, { name: "Digital Products & Technology", parentBusinessUnitId: null }))).id;
+  const businessUnitHR = (await withRequestDb(leadUserId, (db) => createBusinessUnit(db, leadUserId, organisationId, { name: "Human Resources", parentBusinessUnitId: null }))).id;
 
-    const sys = async (name: string, owner: string, hosting: string) => {
-      const id = await createSystem(client, organisationId);
-      const versionId = await insertSystemVersion(client, { systemId: id, organisationId, name, owner, hostingEnvironment: hosting });
-      return { id, versionId };
-    };
-    const coreBanking = await sys("Core Banking System", "IT/CISO", "on_premise (demo)");
-    const onboardingPortal = await sys("Customer Onboarding Portal", "Digital Products & Technology", "cloud (demo)");
-    const hrSystem = await sys("HR Information System", "Human Resources", "cloud (demo)");
-    const marketingPlatform = await sys("Marketing Automation Platform", "Digital Products & Technology", "cloud (demo, third-party SaaS)");
+  const sys = async (name: string, owner: string, hosting: string) =>
+    (await withRequestDb(leadUserId, (db) => createSystem(db, leadUserId, organisationId, { name, owner, hostingEnvironment: hosting }))).id;
+  const systems = {
+    coreBanking: await sys("Core Banking System", "IT/CISO", "on_premise (demo)"),
+    onboardingPortal: await sys("Customer Onboarding Portal", "Digital Products & Technology", "cloud (demo)"),
+    hrSystem: await sys("HR Information System", "Human Resources", "cloud (demo)"),
+    marketingPlatform: await sys("Marketing Automation Platform", "Digital Products & Technology", "cloud (demo, third-party SaaS)"),
+  };
 
-    const store = async (name: string, systemVersionId?: string) => {
-      const id = await createDataStore(client, organisationId);
-      const versionId = await insertDataStoreVersion(client, { dataStoreId: id, organisationId, name, systemVersionId });
-      return { id, versionId };
-    };
-    const customerWarehouse = await store("Customer Data Warehouse", coreBanking.versionId);
-    const documentStore = await store("Document Management Store", onboardingPortal.versionId);
-    const employeeStore = await store("Employee Records Store", hrSystem.versionId);
+  const store = async (name: string, systemId: string | null) =>
+    (await withRequestDb(leadUserId, (db) => createDataStore(db, leadUserId, organisationId, { name, storageType: null, location: null, systemId }))).id;
+  const stores = {
+    customerWarehouse: await store("Customer Data Warehouse", systems.coreBanking),
+    documentStore: await store("Document Management Store", systems.onboardingPortal),
+    employeeStore: await store("Employee Records Store", systems.hrSystem),
+  };
 
-    const proc = async (name: string, dpaLabel: string | undefined) => {
-      const id = await createProcessor(client, organisationId);
-      const versionId = await insertProcessorVersion(client, { processorId: id, organisationId, name, dpaVersionLabel: dpaLabel });
-      return { id, versionId };
-    };
-    const cloudHosting = await proc("Cloud Hosting Provider (IaaS) (demo)", "DPA v2.1 (signed, demo)");
-    const paymentGateway = await proc("Payment Gateway Processor (demo)", "DPA v1.3 (signed, demo)");
-    const marketingVendor = await proc("Email/SMS Marketing Vendor (demo)", undefined); // deliberately no DPA yet — matches VEN-01's gap
+  const proc = async (name: string, dpaLabel: string | null) =>
+    (await withRequestDb(leadUserId, (db) => createProcessor(db, leadUserId, organisationId, { name, dpaVersionLabel: dpaLabel, riskTier: null, parentProcessorId: null }))).id;
+  const processors = {
+    cloudHosting: await proc("Cloud Hosting Provider (IaaS) (demo)", "DPA v2.1 (signed, demo)"),
+    paymentGateway: await proc("Payment Gateway Processor (demo)", "DPA v1.3 (signed, demo)"),
+    marketingVendor: await proc("Email/SMS Marketing Vendor (demo)", null), // deliberately no DPA yet — matches VEN-01's gap
+  };
 
-    const purpose = async (name: string) => {
-      const id = await createPurpose(client, organisationId);
-      const versionId = await insertPurposeVersion(client, { purposeId: id, organisationId, name });
-      return { id, versionId };
-    };
-    const purposes = {
-      onboarding: await purpose("Customer Onboarding"),
-      kyc: await purpose("KYC Verification"),
-      accountMgmt: await purpose("Customer Account Management"),
-      transactions: await purpose("Transaction Processing"),
-      support: await purpose("Customer Support"),
-      marketing: await purpose("Marketing Communications"),
-      hrAdmin: await purpose("Employee HR Administration"),
-      recruitment: await purpose("Recruitment"),
-      vendorMgmt: await purpose("Vendor Management"),
-      grievance: await purpose("Grievance Handling"),
-    };
+  const purpose = async (name: string) => (await withRequestDb(leadUserId, (db) => createPurpose(db, leadUserId, organisationId, { name, description: null }))).id;
+  const purposes = {
+    onboarding: await purpose("Customer Onboarding"),
+    kyc: await purpose("KYC Verification"),
+    accountMgmt: await purpose("Customer Account Management"),
+    transactions: await purpose("Transaction Processing"),
+    support: await purpose("Customer Support"),
+    marketing: await purpose("Marketing Communications"),
+    hrAdmin: await purpose("Employee HR Administration"),
+    recruitment: await purpose("Recruitment"),
+    vendorMgmt: await purpose("Vendor Management"),
+    grievance: await purpose("Grievance Handling"),
+  };
 
-    const element = async (name: string, sensitivity: "general" | "sensitive" | "critical") => {
-      const id = await createPersonalDataElement(client, organisationId);
-      const versionId = await insertPersonalDataElementVersion(client, { personalDataElementId: id, organisationId, name, sensitivityCategory: sensitivity });
-      return { id, versionId };
-    };
-    const elements = {
-      name: await element("Full Name", "general"),
-      pan: await element("PAN", "sensitive"),
-      email: await element("Email Address", "general"),
-      mobile: await element("Mobile Number", "general"),
-      account: await element("Bank Account Number", "critical"),
-      transactionHistory: await element("Transaction History", "critical"),
-      employment: await element("Employment Details", "sensitive"),
-      salary: await element("Salary Information", "sensitive"),
-    };
+  const element = async (name: string, sensitivity: "general" | "sensitive" | "critical") =>
+    (await withRequestDb(leadUserId, (db) => createPersonalDataElement(db, leadUserId, organisationId, { name, sensitivityCategory: sensitivity }))).id;
+  const elements = {
+    name: await element("Full Name", "general"),
+    pan: await element("PAN", "sensitive"),
+    email: await element("Email Address", "general"),
+    mobile: await element("Mobile Number", "general"),
+    account: await element("Bank Account Number", "critical"),
+    transactionHistory: await element("Transaction History", "critical"),
+    employment: await element("Employment Details", "sensitive"),
+    salary: await element("Salary Information", "sensitive"),
+  };
 
-    const category = async (name: string) => {
-      const id = await createDataPrincipalCategory(client, organisationId);
-      const versionId = await insertDataPrincipalCategoryVersion(client, { dataPrincipalCategoryId: id, organisationId, name });
-      return { id, versionId };
-    };
-    const categories = {
-      customers: await category("Customers"),
-      employees: await category("Employees"),
-      applicants: await category("Job Applicants"),
-      vendorContacts: await category("Vendor Contacts"),
-    };
+  const category = async (name: string) =>
+    (await withRequestDb(leadUserId, (db) => createDataPrincipalCategory(db, leadUserId, organisationId, { name, isChildrenFlag: false, description: null }))).id;
+  const categories = {
+    customers: await category("Customers"),
+    employees: await category("Employees"),
+    applicants: await category("Job Applicants"),
+    vendorContacts: await category("Vendor Contacts"),
+  };
 
-    return {
-      businessUnitRetail,
-      businessUnitDigital,
-      businessUnitHR,
-      systems: { coreBanking, onboardingPortal, hrSystem, marketingPlatform },
-      stores: { customerWarehouse, documentStore, employeeStore },
-      processors: { cloudHosting, paymentGateway, marketingVendor },
-      purposes,
-      elements,
-      categories,
-    };
-  });
+  const md = { businessUnitRetail, businessUnitDigital, businessUnitHR, systems, stores, processors, purposes, elements, categories };
 
   // Engagement (real domain function — Slice B2), pinning the
   // now-published demo Control Library.
@@ -495,71 +471,77 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
     }),
   );
 
-  // Processing Activities / ROPA (raw SQL — engagement now exists),
-  // the ten activities the brief itself names, linked to a realistic
-  // subset of the master data above.
-  const processingActivityIds: Record<string, string> = await asFixtureSetup(async (client: PoolClient) => {
-    const pa = async (name: string, businessUnitId: string, lawfulBasis: string) => {
-      const id = await createProcessingActivity(client, { engagementId, organisationId, tenantId, name, businessUnitId });
-      await client.query(`UPDATE processing_activities SET lifecycle_status = 'active', lawful_basis = $2 WHERE id = $1`, [id, lawfulBasis]);
-      return id;
-    };
+  // Processing Activities / ROPA — Slice D2's real domain layer
+  // (lib/domain/processing-activities.ts), the ten activities the
+  // brief itself names, linked to a realistic subset of the master
+  // data above. `createProcessingActivity` always starts a Processing
+  // Activity as 'draft' (matching the application's own create form —
+  // no domain function accepts an initial non-draft status); the
+  // follow-up `updateProcessingActivity` call is the same "activate it"
+  // step a consultant would take through the UI, not a fixture-only
+  // shortcut.
+  const pa = async (name: string, businessUnitId: string, lawfulBasis: string) => {
+    const { id } = await withRequestDb(leadUserId, (db) =>
+      createProcessingActivity(db, leadUserId, { engagementId, name, description: null, businessUnitId, ownerUserId: null, lawfulBasis }),
+    );
+    await withRequestDb(leadUserId, (db) =>
+      updateProcessingActivity(db, leadUserId, { processingActivityId: id, name, description: null, businessUnitId, ownerUserId: null, lifecycleStatus: "active", lawfulBasis }),
+    );
+    return id;
+  };
 
-    const ids: Record<string, string> = {};
+  const processingActivityIds: Record<string, string> = {};
 
-    ids.onboarding = await pa("Customer onboarding", md.businessUnitDigital, "Consent");
-    await linkPurpose(client, { processingActivityId: ids.onboarding, engagementId, organisationId, purposeId: md.purposes.onboarding.id, purposeVersionId: md.purposes.onboarding.versionId });
-    await linkSystem(client, { processingActivityId: ids.onboarding, engagementId, organisationId, systemId: md.systems.onboardingPortal.id, systemVersionId: md.systems.onboardingPortal.versionId });
-    await linkPersonalDataElement(client, { processingActivityId: ids.onboarding, engagementId, organisationId, personalDataElementId: md.elements.name.id, personalDataElementVersionId: md.elements.name.versionId });
-    await linkDataPrincipalCategory(client, { processingActivityId: ids.onboarding, engagementId, organisationId, dataPrincipalCategoryId: md.categories.customers.id, dataPrincipalCategoryVersionId: md.categories.customers.versionId });
+  processingActivityIds.onboarding = await pa("Customer onboarding", md.businessUnitDigital, "Consent");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.onboarding!, purposeId: md.purposes.onboarding }));
+  await withRequestDb(leadUserId, (db) => linkSystem(db, leadUserId, { processingActivityId: processingActivityIds.onboarding!, systemId: md.systems.onboardingPortal }));
+  await withRequestDb(leadUserId, (db) => linkPersonalDataElement(db, leadUserId, { processingActivityId: processingActivityIds.onboarding!, personalDataElementId: md.elements.name, sensitivityNote: null }));
+  await withRequestDb(leadUserId, (db) => linkDataPrincipalCategory(db, leadUserId, { processingActivityId: processingActivityIds.onboarding!, dataPrincipalCategoryId: md.categories.customers }));
 
-    ids.kyc = await pa("KYC verification", md.businessUnitRetail, "Legal obligation");
-    await linkPurpose(client, { processingActivityId: ids.kyc, engagementId, organisationId, purposeId: md.purposes.kyc.id, purposeVersionId: md.purposes.kyc.versionId });
-    await linkPersonalDataElement(client, { processingActivityId: ids.kyc, engagementId, organisationId, personalDataElementId: md.elements.pan.id, personalDataElementVersionId: md.elements.pan.versionId });
-    await linkDataStore(client, { processingActivityId: ids.kyc, engagementId, organisationId, dataStoreId: md.stores.customerWarehouse.id, dataStoreVersionId: md.stores.customerWarehouse.versionId });
+  processingActivityIds.kyc = await pa("KYC verification", md.businessUnitRetail, "Legal obligation");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.kyc!, purposeId: md.purposes.kyc }));
+  await withRequestDb(leadUserId, (db) => linkPersonalDataElement(db, leadUserId, { processingActivityId: processingActivityIds.kyc!, personalDataElementId: md.elements.pan, sensitivityNote: null }));
+  await withRequestDb(leadUserId, (db) => linkDataStore(db, leadUserId, { processingActivityId: processingActivityIds.kyc!, dataStoreId: md.stores.customerWarehouse }));
 
-    ids.accountMgmt = await pa("Customer account management", md.businessUnitRetail, "Contract performance");
-    await linkPurpose(client, { processingActivityId: ids.accountMgmt, engagementId, organisationId, purposeId: md.purposes.accountMgmt.id, purposeVersionId: md.purposes.accountMgmt.versionId });
-    await linkPersonalDataElement(client, { processingActivityId: ids.accountMgmt, engagementId, organisationId, personalDataElementId: md.elements.account.id, personalDataElementVersionId: md.elements.account.versionId });
-    await linkSystem(client, { processingActivityId: ids.accountMgmt, engagementId, organisationId, systemId: md.systems.coreBanking.id, systemVersionId: md.systems.coreBanking.versionId });
+  processingActivityIds.accountMgmt = await pa("Customer account management", md.businessUnitRetail, "Contract performance");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.accountMgmt!, purposeId: md.purposes.accountMgmt }));
+  await withRequestDb(leadUserId, (db) => linkPersonalDataElement(db, leadUserId, { processingActivityId: processingActivityIds.accountMgmt!, personalDataElementId: md.elements.account, sensitivityNote: null }));
+  await withRequestDb(leadUserId, (db) => linkSystem(db, leadUserId, { processingActivityId: processingActivityIds.accountMgmt!, systemId: md.systems.coreBanking }));
 
-    ids.transactions = await pa("Transaction processing", md.businessUnitRetail, "Contract performance");
-    await linkPurpose(client, { processingActivityId: ids.transactions, engagementId, organisationId, purposeId: md.purposes.transactions.id, purposeVersionId: md.purposes.transactions.versionId });
-    await linkPersonalDataElement(client, { processingActivityId: ids.transactions, engagementId, organisationId, personalDataElementId: md.elements.transactionHistory.id, personalDataElementVersionId: md.elements.transactionHistory.versionId });
-    await linkProcessor(client, { processingActivityId: ids.transactions, engagementId, organisationId, processorId: md.processors.paymentGateway.id, processorVersionId: md.processors.paymentGateway.versionId });
+  processingActivityIds.transactions = await pa("Transaction processing", md.businessUnitRetail, "Contract performance");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.transactions!, purposeId: md.purposes.transactions }));
+  await withRequestDb(leadUserId, (db) => linkPersonalDataElement(db, leadUserId, { processingActivityId: processingActivityIds.transactions!, personalDataElementId: md.elements.transactionHistory, sensitivityNote: null }));
+  await withRequestDb(leadUserId, (db) => linkProcessor(db, leadUserId, { processingActivityId: processingActivityIds.transactions!, processorId: md.processors.paymentGateway, role: "processor" }));
 
-    ids.support = await pa("Customer support", md.businessUnitRetail, "Legitimate use");
-    await linkPurpose(client, { processingActivityId: ids.support, engagementId, organisationId, purposeId: md.purposes.support.id, purposeVersionId: md.purposes.support.versionId });
-    await linkPersonalDataElement(client, { processingActivityId: ids.support, engagementId, organisationId, personalDataElementId: md.elements.mobile.id, personalDataElementVersionId: md.elements.mobile.versionId });
+  processingActivityIds.support = await pa("Customer support", md.businessUnitRetail, "Legitimate use");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.support!, purposeId: md.purposes.support }));
+  await withRequestDb(leadUserId, (db) => linkPersonalDataElement(db, leadUserId, { processingActivityId: processingActivityIds.support!, personalDataElementId: md.elements.mobile, sensitivityNote: null }));
 
-    ids.marketing = await pa("Marketing communications", md.businessUnitDigital, "Consent");
-    await linkPurpose(client, { processingActivityId: ids.marketing, engagementId, organisationId, purposeId: md.purposes.marketing.id, purposeVersionId: md.purposes.marketing.versionId });
-    await linkPersonalDataElement(client, { processingActivityId: ids.marketing, engagementId, organisationId, personalDataElementId: md.elements.email.id, personalDataElementVersionId: md.elements.email.versionId });
-    await linkProcessor(client, { processingActivityId: ids.marketing, engagementId, organisationId, processorId: md.processors.marketingVendor.id, processorVersionId: md.processors.marketingVendor.versionId });
+  processingActivityIds.marketing = await pa("Marketing communications", md.businessUnitDigital, "Consent");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.marketing!, purposeId: md.purposes.marketing }));
+  await withRequestDb(leadUserId, (db) => linkPersonalDataElement(db, leadUserId, { processingActivityId: processingActivityIds.marketing!, personalDataElementId: md.elements.email, sensitivityNote: null }));
+  await withRequestDb(leadUserId, (db) => linkProcessor(db, leadUserId, { processingActivityId: processingActivityIds.marketing!, processorId: md.processors.marketingVendor, role: "processor" }));
 
-    ids.hrAdmin = await pa("Employee HR administration", md.businessUnitHR, "Contract performance");
-    await linkPurpose(client, { processingActivityId: ids.hrAdmin, engagementId, organisationId, purposeId: md.purposes.hrAdmin.id, purposeVersionId: md.purposes.hrAdmin.versionId });
-    await linkPersonalDataElement(client, { processingActivityId: ids.hrAdmin, engagementId, organisationId, personalDataElementId: md.elements.salary.id, personalDataElementVersionId: md.elements.salary.versionId });
-    await linkDataPrincipalCategory(client, { processingActivityId: ids.hrAdmin, engagementId, organisationId, dataPrincipalCategoryId: md.categories.employees.id, dataPrincipalCategoryVersionId: md.categories.employees.versionId });
-    await linkSystem(client, { processingActivityId: ids.hrAdmin, engagementId, organisationId, systemId: md.systems.hrSystem.id, systemVersionId: md.systems.hrSystem.versionId });
-    await linkDataStore(client, { processingActivityId: ids.hrAdmin, engagementId, organisationId, dataStoreId: md.stores.employeeStore.id, dataStoreVersionId: md.stores.employeeStore.versionId });
+  processingActivityIds.hrAdmin = await pa("Employee HR administration", md.businessUnitHR, "Contract performance");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.hrAdmin!, purposeId: md.purposes.hrAdmin }));
+  await withRequestDb(leadUserId, (db) => linkPersonalDataElement(db, leadUserId, { processingActivityId: processingActivityIds.hrAdmin!, personalDataElementId: md.elements.salary, sensitivityNote: null }));
+  await withRequestDb(leadUserId, (db) => linkDataPrincipalCategory(db, leadUserId, { processingActivityId: processingActivityIds.hrAdmin!, dataPrincipalCategoryId: md.categories.employees }));
+  await withRequestDb(leadUserId, (db) => linkSystem(db, leadUserId, { processingActivityId: processingActivityIds.hrAdmin!, systemId: md.systems.hrSystem }));
+  await withRequestDb(leadUserId, (db) => linkDataStore(db, leadUserId, { processingActivityId: processingActivityIds.hrAdmin!, dataStoreId: md.stores.employeeStore }));
 
-    ids.recruitment = await pa("Recruitment", md.businessUnitHR, "Legitimate use");
-    await linkPurpose(client, { processingActivityId: ids.recruitment, engagementId, organisationId, purposeId: md.purposes.recruitment.id, purposeVersionId: md.purposes.recruitment.versionId });
-    await linkPersonalDataElement(client, { processingActivityId: ids.recruitment, engagementId, organisationId, personalDataElementId: md.elements.employment.id, personalDataElementVersionId: md.elements.employment.versionId });
-    await linkDataPrincipalCategory(client, { processingActivityId: ids.recruitment, engagementId, organisationId, dataPrincipalCategoryId: md.categories.applicants.id, dataPrincipalCategoryVersionId: md.categories.applicants.versionId });
+  processingActivityIds.recruitment = await pa("Recruitment", md.businessUnitHR, "Legitimate use");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.recruitment!, purposeId: md.purposes.recruitment }));
+  await withRequestDb(leadUserId, (db) => linkPersonalDataElement(db, leadUserId, { processingActivityId: processingActivityIds.recruitment!, personalDataElementId: md.elements.employment, sensitivityNote: null }));
+  await withRequestDb(leadUserId, (db) => linkDataPrincipalCategory(db, leadUserId, { processingActivityId: processingActivityIds.recruitment!, dataPrincipalCategoryId: md.categories.applicants }));
 
-    ids.vendorMgmt = await pa("Vendor management", md.businessUnitDigital, "Legitimate use");
-    await linkPurpose(client, { processingActivityId: ids.vendorMgmt, engagementId, organisationId, purposeId: md.purposes.vendorMgmt.id, purposeVersionId: md.purposes.vendorMgmt.versionId });
-    await linkDataPrincipalCategory(client, { processingActivityId: ids.vendorMgmt, engagementId, organisationId, dataPrincipalCategoryId: md.categories.vendorContacts.id, dataPrincipalCategoryVersionId: md.categories.vendorContacts.versionId });
-    await linkProcessor(client, { processingActivityId: ids.vendorMgmt, engagementId, organisationId, processorId: md.processors.cloudHosting.id, processorVersionId: md.processors.cloudHosting.versionId });
+  processingActivityIds.vendorMgmt = await pa("Vendor management", md.businessUnitDigital, "Legitimate use");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.vendorMgmt!, purposeId: md.purposes.vendorMgmt }));
+  await withRequestDb(leadUserId, (db) => linkDataPrincipalCategory(db, leadUserId, { processingActivityId: processingActivityIds.vendorMgmt!, dataPrincipalCategoryId: md.categories.vendorContacts }));
+  await withRequestDb(leadUserId, (db) => linkProcessor(db, leadUserId, { processingActivityId: processingActivityIds.vendorMgmt!, processorId: md.processors.cloudHosting, role: "processor" }));
 
-    ids.grievance = await pa("Grievance handling", md.businessUnitRetail, "Legal obligation");
-    await linkPurpose(client, { processingActivityId: ids.grievance, engagementId, organisationId, purposeId: md.purposes.grievance.id, purposeVersionId: md.purposes.grievance.versionId });
-    await linkDataPrincipalCategory(client, { processingActivityId: ids.grievance, engagementId, organisationId, dataPrincipalCategoryId: md.categories.customers.id, dataPrincipalCategoryVersionId: md.categories.customers.versionId });
-
-    return ids;
-  });
+  processingActivityIds.grievance = await pa("Grievance handling", md.businessUnitRetail, "Legal obligation");
+  await withRequestDb(leadUserId, (db) => linkPurpose(db, leadUserId, { processingActivityId: processingActivityIds.grievance!, purposeId: md.purposes.grievance }));
+  await withRequestDb(leadUserId, (db) => linkDataPrincipalCategory(db, leadUserId, { processingActivityId: processingActivityIds.grievance!, dataPrincipalCategoryId: md.categories.customers }));
 
   // Engagement Membership (real domain function — Slice C7.2): the
   // second consultant joins the engagement as a genuine, eligible

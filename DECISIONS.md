@@ -3681,3 +3681,107 @@ building on it — instructions §4's own "if the current versioning
 architecture expects cloning, implement cloning through the existing
 domain model" was read as a direct instruction to preserve exactly
 this, not to design a new lineage mechanism.
+
+### R-133 — Master data is Organisation-level, Processing Activity is Engagement-level — two domain modules, not one, because the schema already draws that boundary (Slice D2)
+
+**Decision:** `lib/domain/master-data.ts` (Business Unit, Data
+Principal Category, Personal Data Element, Purpose, System, Data Store,
+Processor) and `lib/domain/processing-activities.ts` (Processing
+Activity + its six version-pinned junctions) are two separate domain
+modules, not one.
+**Rationale:** this is not a stylistic choice — it follows directly
+from DATA_MODEL.md §5.1/§5.2 and the schema itself: every master-data
+identity table carries `organisation_id` (never `engagement_id`) and is
+explicitly documented as persisting across engagements; `processing_
+activities` carries `engagement_id` NOT NULL with a composite FK to
+`engagements`, is created fresh per engagement, and is never mutated by
+a later one. Authorization follows the same split
+(`requireOrganisationAccess` vs. `requireEngagementAccess`), matching
+migrations 0003 and 0005's own RLS policies exactly. Merging the two
+into one module would have blurred a distinction the repository's own
+evidence — schema, DATA_MODEL.md, and the pre-existing RLS — already
+drew deliberately.
+
+### R-134 — No new permission for Data Landscape/Processing Activities — the existing broad organisation/engagement access model is already correct (Slice D2)
+
+**Decision:** master-data writes are gated by `requireOrganisationAccess`
+and Processing-Activity/junction writes by `requireEngagementAccess` —
+the same PRE-EXISTING, broad checks (`canAccessOrganisation`/
+`canAccessEngagement`) every other organisation-/engagement-scoped
+domain module in this codebase already uses. No `data_landscape.manage`-
+style permission was introduced.
+**Rationale:** instructions §7 explicitly required determining this
+from "the existing Permission Matrix and UX blueprint," not inventing a
+permission by default. Three independent pieces of evidence agreed:
+(1) migration 0003's master-data RLS policies and migration 0005's
+Processing-Activity/junction RLS policies were ALREADY gated by the
+plain `can_access_organisation`/`can_access_engagement` checks, with no
+narrower permission — unlike Methodology (migration 0007's original
+policies), which Slice D1 narrowed specifically BECAUSE it was
+Tenant-scoped and the Permission Matrix named a distinct, narrower
+"Tenant" audience for it. (2) PRODUCT_UX_BLUEPRINT.md §8's own
+Permission Matrix rows for "Client Master Data" and "Processing
+Activities / ROPA" show plain R/C/E by membership scope for Consultant,
+Client Admin, and Client Contributor alike — no dedicated permission
+column, in contrast to the "Methodology" row's own distinct Tenant-only
+column. (3) `lib/authorization/service.ts`'s own `requireOrganisation
+Access`/`requireEngagementAccess` already exist, independently
+implemented per SECURITY.md §2's two-layer model, and are exactly what
+every other organisation-/engagement-scoped write in this codebase
+uses. Introducing a new permission here would have contradicted all
+three, not merely been unnecessary — this is the D1 precedent's mirror
+image: D1 needed a new permission because its own evidence pointed to
+one; D2's evidence points the opposite way.
+
+### R-135 — ROPA is a read view, never a new persisted table (Slice D2)
+
+**Decision:** `listRopaEntries` (`lib/domain/processing-activities.ts`)
+composes `ProcessingActivity` and its six junctions, resolved against
+current-at-link-time master-data versions, into a structured read
+result. No `ropa` table, no new PDF/reporting subsystem.
+**Rationale:** instructions §10 explicitly forbade a separate ROPA data
+model "unless the existing architecture explicitly requires it" — it
+does not: `db/schema/processing-activities.ts`'s own pre-existing
+header comment already states "ROPA is a future view/workflow over this
+table and its junctions — not a separate dataset," written at Milestone
+3, before this slice existed. Building a new persisted ROPA object
+would have directly contradicted that standing architectural note.
+Export/PDF was likewise left out — R1 (`lib/domain/reports.ts`) already
+owns Engagement Report generation, and instructions §10 explicitly say
+not to create a second one.
+
+### R-136 — Carry-forward failures on individual relationships are skipped, not fatal to the whole action (Slice D2)
+
+**Decision:** `carryForwardProcessingActivity` attempts to re-link
+every one of the source activity's relationships into the new
+engagement-scoped row; if a specific master-data entity has been
+retired (no current version to resolve to) since the source engagement,
+that ONE link is silently skipped rather than failing the entire
+carry-forward.
+**Rationale:** DATA_MODEL.md §5.4 itself describes carry-forward as a
+starting point for renewed discovery work — "the consultant then edits
+from there (adds/removes systems, swaps a processor, etc.) as the new
+engagement's discovery work finds changes" — not an all-or-nothing
+transaction that must reproduce every prior link exactly. A retired
+master-data entity having no current version is exactly the kind of
+change the next engagement is expected to discover and reconcile
+manually; failing the whole carry-forward over one stale link would
+have forced the consultant to lose the entire pre-populated activity
+rather than review and complete it. Any OTHER error during carry-forward
+(a genuine authorization or scope failure) still propagates and fails
+the action — only the specific, expected "no current version" case is
+treated as non-fatal.
+
+### R-137 — Applicability/Scope's future integration point requires no schema change to this slice's own tables (Slice D2)
+
+**Decision:** no placeholder column, table, or FK was added in
+anticipation of a future `ApplicabilityDetermination` entity.
+**Rationale:** instructions §16 required confirming the Data Landscape
+model does not PREVENT a future Applicability/Scope layer, not
+building speculative scaffolding for it (instructions §17: "do not add
+speculative tables"). `ApplicabilityDetermination`
+(DATA_MODEL.md §4) would reference `ProcessingActivity` by a plain FK
+the same way `Risk`/`Finding` already do today — `processing_
+activities.id` is a stable, already-composite-FK-protected primary key
+requiring no change to support a future referencing table. This is
+recorded as the integration point, not built.

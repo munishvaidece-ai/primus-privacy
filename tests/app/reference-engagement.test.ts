@@ -24,6 +24,7 @@ import { getEvidenceSummaryForEngagement } from "@/lib/domain/evidence";
 import { getEngagementReportData } from "@/lib/domain/reports";
 import { renderEngagementReportPdf } from "@/lib/reports/engagement-report-pdf";
 import { getControlLibraryVersionDetail, updateControl, ControlLibraryVersionNotDraftError } from "@/lib/domain/control-library";
+import { listProcessingActivities, listRopaEntries } from "@/lib/domain/processing-activities";
 
 async function extractPdfText(buffer: Buffer): Promise<{ numPages: number; text: string; textByPage: string[] }> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -83,17 +84,21 @@ describe("Reference/Demo Engagement Dataset — end-to-end walkthrough", () => {
     expect(rows[0]).toMatchObject({ status: "active", role_name: "Consultant" });
   });
 
-  // === STAGE 3 — Data Landscape / Processing Activities / ROPA: PARTIAL ====
-  it("STAGE 3 — Data Landscape / ROPA: PARTIAL (real, correct database schema — SCD2 master data, version-pinned junctions — but NO application-layer domain module or UI exists to create/read it as a real user would)", async () => {
-    // The database layer genuinely works: real INSERTs, respecting every
-    // real constraint and trigger (SCD2 identity/version split,
-    // composite FKs proving organisation/engagement consistency),
-    // succeeded for all ten Processing Activities the brief names.
-    const { rows } = await asFixtureSetup((c) =>
-      c.query(`SELECT name, lifecycle_status, lawful_basis FROM processing_activities WHERE engagement_id = $1 ORDER BY name`, [fx.engagementId]),
+  // === STAGE 3 — Data Landscape / Processing Activities / ROPA: YES (Slice D2) ====
+  it("STAGE 3 — Data Landscape / ROPA: YES (Slice D2 — real application/domain layer, no raw SQL/developer intervention)", async () => {
+    // This reference engagement's own Data Landscape — master data
+    // (Business Units, Systems, Data Stores, Processors, Purposes,
+    // Personal Data Elements, Data Principal Categories) and all ten
+    // Processing Activities — was built entirely through the real
+    // domain layer (reference-engagement-fixture.ts, since Slice D2),
+    // re-verified here via the same real READ functions a real
+    // `/data-landscape` page and `/master-data/[category]` page would
+    // call, not raw SQL.
+    const activities = await withRequestDb(fx.leadUserId, (db) =>
+      listProcessingActivities(db, fx.leadUserId, { engagementId: fx.engagementId, organisationId: fx.organisationId }),
     );
-    expect(rows).toHaveLength(10);
-    expect(rows.map((r) => r.name).sort()).toEqual(
+    expect(activities).toHaveLength(10);
+    expect(activities.map((a) => a.name).sort()).toEqual(
       [
         "Customer onboarding",
         "KYC verification",
@@ -107,16 +112,44 @@ describe("Reference/Demo Engagement Dataset — end-to-end walkthrough", () => {
         "Grievance handling",
       ].sort(),
     );
-    for (const r of rows) {
-      expect(r.lifecycle_status).toBe("active");
-      expect(r.lawful_basis).toBeTruthy();
+    for (const a of activities) {
+      expect(a.lifecycleStatus).toBe("active");
     }
 
-    // The application layer does not exist: no domain module, no route.
-    expect(repoFileExists("lib/domain/processing-activities.ts")).toBe(false);
+    // ROPA: the connective read view over Processing Activities and
+    // their relationships — every category resolves to a real, named
+    // master-data entity, not merely an id.
+    const ropa = await withRequestDb(fx.leadUserId, (db) =>
+      listRopaEntries(db, fx.leadUserId, { engagementId: fx.engagementId, organisationId: fx.organisationId }),
+    );
+    expect(ropa).toHaveLength(10);
+    const onboarding = ropa.find((e) => e.name === "Customer onboarding")!;
+    expect(onboarding.lawfulBasis).toBe("Consent");
+    expect(onboarding.purposes.map((p) => p.name)).toContain("Customer Onboarding");
+    expect(onboarding.systems.map((s) => s.name)).toContain("Customer Onboarding Portal");
+    expect(onboarding.personalDataElements.map((e) => e.name)).toContain("Full Name");
+    expect(onboarding.dataPrincipalCategories.map((c) => c.name)).toContain("Customers");
+
+    // VERSIONING / HISTORICAL INTEGRITY: master data has real version
+    // history (identity + SCD2 version split) — proven directly, since
+    // no domain read surfaces anything but the current version.
+    const { rows: systemVersionRows } = await asFixtureSetup((c) =>
+      c.query(`SELECT count(*)::int AS n FROM system_versions sv JOIN systems s ON s.id = sv.system_id WHERE s.organisation_id = $1`, [fx.organisationId]),
+    );
+    expect(systemVersionRows[0].n).toBeGreaterThanOrEqual(4); // one version per system created — none rewritten
+
+    // The application layer this fixture actually used to build the
+    // Data Landscape above genuinely exists — both domain modules and
+    // the full UI route tree.
+    expect(repoFileExists("lib/domain/master-data.ts")).toBe(true);
+    expect(repoFileExists("lib/domain/processing-activities.ts")).toBe(true);
+    expect(repoFileExists("app/(shell)/organisations/[organisationId]/master-data/[category]")).toBe(true);
     expect(
       repoFileExists("app/(shell)/organisations/[organisationId]/engagements/[engagementId]/data-landscape"),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      repoFileExists("app/(shell)/organisations/[organisationId]/engagements/[engagementId]/data-landscape/ropa"),
+    ).toBe(true);
   });
 
   // === STAGE 4 — Applicability / Scope: MISSING =============================
