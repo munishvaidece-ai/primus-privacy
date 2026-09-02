@@ -3932,3 +3932,135 @@ from "start over." Carrying forward matches the same spirit as D2's own
 carry-forward mechanism for Processing Activities (DATA_MODEL.md §5.4)
 — continuity by default, with the consultant free to change any
 individual decision on the new draft afterward.
+
+### R-144 — Maturity is computed once, atomically, per finalized Assessment — no draft-review workflow, no `discardDraftMaturityAssessment` (Slice M2)
+
+**Decision:** `computeAndFinalizeMaturityAssessment` (lib/domain/maturity.ts)
+performs the entire "insert MaturityAssessment as draft → insert every
+MaturityScore → flip to finalized" sequence inside ONE `withRequestDb`
+transaction, with all validation and arithmetic completed in memory
+before the first INSERT. There is no separate `finalizeMaturityAssessment`
+action, no human-reviewed standing draft state, and no delete/discard
+path for a draft.
+**Rationale:** M1.1's own finding (M1.1_MATURITY_FORMULA_INTEGRITY.md §1),
+reaffirmed by the M2 approval itself (§3): `maturity_scores` carries no
+UPDATE/DELETE grant at all — proven directly, not merely inferred, by
+`tests/maturity/immutability.test.ts` rejecting a mutation attempt
+against a still-draft score — and `maturity_assessments` carries no
+DELETE grant either (migration 0015). A "compute, review, then either
+discard or finalize" workflow is therefore not supported by the existing
+schema and cannot be built without a new migration granting DELETE,
+which would reopen exactly the kind of "how would a discarded draft be
+distinguished from a legitimate one for audit purposes" question the
+existing immutability posture was built to avoid. Since the whole
+sequence is one atomic transaction, a failure at any point rolls back
+before anything is durably written — there is never an orphaned draft
+row to discard in the first place, so no discard mechanism is needed.
+
+### R-145 — One `MaturityAssessment` per Assessment, enforced by a plain `UNIQUE(assessment_id)` constraint (Slice M2)
+
+**Decision:** Migration 0029 adds `maturity_assessments_assessment_id_key`
+— a single, unconditional UNIQUE constraint, not a partial/status-scoped
+one. `computeAndFinalizeMaturityAssessment` also pre-checks for an
+existing row and throws `MaturityAlreadyComputedError` before attempting
+the insert, so the database constraint is a backstop, not the primary
+signal.
+**Rationale:** R-144's atomicity is what makes the plain (non-partial)
+form correct: since a `MaturityAssessment` row can never durably exist
+in `draft` status (any failure before finalization rolls back the whole
+transaction, including the header's own INSERT), "at most one row per
+`assessment_id`, ever" and "at most one finalized/active row per
+`assessment_id`" are the same guarantee — there is no daylight between
+them for a partial index to need to close. No supersession/versioning
+column (e.g. a `previous_maturity_assessment_id`, mirroring `Risk.
+previous_risk_id` or D3's `EngagementScope.previous_scope_version_id`)
+was added — the M2 approval explicitly says not to introduce one unless
+absolutely required, and it is not: a corrected maturity result is
+obtained by finalizing a genuinely new Assessment (a real reassessment),
+never by superseding a MaturityAssessment in place.
+
+### R-146 — Unanswered eligible controls make a domain `incomplete` and abort the entire computation — never excluded from the denominator, never zero, never silently partial (Slice M2)
+
+**Decision:** `classifyDomainScore` (lib/domain/maturity.ts) requires
+every eligible (`applicable` or `undecided`, D3) control mapped to a
+domain to resolve to a real, configured numeric rating. If even one does
+not, the domain is `incomplete`; `computeAndFinalizeMaturityAssessment`
+then throws `IncompleteMaturityDataError` (carrying per-domain eligible/
+answered/unanswered counts and ids) BEFORE any row is written, and no
+partial or approximate result is ever persisted. This applies per
+domain, and any one incomplete domain blocks the OVERALL score too —
+never computed from only the complete domains.
+**Rationale:** the M2 approval's own explicit anti-gaming requirement
+(§6/§7), confirmed by M1.1's own finding that this repository's
+pre-existing `finalizeAssessment` has no completeness precondition — an
+Assessment can genuinely finalize with eligible controls still
+unanswered, making this a real, reachable state, not a hypothetical.
+Excluding unanswered controls from the denominator (M1's own original,
+now-superseded formula) would let an organisation improve its maturity
+score by leaving the hardest controls unanswered; treating an unanswered
+control as a numeric zero would fabricate a value the pinned
+methodology's own `rating_scores` never actually assigned to
+"unanswered." Refusing outright is the only option that neither
+rewards omission nor invents data.
+
+### R-147 — `not_scorable` (no mapped controls, or every mapped control is D3 `not_applicable`) is a different outcome from `incomplete`, and never blocks anything (Slice M2)
+
+**Decision:** `classifyDomainScore` returns a distinct `not_scorable`
+outcome (with `reason: "no_mapped_controls" | "all_not_applicable"`)
+for a domain that has nothing to score at all — as opposed to
+`incomplete`, reserved for a domain that HAS eligible controls but at
+least one lacks a rating. A `not_scorable` domain gets no `MaturityScore`
+row (never a fabricated zero) but does NOT abort the computation or
+block the overall score — it simply never enters either side of the
+weighted-average fraction.
+**Rationale:** the M2 approval's own explicit requirement (§8) to
+distinguish these cases: a domain with nothing genuinely in scope for
+this Assessment is not "missing information" the way an unanswered
+eligible control is — there is no decision an assessor could still make
+that would change the outcome, so refusing the whole computation over it
+would be overcautious in a way R-146's refusal for real incompleteness
+is not. "Which domains are `not_scorable`" is derived purely from
+already-decided facts (`MaturityDomainControlMapping`, and D3's own
+frozen `applicability_decision` snapshot), never from an assessor's
+future action.
+
+### R-148 — Missing methodology, missing rating configuration, or a missing domain weight are all distinct, named failures — never a fabricated score, weight-of-1, or weight-of-0 (Slice M2)
+
+**Decision:** `NoActiveMaturityMethodologyError` (no active
+`MaturityScoringMethodology` for the tenant), `InvalidMaturityMethodologyDefinitionError`
+(the active methodology's `definition.rating_scores` is missing or
+malformed), and `MissingMaturityDomainWeightError` (a domain that would
+otherwise be `scored` has no active `MaturityDomainWeight` for this
+engagement) are each raised before any write. A rating value with no
+entry in the pinned methodology's own `rating_scores` map is folded into
+the same `incomplete` bucket as an unanswered control (R-146) rather
+than a separate top-level failure, since from the domain's perspective
+the effect is identical — no usable numeric input exists for that
+control — but it is tagged internally (`reason: "unconfigured_rating"`)
+so the error can still name the real cause.
+**Rationale:** the M2 approval's own explicit requirement (§9/§13/§24):
+"do not silently assign a value... fail safely rather than silently
+treating [a missing weight] as weight 0 or 1." The methodology resolution
+itself mirrors `createRisk`'s own established `RiskScoringModel`
+resolution exactly (the tenant's single `is_active` row) — not a
+mechanism invented for Maturity.
+
+### R-149 — `maturity.compute` is a new, dedicated permission covering BOTH compute and finalize as one action — never a reuse of `assessment.finalize`/`scope.lock`, and no separate `maturity.finalize` (Slice M2)
+
+**Decision:** `requireMaturityComputeAccess`/`canComputeMaturity`
+(lib/authorization/service.ts) gate `computeAndFinalizeMaturityAssessment`
+via the single new `maturity.compute` permission, seeded only to
+Engagement Manager (`db/seed/roles.ts`). Migration 0030 narrows the
+`maturity_assessments`/`maturity_scores` RLS write path from the
+previously broad `can_access_engagement` (any active engagement member,
+migration 0015) to the same permission, mirroring migration 0028's own
+`scope.lock` narrowing of `engagement_scopes_update`.
+**Rationale:** the M2 approval's own explicit instruction (§20) — a
+dedicated permission, independently controllable from `assessment.
+finalize`/`scope.lock` even though all three currently share an owner,
+the same reasoning R-141 already established for `scope.lock` itself.
+Unlike `scope.lock` (a genuinely separate action from `assessment.
+finalize`), M2 §3 treats "compute" and "finalize" as one atomic action
+with no separate human-review step (R-144) — so, unlike D3's
+`scope.lock`/`assessment.finalize` split, there is no second capability
+here needing its own permission.

@@ -111,8 +111,19 @@ describe("Maturity CRUD", () => {
   });
 
   it("creates per-domain and overall MaturityScore rows, then finalizes the MaturityAssessment", async () => {
+    // M2 (Maturity Implementation, approval §4)'s new UNIQUE(assessment_id)
+    // constraint on `maturity_assessments` means this test needs its own
+    // distinct Assessment — the previous test already created one
+    // MaturityAssessment for the shared `assessment` fixture.
+    const localAssessment = await asFixtureSetup(async (c) => {
+      const a = await createAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, controlLibraryVersionId: library, periodLabel: "FY2027" });
+      const ac = await addAssessmentControl(c, { assessmentId: a, controlId: controlC1, tenantId: tenant, organisationId: org, engagementId: engagement, controlLibraryVersionId: library });
+      await createAssessmentResponse(c, { assessmentControlId: ac, tenantId: tenant, organisationId: org, engagementId: engagement, effectivenessRating: "implemented" });
+      await finalizeAssessment(c, a);
+      return a;
+    });
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology }),
     );
     const domainScoreId = await asFixtureSetup((c) =>
       createMaturityScore(c, {

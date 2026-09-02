@@ -19,6 +19,16 @@ import {
   ReviewRationaleRequiredError,
 } from "@/lib/domain/evidence";
 import { createRisk, NoActiveRiskScoringModelError, InvalidRiskInputError } from "@/lib/domain/risks";
+import {
+  computeAndFinalizeMaturityAssessment,
+  AssessmentNotFinalizedForMaturityError,
+  MaturityAlreadyComputedError,
+  NoActiveMaturityMethodologyError,
+  InvalidMaturityMethodologyDefinitionError,
+  IncompleteMaturityDataError,
+  MissingMaturityDomainWeightError,
+  NoScorableMaturityDataError,
+} from "@/lib/domain/maturity";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 
 function basePathFor(organisationId: string, engagementId: string, assessmentId: string): string {
@@ -585,6 +595,73 @@ export async function finalizeAssessmentAction(formData: FormData): Promise<void
     } else {
       console.error("finalizeAssessmentAction failed", err);
       errorMessage = "Something went wrong finalizing this assessment. Please try again.";
+    }
+  }
+
+  if (errorMessage) {
+    redirect(withQueryFlag(basePath, "error", errorMessage));
+  }
+
+  revalidatePath(basePath);
+  redirect(withQueryFlag(basePath, "saved", "1"));
+}
+
+const computeMaturitySchema = z.object({
+  organisationId: z.string().uuid(),
+  engagementId: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+});
+
+/**
+ * M2 (Maturity Implementation, approval §25): the single "compute
+ * maturity" action, mirroring `finalizeAssessmentAction`'s exact shape.
+ * `computeAndFinalizeMaturityAssessment` (lib/domain/maturity.ts)
+ * re-derives the Assessment's own authoritative Engagement/Organisation
+ * and re-authorizes against the caller's real `maturity.compute`
+ * permission — this form's own fields are never trusted as proof.
+ * `IncompleteMaturityDataError`'s own message already reads exactly as
+ * an actionable "Domain X: N eligible, M answered... not calculated"
+ * explanation (approval §6's own example format) — surfaced verbatim
+ * via the same `?error=` banner every other action on this page uses,
+ * no separate structured display needed for this MVP slice.
+ */
+export async function computeMaturityAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+
+  const raw = {
+    organisationId: formData.get("organisationId"),
+    engagementId: formData.get("engagementId"),
+    assessmentId: formData.get("assessmentId"),
+  };
+  const basePath =
+    typeof raw.organisationId === "string" && typeof raw.engagementId === "string" && typeof raw.assessmentId === "string"
+      ? basePathFor(raw.organisationId, raw.engagementId, raw.assessmentId)
+      : "/organisations";
+
+  const parsed = computeMaturitySchema.safeParse(raw);
+  if (!parsed.success) {
+    redirect(withQueryFlag(basePath, "error", parsed.error.issues[0]?.message ?? "Invalid input."));
+  }
+
+  let errorMessage: string | null = null;
+  try {
+    await withRequestDb(user.id, (db) => computeAndFinalizeMaturityAssessment(db, user.id, { assessmentId: parsed.data.assessmentId }));
+  } catch (err) {
+    if (
+      err instanceof AssessmentNotFinalizedForMaturityError ||
+      err instanceof MaturityAlreadyComputedError ||
+      err instanceof NoActiveMaturityMethodologyError ||
+      err instanceof InvalidMaturityMethodologyDefinitionError ||
+      err instanceof IncompleteMaturityDataError ||
+      err instanceof MissingMaturityDomainWeightError ||
+      err instanceof NoScorableMaturityDataError
+    ) {
+      errorMessage = err.message;
+    } else if (err instanceof NotFoundOrForbiddenError) {
+      errorMessage = "You do not have access to compute maturity for this assessment.";
+    } else {
+      console.error("computeMaturityAction failed", err);
+      errorMessage = "Something went wrong computing maturity. Please try again.";
     }
   }
 

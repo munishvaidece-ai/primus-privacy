@@ -111,5 +111,24 @@ export const maturityAssessments = pgTable(
       table.organisationId,
       table.engagementId,
     ),
+    // M2 (Maturity Implementation, approval §4): "ONE FINALIZED/ACTIVE
+    // MaturityAssessment PER ASSESSMENT" — the smallest possible
+    // constraint achieving this. Safe as a plain (not partial/status-
+    // conditional) UNIQUE constraint because `computeAndFinalizeMaturity
+    // Assessment` (lib/domain/maturity.ts) is fully atomic: it inserts
+    // this row as 'draft', inserts every MaturityScore, and updates to
+    // 'finalized' inside ONE `withRequestDb` transaction — any failure
+    // anywhere in that sequence rolls back the entire transaction,
+    // including this row's own INSERT (see M1.1's finding that no
+    // application code path can otherwise leave a MaturityAssessment
+    // durably 'draft'). No other code path inserts into this table. So
+    // "at most one row per assessment_id, ever" and "at most one
+    // finalized/active row per assessment_id" are the same guarantee
+    // here — a second `computeAndFinalizeMaturityAssessment` call for an
+    // Assessment that already has one fails this constraint (backstopped
+    // by the domain layer's own pre-check, which raises a clean,
+    // named error before ever reaching the database) rather than
+    // creating a competing result. See DECISIONS.md.
+    assessmentIdUnique: unique("maturity_assessments_assessment_id_key").on(table.assessmentId),
   }),
 );

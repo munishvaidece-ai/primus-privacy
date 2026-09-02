@@ -1,0 +1,26 @@
+-- PRIMUS PRIVACY — Migration 0029: one MaturityAssessment per Assessment
+-- (M2 — Maturity Implementation, approval §4).
+--
+-- Generated via `drizzle-kit generate` from the new
+-- `assessmentIdUnique` constraint on `maturity_assessments`
+-- (db/schema/maturity-assessments.ts), then hand-cleaned: drizzle-kit's
+-- own drift detection also proposed re-adding
+-- "engagement_scopes_id_engagement_id_organisation_id_tenant_id_key",
+-- which already exists (added directly to migration 0027 by hand during
+-- Slice D3, after that migration's own initial `drizzle-kit generate`
+-- run — the same "phantom drift from an earlier hand-edited migration
+-- drizzle-kit never tracked" situation documented in migration 0027's
+-- own header comment). That statement is stripped here, keeping only
+-- the genuinely new constraint.
+--
+-- Safe as a plain (not partial/status-conditional) UNIQUE constraint:
+-- `computeAndFinalizeMaturityAssessment` (lib/domain/maturity.ts) is
+-- fully atomic — it inserts this row as 'draft', inserts every
+-- MaturityScore, and updates to 'finalized' inside ONE `withRequestDb`
+-- transaction; any failure anywhere in that sequence rolls back the
+-- entire transaction, including this row's own INSERT. No other code
+-- path inserts into this table. So "at most one row per assessment_id,
+-- ever" and "at most one finalized/active row per assessment_id" are the
+-- same guarantee here. See DECISIONS.md.
+
+ALTER TABLE "maturity_assessments" ADD CONSTRAINT "maturity_assessments_assessment_id_key" UNIQUE("assessment_id");

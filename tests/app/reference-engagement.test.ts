@@ -26,6 +26,7 @@ import { renderEngagementReportPdf } from "@/lib/reports/engagement-report-pdf";
 import { getControlLibraryVersionDetail, updateControl, ControlLibraryVersionNotDraftError } from "@/lib/domain/control-library";
 import { listProcessingActivities, listRopaEntries } from "@/lib/domain/processing-activities";
 import { getEngagementScopeDetail } from "@/lib/domain/applicability";
+import { getMaturityAssessmentForAssessment, computeAndFinalizeMaturityAssessment, AssessmentNotFinalizedForMaturityError } from "@/lib/domain/maturity";
 
 async function extractPdfText(buffer: Buffer): Promise<{ numPages: number; text: string; textByPage: string[] }> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -351,21 +352,66 @@ describe("Reference/Demo Engagement Dataset — end-to-end walkthrough", () => {
     expect(rows[0]).toMatchObject({ status: "in_progress" });
   });
 
-  // === STAGE 14 — Maturity: MISSING ============================================
-  it("STAGE 14 — Maturity: MISSING (database storage/RLS/immutability exist from Milestone 8, but NO calculation engine and NO application layer exist — this fixture deliberately writes no Maturity data)", async () => {
-    // Confirmed by direct inspection, not assumption: the test suite's
-    // OWN fixture helper for MaturityScore (tests/maturity/helpers.ts)
-    // takes `score`/`maturityLevel` as direct caller-supplied inputs —
-    // proof, from the repository's own code, that no computation logic
-    // exists anywhere, even at the database trigger level. This
-    // fixture therefore writes zero Maturity rows: any score would be
-    // arbitrary, fabricated data, exactly what instructions §12 forbid
-    // ("do not build a new maturity engine... do not invent a score").
-    const { rows } = await asFixtureSetup((c) => c.query(`SELECT count(*)::int AS n FROM maturity_assessments WHERE engagement_id = $1`, [fx.engagementId]));
-    expect(rows[0]!.n).toBe(0);
+  // === STAGE 14 — Maturity: YES (Slice M2) ====================================
+  it("STAGE 14 — Maturity: YES (Slice M2 — real application/domain layer, no raw SQL/developer intervention)", async () => {
+    // The real, authoritative compute (lib/domain/maturity.ts) already
+    // ran during fixture construction, against the fixture's own real
+    // D3 Applicability & Scope decisions and a second, fully-answered
+    // FY2025-26 Assessment period. Exact expected arithmetic, verified
+    // via the real read path (getMaturityAssessmentForAssessment).
+    const detail = await withRequestDb(fx.leadUserId, (db) =>
+      getMaturityAssessmentForAssessment(db, fx.leadUserId, {
+        assessmentId: fx.maturitySourceAssessmentId,
+        organisationId: fx.organisationId,
+        engagementId: fx.engagementId,
+      }),
+    );
+    expect(detail).not.toBeNull();
+    expect(detail!.id).toBe(fx.maturityAssessmentId);
+    expect(detail!.status).toBe("finalized");
+    expect(detail!.overallScore).toBe(3);
+    expect(detail!.overallLevel).toBe("Defined");
+    expect(detail!.domains).toHaveLength(3);
+    expect(detail!.domains.find((d) => d.maturityDomainId === fx.maturityDomainIds.governance)).toMatchObject({
+      domainName: "Governance & Accountability (SAMPLE)", score: 5, level: "Optimized",
+    });
+    expect(detail!.domains.find((d) => d.maturityDomainId === fx.maturityDomainIds.rights)).toMatchObject({
+      domainName: "Individual Rights & Transparency (SAMPLE)", score: 4, level: "Managed",
+    });
+    expect(detail!.domains.find((d) => d.maturityDomainId === fx.maturityDomainIds.security)).toMatchObject({
+      domainName: "Security & Data Lifecycle (SAMPLE)", score: 3, level: "Defined",
+    });
 
-    expect(repoFileExists("lib/domain/maturity.ts")).toBe(false);
-    expect(repoFileExists("app/(shell)/organisations/[organisationId]/engagements/[engagementId]/maturity")).toBe(false);
+    // N/A exclusion: CHI-01/CHI-02 (D3 not_applicable) are mapped to the
+    // Governance domain alongside real controls, but never counted —
+    // proven directly against the raw scored-control set, not merely
+    // asserted from the arithmetic above.
+    const { rows: govScoreRows } = await asFixtureSetup((c) =>
+      c.query(
+        `SELECT computed_from_control_test_ids FROM maturity_scores WHERE maturity_assessment_id = $1 AND maturity_domain_id = $2`,
+        [fx.maturityAssessmentId, fx.maturityDomainIds.governance],
+      ),
+    );
+    expect(govScoreRows).toHaveLength(1);
+
+    // The ORIGINAL, in-progress FY2026-27 Assessment (STAGE 6/7) is
+    // deliberately left `draft`, with 7 genuinely unanswered controls —
+    // it cannot itself produce a maturity result at all, refused at the
+    // very first precondition (finalization), never silently skipped or
+    // fabricated. (Were it finalized as-is, its own unanswered eligible
+    // controls would separately trip the anti-gaming IncompleteMaturityDataError —
+    // exercised directly in tests/app/maturity.test.ts.)
+    await expect(
+      withRequestDb(fx.leadUserId, (db) => computeAndFinalizeMaturityAssessment(db, fx.leadUserId, { assessmentId: fx.assessmentId })),
+    ).rejects.toThrow(AssessmentNotFinalizedForMaturityError);
+
+    // Historical immutability: a direct attempt to alter the persisted
+    // result is rejected at the database layer.
+    await expect(
+      asFixtureSetup((c) => c.query(`UPDATE maturity_assessments SET status = 'draft' WHERE id = $1`, [fx.maturityAssessmentId])),
+    ).rejects.toThrow(/immutable/i);
+
+    expect(repoFileExists("lib/domain/maturity.ts")).toBe(true);
   });
 
   // === STAGE 15 — Engagement Report: WORKS ======================================
@@ -398,14 +444,20 @@ describe("Reference/Demo Engagement Dataset — end-to-end walkthrough", () => {
 
     expect(pdfText).toContain("ABC Fintech Private Limited");
     expect(pdfText).toContain(fx.assessmentId);
-    // No Maturity or ROPA/Data Landscape SECTION exists in R1 — confirm
-    // the report never fabricates one, even though this reference
-    // engagement has real ROPA data sitting in the database. (The
-    // demo Control Library's own ACC-01 control legitimately mentions
-    // "processing activities" in its title/rationale — that is real
-    // Assessment Results content, not a fabricated ROPA section, so it
-    // is not asserted against here.)
-    expect(pdfText).not.toMatch(/\bmaturity\b/i);
+    // M2 adds a minimal Maturity section (approval §26) — the SELECTED
+    // Assessment here is still FY2026-27 (in-progress, no maturity
+    // result of its own; the FY2025-26 result belongs to a different
+    // Assessment), so the report correctly states "not calculated"
+    // rather than fabricating a score from the wrong period.
+    expect(pdfText).toMatch(/\bmaturity\b/i);
+    expect(pdfText).toContain("Maturity score not calculated for this Assessment");
+    // No ROPA/Data Landscape SECTION exists in R1 — confirm the report
+    // never fabricates one, even though this reference engagement has
+    // real ROPA data sitting in the database. (The demo Control
+    // Library's own ACC-01 control legitimately mentions "processing
+    // activities" in its title/rationale — that is real Assessment
+    // Results content, not a fabricated ROPA section, so it is not
+    // asserted against here.)
     expect(pdfText).not.toMatch(/data landscape/i);
     expect(pdfText).not.toMatch(/\bropa\b/i);
 

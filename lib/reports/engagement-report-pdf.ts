@@ -315,6 +315,13 @@ export function renderEngagementReportPdf(
     subHeading("Evidence");
     kv("Total evidence items recorded:", String(data.evidenceItems.length));
 
+    subHeading("Maturity");
+    if (data.maturity) {
+      kv("Overall score:", data.maturity.overallScore !== null ? `${data.maturity.overallScore} / 5 (${data.maturity.overallLevel ?? "—"})` : "—");
+    } else {
+      kv("Overall score:", "not calculated");
+    }
+
     drawFooter();
 
     // === Engagement Overview ==============================================
@@ -357,6 +364,40 @@ export function renderEngagementReportPdf(
           c.response?.decisionRationale ?? "—",
           c.response?.respondentEmail ?? "—",
         ]),
+      );
+    }
+    drawFooter();
+
+    // === Maturity ==========================================================
+    // M2 (Maturity Implementation, approval §26): a minimal extension —
+    // no analytics section, no trend/comparison content. `data.maturity`
+    // is null whenever no MaturityAssessment exists yet for the selected
+    // Assessment (either genuinely not yet computed, or blocked because
+    // eligible controls are unanswered) — the report never fabricates a
+    // score either way; it states plainly that maturity is unavailable.
+    newPage();
+    sectionHeading("Maturity");
+    if (data.maturity) {
+      bodyText(
+        `This score derives from the finalized Assessment above (${raw(data.selectedAssessment.periodLabel)}) — a permanent, immutable result, computed once under the methodology named below.`,
+      );
+      doc.moveDown(0.4);
+      kv("Overall score:", data.maturity.overallScore !== null ? `${data.maturity.overallScore} / 5` : "—");
+      kv("Overall level:", data.maturity.overallLevel ?? "—");
+      kv("Methodology:", `${data.maturity.methodologyName} ${data.maturity.methodologyVersion}`);
+      doc.moveDown(0.4);
+      if (data.maturity.domains.length === 0) {
+        emptyNote("No domain-level scores are available for this MaturityAssessment.");
+      } else {
+        table(
+          ["Domain", "Score", "Level"],
+          [0.55, 0.2, 0.25],
+          data.maturity.domains.map((d) => [d.domainName, `${d.score} / 5`, d.level ?? "—"]),
+        );
+      }
+    } else {
+      emptyNote(
+        "Maturity score not calculated for this Assessment. Either no computation has been run yet, or the Assessment contains eligible controls without a recorded rating — maturity is never estimated or fabricated in that case.",
       );
     }
     drawFooter();

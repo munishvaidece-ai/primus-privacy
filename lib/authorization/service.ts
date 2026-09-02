@@ -496,3 +496,24 @@ export async function requireScopeLockAccess(db: RequestDb, userId: string, enga
     throw new NotFoundOrForbiddenError();
   }
 }
+
+/**
+ * M2 (Maturity Implementation, approval §20): "who may compute/finalize
+ * an Assessment's MaturityAssessment" — mirrors `canFinalizeAssessment`/
+ * `canLockScope`'s exact shape, applied to the new, DEDICATED
+ * `maturity.compute` permission. Deliberately a separate function/
+ * permission, not a call to `canFinalizeAssessment` or `canLockScope`:
+ * the approval explicitly requires `maturity.compute` NOT reuse either
+ * of those, even though all three are seeded to the same role
+ * (Engagement Manager) today — see DECISIONS.md.
+ */
+export async function canComputeMaturity(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<boolean> {
+  if (await hasEngagementPermission(db, userId, engagementId, "maturity.compute")) return true;
+  return hasOrganisationPermission(db, userId, organisationId, "maturity.compute");
+}
+
+export async function requireMaturityComputeAccess(db: RequestDb, userId: string, engagementId: string, organisationId: string): Promise<void> {
+  if (!(await canComputeMaturity(db, userId, engagementId, organisationId))) {
+    throw new NotFoundOrForbiddenError();
+  }
+}

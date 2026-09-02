@@ -53,3 +53,26 @@ export {
   createRisk as createRiskFixture,
   linkRiskControl,
 } from "../risk-remediation/helpers";
+
+// M2 (Maturity Implementation) — raw-SQL fixture builders only.
+// MaturityScoringMethodology/MaturityDomain/MaturityDomainWeight/
+// MaturityDomainControlMapping have no real domain-layer "create"
+// function anywhere in this codebase (methodology authoring / domain
+// taxonomy UI is explicitly out of scope, M2 approval §31 — the same
+// "practice content configured directly in the database for now"
+// posture RiskScoringModel already has). `createMaturityAssessment`/
+// `createMaturityScore`/`finalizeMaturityAssessment` are aliased (never
+// used to build a legitimate result — that's what `lib/domain/
+// maturity.ts`'s own `computeAndFinalizeMaturityAssessment` is exercised
+// for) — only to construct negative-path scenarios the real domain
+// function itself would never produce (a forged pre-existing
+// MaturityAssessment, a direct-SQL immutability probe).
+export {
+  createMaturityScoringMethodology,
+  createMaturityDomain,
+  createMaturityDomainWeight,
+  linkMaturityDomainControl,
+  createMaturityAssessment as createMaturityAssessmentFixture,
+  createMaturityScore as createMaturityScoreFixture,
+  finalizeMaturityAssessment as finalizeMaturityAssessmentFixture,
+} from "../maturity/helpers";

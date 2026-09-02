@@ -108,7 +108,7 @@ describe("MaturityDomainWeight append-only close-out", () => {
 
 describe("MaturityAssessment reparenting + finalization lock", () => {
   let tenant: string, tenantB: string, org: string, orgB: string, engagement: string;
-  let library: string, control: string, assessment: string;
+  let library: string, control: string;
   let methodology: string, methodologyOther: string;
 
   beforeAll(async () => {
@@ -124,11 +124,10 @@ describe("MaturityAssessment reparenting + finalization lock", () => {
       await publishControlLibraryVersion(client, library);
       await pinEngagementControlLibraryVersion(client, engagement, library);
 
-      assessment = await createAssessment(client, { engagementId: engagement, organisationId: org, tenantId: tenant, controlLibraryVersionId: library, periodLabel: "FY2026" });
-      const ac = await addAssessmentControl(client, { assessmentId: assessment, controlId: control, tenantId: tenant, organisationId: org, engagementId: engagement, controlLibraryVersionId: library });
-      await createAssessmentResponse(client, { assessmentControlId: ac, tenantId: tenant, organisationId: org, engagementId: engagement, effectivenessRating: "implemented" });
-      await finalizeAssessment(client, assessment);
-
+      // Each `it()` below creates its own distinct, freshly finalized
+      // Assessment via `freshFinalizedAssessment` (M2, approval §4's new
+      // UNIQUE(assessment_id) constraint) — no shared Assessment fixture
+      // is created here.
       methodology = await createMaturityScoringMethodology(client, { tenantId: tenant, name: "Lock test methodology", version: "v1.0" });
       methodologyOther = await createMaturityScoringMethodology(client, { tenantId: tenant, name: "Lock test methodology (other)", version: "v2.0" });
       void orgB;
@@ -137,6 +136,24 @@ describe("MaturityAssessment reparenting + finalization lock", () => {
 
   // Note: `pool.end()` is called only once for this file, in the final
   // describe block below.
+
+  // M2 (Maturity Implementation, approval §4) added a UNIQUE(assessment_id)
+  // constraint on `maturity_assessments` — each `it()` below that creates
+  // its own MaturityAssessment now needs its own distinct, freshly
+  // finalized Assessment rather than reusing the shared `assessment`
+  // fixture (whose sole other use, "cannot create... not finalized",
+  // never itself creates a MaturityAssessment against it). This preserves
+  // each test's own actual intent (the mechanic under test, not
+  // multiplicity) while respecting the new constraint.
+  async function freshFinalizedAssessment(periodLabel: string): Promise<string> {
+    return asFixtureSetup(async (c) => {
+      const a = await createAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, controlLibraryVersionId: library, periodLabel });
+      const ac = await addAssessmentControl(c, { assessmentId: a, controlId: control, tenantId: tenant, organisationId: org, engagementId: engagement, controlLibraryVersionId: library });
+      await createAssessmentResponse(c, { assessmentControlId: ac, tenantId: tenant, organisationId: org, engagementId: engagement, effectivenessRating: "implemented" });
+      await finalizeAssessment(c, a);
+      return a;
+    });
+  }
 
   it("cannot create a MaturityAssessment from an Assessment that is not finalized", async () => {
     const draftAssessment = await asFixtureSetup((c) =>
@@ -148,8 +165,9 @@ describe("MaturityAssessment reparenting + finalization lock", () => {
   });
 
   it("engagement_id/organisation_id/tenant_id/assessment_id/maturity_scoring_methodology_id cannot be changed after creation", async () => {
+    const localAssessment = await freshFinalizedAssessment("FY2026 (reparenting test)");
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology }),
     );
     await expect(
       asFixtureSetup((c) => c.query(`UPDATE maturity_assessments SET maturity_scoring_methodology_id = $1 WHERE id = $2`, [methodologyOther, maturityAssessmentId])),
@@ -157,8 +175,9 @@ describe("MaturityAssessment reparenting + finalization lock", () => {
   });
 
   it("draft -> finalized is allowed and auto-stamps finalized_at; ordinary fields remain editable while draft", async () => {
+    const localAssessment = await freshFinalizedAssessment("FY2026 (draft->finalized test)");
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology }),
     );
     await asFixtureSetup((c) => c.query(`UPDATE maturity_assessments SET computed_from_risk_ids = ARRAY[gen_random_uuid()] WHERE id = $1`, [maturityAssessmentId]));
 
@@ -173,8 +192,9 @@ describe("MaturityAssessment reparenting + finalization lock", () => {
   });
 
   it("finalized_at cannot be set directly by an ordinary UPDATE (only the trigger sets it)", async () => {
+    const localAssessment = await freshFinalizedAssessment("FY2026 (finalized_at direct-set test)");
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology }),
     );
     await expect(
       asFixtureSetup((c) => c.query(`UPDATE maturity_assessments SET finalized_at = now() WHERE id = $1`, [maturityAssessmentId])),
@@ -182,8 +202,9 @@ describe("MaturityAssessment reparenting + finalization lock", () => {
   });
 
   it("a finalized MaturityAssessment is immutable — no further UPDATE succeeds, not even a no-op or an unfinalize attempt", async () => {
+    const localAssessment = await freshFinalizedAssessment("FY2026 (finalized immutability test)");
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology }),
     );
     await asFixtureSetup((c) => finalizeMaturityAssessment(c, maturityAssessmentId));
 
@@ -230,6 +251,20 @@ describe("MaturityScore total immutability + insert-gate (afterAll ends the shar
     await pool.end();
   });
 
+  // M2 (Maturity Implementation, approval §4)'s new UNIQUE(assessment_id)
+  // constraint on `maturity_assessments` means each `it()` below that
+  // creates its own MaturityAssessment needs its own distinct Assessment
+  // — see the identical helper/rationale in the describe block above.
+  async function freshFinalizedAssessment(periodLabel: string): Promise<string> {
+    return asFixtureSetup(async (c) => {
+      const a = await createAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, controlLibraryVersionId: library, periodLabel });
+      const ac = await addAssessmentControl(c, { assessmentId: a, controlId: control, tenantId: tenant, organisationId: org, engagementId: engagement, controlLibraryVersionId: library });
+      await createAssessmentResponse(c, { assessmentControlId: ac, tenantId: tenant, organisationId: org, engagementId: engagement, effectivenessRating: "implemented" });
+      await finalizeAssessment(c, a);
+      return a;
+    });
+  }
+
   it("no UPDATE/DELETE grant exists on MaturityScore — a computed score can never be edited or removed", async () => {
     const maturityAssessmentId = await asFixtureSetup((c) =>
       createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
@@ -246,8 +281,9 @@ describe("MaturityScore total immutability + insert-gate (afterAll ends the shar
   });
 
   it("cannot insert a MaturityScore for a MaturityAssessment that is already finalized", async () => {
+    const localAssessment = await freshFinalizedAssessment("FY2026 (insert-gate test)");
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology }),
     );
     await asFixtureSetup((c) => finalizeMaturityAssessment(c, maturityAssessmentId));
 
@@ -257,8 +293,9 @@ describe("MaturityScore total immutability + insert-gate (afterAll ends the shar
   });
 
   it("score must be within the 1-5 scale", async () => {
+    const localAssessment = await freshFinalizedAssessment("FY2026 (score range test)");
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology }),
     );
     await expect(
       asFixtureSetup((c) => createMaturityScore(c, { maturityAssessmentId, tenantId: tenant, organisationId: org, engagementId: engagement, score: 6 })),

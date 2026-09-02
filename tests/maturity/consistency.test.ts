@@ -259,10 +259,22 @@ describe("Source Risk/Validation traceability — application-level, not FK-enfo
     // a FOREIGN KEY to an individual element of a uuid[] column (the same
     // limitation DATA_MODEL.md's own `computed_from_control_test_ids`
     // field already carries) — see DECISIONS.md.
+    //
+    // M2 (Maturity Implementation, approval §4)'s new UNIQUE(assessment_id)
+    // constraint on `maturity_assessments` means this test needs its own
+    // distinct Assessment — `assessment` already has a MaturityAssessment
+    // from `beforeAll`.
+    const localAssessment = await asFixtureSetup(async (c) => {
+      const a = await createAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, controlLibraryVersionId: library, periodLabel: "FY2027 (bogus risk id test)" });
+      const ac = await addAssessmentControl(c, { assessmentId: a, controlId: control, tenantId: tenant, organisationId: org, engagementId: engagement, controlLibraryVersionId: library });
+      await createAssessmentResponse(c, { assessmentControlId: ac, tenantId: tenant, organisationId: org, engagementId: engagement, effectivenessRating: "implemented" });
+      await finalizeAssessment(c, a);
+      return a;
+    });
     const bogusId = "00000000-0000-0000-0000-000000000000";
     const id = await asFixtureSetup((c) =>
       createMaturityAssessment(c, {
-        engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology,
+        engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology,
         computedFromRiskIds: [bogusId],
       }),
     );

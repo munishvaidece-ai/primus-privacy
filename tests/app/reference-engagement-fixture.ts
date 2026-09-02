@@ -70,6 +70,10 @@ import {
   createUser,
   grantTenantMembership,
   createRiskScoringModel,
+  createMaturityScoringMethodology,
+  createMaturityDomain,
+  createMaturityDomainWeight,
+  linkMaturityDomainControl,
 } from "./helpers";
 import { withRequestDb } from "@/lib/db/request-client";
 import { createOrganisation } from "@/lib/domain/organisations";
@@ -112,6 +116,7 @@ import {
   getAssessmentDetail,
   updateAssessmentResponse,
   createControlTest,
+  finalizeAssessment,
   type AssessmentDetail,
 } from "@/lib/domain/assessments";
 import { uploadEvidence } from "@/lib/domain/evidence";
@@ -119,6 +124,7 @@ import { createRisk, updateRiskStatus } from "@/lib/domain/risks";
 import { createFinding, updateFinding } from "@/lib/domain/findings";
 import { createRemediationAction, updateRemediationAction } from "@/lib/domain/remediation";
 import { createValidationRecord } from "@/lib/domain/validation";
+import { computeAndFinalizeMaturityAssessment } from "@/lib/domain/maturity";
 import {
   createRegulatoryReference as createRegulatoryReferenceDomain,
   createRequirement as createRequirementDomain,
@@ -312,6 +318,9 @@ export interface ReferenceEngagementFixture {
   respondedControlCodes: string[];
   unrespondedControlCodes: string[];
   controlTestCodes: string[];
+  maturityDomainIds: { governance: string; rights: string; security: string };
+  maturitySourceAssessmentId: string;
+  maturityAssessmentId: string;
 }
 
 export async function buildReferenceEngagement(): Promise<ReferenceEngagementFixture> {
@@ -321,7 +330,14 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
   // application layer exists for regulatory content/control-library
   // authoring, and this product has no self-service sign-up flow for
   // Tenant/User provisioning either. ==========================================
-  const { tenantId, leadUserId, secondUserId } = await asFixtureSetup(async (client: PoolClient) => {
+  const {
+    tenantId,
+    leadUserId,
+    secondUserId,
+    maturityDomainGovernanceId,
+    maturityDomainRightsId,
+    maturityDomainSecurityId,
+  } = await asFixtureSetup(async (client: PoolClient) => {
     const tenantId = await createTenant(client, "PRIMUS Reference Demo Practice (Synthetic Data)");
 
     const leadUserId = await createUser(client, { tenantId, email: "ananya.krishnan.demo@primusprivacy.example" });
@@ -330,7 +346,41 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
 
     await createRiskScoringModel(client, { tenantId, name: "Reference Engagement Risk Matrix", version: "v1.0" });
 
-    return { tenantId, leadUserId, secondUserId };
+    // Maturity (Slice M2): practice-content setup — MaturityScoringMethodology
+    // and MaturityDomain have no real domain-layer "create" function
+    // (methodology/domain-taxonomy authoring UI is explicitly out of
+    // scope for M2, mirroring RiskScoringModel's own identical raw-fixture
+    // treatment immediately above). Clearly synthetic, sample domains —
+    // never presented as PRIMUS's real proprietary maturity taxonomy.
+    await createMaturityScoringMethodology(client, {
+      tenantId,
+      name: "Reference Engagement Maturity Methodology (SAMPLE)",
+      version: "v1.0",
+      definition: {
+        rating_scores: { implemented: 5, partially_implemented: 3, not_implemented: 1, not_applicable: null, not_assessed: null },
+        levels: [
+          { min: 1, max: 1.99, label: "Ad Hoc" },
+          { min: 2, max: 2.99, label: "Developing" },
+          { min: 3, max: 3.99, label: "Defined" },
+          { min: 4, max: 4.99, label: "Managed" },
+          { min: 5, max: 5, label: "Optimized" },
+        ],
+      },
+    });
+    const maturityDomainGovernanceId = await createMaturityDomain(client, {
+      tenantId, name: "Governance & Accountability (SAMPLE)", code: "REF_GOVERNANCE",
+      description: "Sample maturity domain — governance oversight and accountability controls.",
+    });
+    const maturityDomainRightsId = await createMaturityDomain(client, {
+      tenantId, name: "Individual Rights & Transparency (SAMPLE)", code: "REF_RIGHTS",
+      description: "Sample maturity domain — notice, consent, and data principal rights handling.",
+    });
+    const maturityDomainSecurityId = await createMaturityDomain(client, {
+      tenantId, name: "Security & Data Lifecycle (SAMPLE)", code: "REF_SECURITY",
+      description: "Sample maturity domain — technical security controls, retention, and breach response.",
+    });
+
+    return { tenantId, leadUserId, secondUserId, maturityDomainGovernanceId, maturityDomainRightsId, maturityDomainSecurityId };
   });
 
   // === Layer 2: real application code from here on ==========================
@@ -388,6 +438,29 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
     }
   }
   await withRequestDb(leadUserId, (db) => publishControlLibraryVersionDomain(db, leadUserId, { versionId: controlLibraryVersionId }));
+
+  // Maturity (Slice M2): MaturityDomainControlMapping — which of the 25
+  // Controls feed each sample domain. Raw fixture (no domain-layer
+  // "create" function exists — same posture as the domains themselves
+  // above). Deliberately mixes in the two D3 not_applicable controls
+  // (CHI-01/CHI-02) alongside real ones in the Governance domain, and
+  // one of the two D3 undecided controls into each of two other
+  // domains (ACC-02 into Governance, BRE-02 into Security) — so the
+  // reference engagement's own real Applicability & Scope decisions
+  // drive genuine N/A-exclusion and undecided-remains-eligible
+  // demonstrations, not a separately invented scenario.
+  const maturityDomainControlCodes: Record<string, string[]> = {
+    [maturityDomainGovernanceId]: ["GOV-01", "GOV-02", "ACC-01", "ACC-02", "CHI-01", "CHI-02"],
+    [maturityDomainRightsId]: ["NOT-01", "NOT-02", "CON-01", "CON-02", "DPR-01", "DPR-02", "GRI-01", "GRI-02"],
+    [maturityDomainSecurityId]: ["SEC-01", "SEC-02", "SEC-03", "RET-01", "RET-02", "BRE-01", "BRE-02"],
+  };
+  await asFixtureSetup(async (client) => {
+    for (const [maturityDomainId, codes] of Object.entries(maturityDomainControlCodes)) {
+      for (const code of codes) {
+        await linkMaturityDomainControl(client, { maturityDomainId, controlId: controlIdByCode[code]!, tenantId });
+      }
+    }
+  });
 
   // Organisation (real domain function — Slice B1/B2).
   const organisationName = "ABC Fintech Private Limited";
@@ -478,6 +551,18 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
       controlLibraryVersionId,
     }),
   );
+
+  // Maturity (Slice M2): MaturityDomainWeight — Security & Data Lifecycle
+  // weighted heaviest (5), reflecting a realistic fintech engagement's
+  // emphasis on technical/security controls; Governance and Rights each
+  // weighted 1. Chosen so the weighted overall score (below) is visibly
+  // different from a naive unweighted mean — demonstrating weighting
+  // actually matters, not merely that the field exists.
+  await asFixtureSetup(async (client) => {
+    await createMaturityDomainWeight(client, { engagementId, organisationId, tenantId, maturityDomainId: maturityDomainGovernanceId, weight: 1 });
+    await createMaturityDomainWeight(client, { engagementId, organisationId, tenantId, maturityDomainId: maturityDomainRightsId, weight: 1 });
+    await createMaturityDomainWeight(client, { engagementId, organisationId, tenantId, maturityDomainId: maturityDomainSecurityId, weight: 5 });
+  });
 
   // Processing Activities / ROPA — Slice D2's real domain layer
   // (lib/domain/processing-activities.ts), the ten activities the
@@ -618,6 +703,75 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
   );
 
   await withRequestDb(leadUserId, (db) => lockEngagementScope(db, leadUserId, { engagementScopeId }));
+
+  // Maturity (Slice M2, real domain layer — lib/domain/maturity.ts): a
+  // separate, already-completed prior-period Assessment demonstrates the
+  // real end-to-end maturity computation, built and finalized BEFORE the
+  // FY2026-27 Assessment below (so `getEngagementReportData`'s own
+  // "most recent Assessment" selection, unaffected by M2, continues to
+  // resolve to FY2026-27 exactly as every other stage already expects —
+  // not a workaround, just correct chronology: a prior year's completed
+  // assessment naturally predates the current, still-in-progress one).
+  // The FY2026-27 Assessment is deliberately left in-progress (STAGE 6/7's
+  // own realistic, mid-cycle design) — an eligible control left
+  // unanswered blocks maturity computation entirely, by design (M2's
+  // anti-gaming rule), so that Assessment could never itself produce a
+  // result anyway. This prior period reuses the SAME just-locked
+  // EngagementScope (D3's snapshot mechanism copies it fresh onto every
+  // new Assessment), so the same real applicable/undecided/not_applicable
+  // decisions apply here too.
+  const { id: maturitySourceAssessmentId } = await withRequestDb(leadUserId, (db) =>
+    createAssessment(db, leadUserId, { engagementId, assessmentType: "annual", periodLabel: "FY2025-26 Annual DPDP Assessment" }),
+  );
+  const maturitySourceDetail: AssessmentDetail = await withRequestDb(leadUserId, (db) => getAssessmentDetail(db, leadUserId, maturitySourceAssessmentId));
+  const maturityAssessmentControlIdByCode: Record<string, string> = {};
+  for (const row of maturitySourceDetail.controlRows) {
+    const code = Object.keys(controlIdByCode).find((c) => controlIdByCode[c] === row.controlId);
+    if (code) maturityAssessmentControlIdByCode[code] = row.assessmentControlId;
+  }
+  // Every eligible (applicable/undecided) control mapped to one of the
+  // three sample domains gets a real rating — CHI-01/CHI-02 (D3
+  // not_applicable) need none; VEN/TRA controls are unmapped to any
+  // domain, so leaving them unresponded here cannot block anything.
+  const MATURITY_RATINGS: Record<string, "implemented" | "partially_implemented" | "not_implemented"> = {
+    "GOV-01": "implemented",
+    "GOV-02": "implemented",
+    "ACC-01": "partially_implemented",
+    "ACC-02": "implemented", // D3 undecided — still eligible and scored.
+    "NOT-01": "implemented",
+    "NOT-02": "partially_implemented",
+    "CON-01": "implemented",
+    "CON-02": "not_implemented",
+    "DPR-01": "partially_implemented",
+    "DPR-02": "implemented",
+    "GRI-01": "implemented",
+    "GRI-02": "partially_implemented",
+    "SEC-01": "implemented",
+    "SEC-02": "not_implemented",
+    "SEC-03": "partially_implemented",
+    "RET-01": "implemented",
+    "RET-02": "partially_implemented",
+    "BRE-01": "implemented",
+    "BRE-02": "not_implemented", // D3 undecided — still eligible and scored.
+  };
+  for (const [code, rating] of Object.entries(MATURITY_RATINGS)) {
+    await withRequestDb(leadUserId, (db) =>
+      updateAssessmentResponse(db, leadUserId, {
+        assessmentControlId: maturityAssessmentControlIdByCode[code]!,
+        effectivenessRating: rating,
+        decisionRationale: `${rating.replace(/_/g, " ")} — FY2025-26 maturity assessment (SAMPLE).`,
+      }),
+    );
+  }
+  await withRequestDb(leadUserId, (db) => finalizeAssessment(db, leadUserId, { organisationId, engagementId, assessmentId: maturitySourceAssessmentId }));
+
+  // The real, authoritative compute (lib/domain/maturity.ts): exact
+  // expected arithmetic —
+  //   Governance & Accountability: (5+5+3+5)/4 = 4.5 -> 5 (Optimized)
+  //   Individual Rights & Transparency: (5+3+5+1+3+5+5+3)/8 = 3.75 -> 4 (Managed)
+  //   Security & Data Lifecycle: (5+1+3+5+3+5+1)/7 = 3.2857.. -> 3 (Defined)
+  //   Overall (weights 1/1/5): (5*1 + 4*1 + 3*5)/7 = 3.4286.. -> 3 (Defined)
+  const maturityResult = await withRequestDb(leadUserId, (db) => computeAndFinalizeMaturityAssessment(db, leadUserId, { assessmentId: maturitySourceAssessmentId }));
 
   // Assessment (real domain function — Slice C7.1): auto-populates one
   // AssessmentControl per Control in the pinned, published library, and
@@ -1043,5 +1197,8 @@ export async function buildReferenceEngagement(): Promise<ReferenceEngagementFix
     respondedControlCodes,
     unrespondedControlCodes,
     controlTestCodes: CONTROL_TESTS.map((t) => t.code),
+    maturityDomainIds: { governance: maturityDomainGovernanceId, rights: maturityDomainRightsId, security: maturityDomainSecurityId },
+    maturitySourceAssessmentId,
+    maturityAssessmentId: maturityResult.maturityAssessmentId,
   };
 }

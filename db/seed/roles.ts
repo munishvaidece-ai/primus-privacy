@@ -57,6 +57,15 @@ const ROLES: Array<{ name: string; scope: "tenant" | "organisation" | "engagemen
 // currently share an owner (Engagement Manager, "final report
 // sign-off" — db/seed/roles.ts's own pre-existing description), not one
 // action wearing two names. See DECISIONS.md.
+//
+// M2 (Maturity Implementation) adds `maturity.compute` — the M2
+// approval's own §20, explicit: a dedicated permission, NOT a reuse of
+// `assessment.finalize` or `scope.lock` even though all three currently
+// share an owner (Engagement Manager). Unlike `scope.lock`, M2 §3/§20
+// treat "compute" and "finalize" as ONE atomic action (`computeAndFinalize
+// MaturityAssessment`, lib/domain/maturity.ts) with no separate human
+// review step for MVP, so a single permission covers both — there is no
+// second "maturity.finalize" permission to seed.
 const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "tenant.manage", description: "Manage tenant-level settings." },
   { key: "organisation.create", description: "Onboard a new client organisation under the tenant." },
@@ -69,6 +78,7 @@ const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "assessment.finalize", description: "Finalize an Assessment, freezing its responses/tests/evidence permanently." },
   { key: "methodology.manage", description: "Author and publish the practice's regulatory content and control library." },
   { key: "scope.lock", description: "Permanently lock an Engagement's Applicability & Scope determination." },
+  { key: "maturity.compute", description: "Compute and finalize a MaturityAssessment for a finalized Assessment." },
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -85,7 +95,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "methodology.manage",
   ],
   "Practice Partner": ["organisation.create", "engagement.create", "engagement.manage", "audit_log.read", "methodology.manage"],
-  "Engagement Manager": ["engagement.manage", "membership.manage", "assessment.finalize", "scope.lock"],
+  "Engagement Manager": ["engagement.manage", "membership.manage", "assessment.finalize", "scope.lock", "maturity.compute"],
   "Client Administrator": ["membership.manage", "user.manage"],
 };
 

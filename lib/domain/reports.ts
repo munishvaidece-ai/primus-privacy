@@ -10,6 +10,7 @@ import { listFindingsForEngagement, type FindingListRow } from "@/lib/domain/fin
 import { listRemediationActionsForEngagement, type RemediationListRow } from "@/lib/domain/remediation";
 import { listValidationRecordsForEngagement, type EngagementValidationRecordRow } from "@/lib/domain/validation";
 import { getEvidenceSummaryForEngagement, type EngagementEvidenceRow } from "@/lib/domain/evidence";
+import { getMaturityAssessmentForAssessment, type MaturityAssessmentDetail } from "@/lib/domain/maturity";
 
 // Slice R1 — Basic Engagement Report. This module is the report's ONE
 // data-aggregation point: it reuses the exact read models every other
@@ -51,6 +52,12 @@ export interface EngagementReportData {
   remediationActions: RemediationListRow[];
   validationRecords: EngagementValidationRecordRow[];
   evidenceItems: EngagementEvidenceRow[];
+  // M2 (Maturity Implementation, approval §26): null whenever no
+  // MaturityAssessment exists yet for the selected Assessment — never
+  // fabricated. The renderer distinguishes "not computed" from "computed"
+  // by this null check alone, exactly as `getMaturityAssessmentForAssessment`
+  // itself already does for every other caller.
+  maturity: MaturityAssessmentDetail | null;
   generatedAt: Date;
 }
 
@@ -135,6 +142,11 @@ export async function getEngagementReportData(
   const remediationActions = await listRemediationActionsForEngagement(db, userId, input);
   const validationRecords = await listValidationRecordsForEngagement(db, userId, input);
   const evidenceItems = await getEvidenceSummaryForEngagement(db, userId, input);
+  const maturity = await getMaturityAssessmentForAssessment(db, userId, {
+    assessmentId,
+    organisationId: input.organisationId,
+    engagementId: input.engagementId,
+  });
 
   return {
     engagement: {
@@ -155,6 +167,7 @@ export async function getEngagementReportData(
     remediationActions,
     validationRecords,
     evidenceItems,
+    maturity,
     generatedAt: new Date(),
   };
 }

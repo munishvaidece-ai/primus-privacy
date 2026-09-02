@@ -1,60 +1,213 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-02 — Slice D3 (Applicability & Scope) COMPLETE (Session
-31): closes the gap Slice D2's own closing review re-ranked to top
-priority. Preceded by a design/discovery-only pass (no code) that
-inspected the existing Regulatory/Methodology/Assessment/Data-Landscape/
-Authorization model and produced a design proposal, reviewed and
-approved with three explicit changes before this implementation began.
-A consultant can now, entirely from the running application, at
-`/organisations/[id]/engagements/[id]/scope`: start a Scope for an
-engagement (one `EngagementScopeControl` row per Control in the pinned
-library, each explicitly `undecided` — never inferred from an absent
-row or a defaulted boolean), decide each Control's applicability
-(Undecided/Applicable/Not Applicable, mandatory rationale for Not
-Applicable), record RegulatoryReference-level determinations
-(DATA_MODEL.md §4's own, already-specified `ApplicabilityDetermination`,
-implemented unchanged), permanently lock the Scope, and revise a locked
-Scope into a new version (carrying forward its prior decisions, never
-resetting to blank). `createAssessment` is extended, not restructured:
-every Control in the pinned library still becomes an `AssessmentControl`
-exactly as before this slice — nothing is filtered — but each new row
-now also snapshots the Engagement's currently locked Scope's own
-per-Control decision, the same "pin now, never re-derive" discipline
-`control_library_version_id` already uses on the same table. No new
-migration risk: the entire schema for Assessment/Control Library was
-already correct and untouched in its existing behavior; two new tables
-(`EngagementScope`, `EngagementScopeControl`) plus DATA_MODEL.md §4's
-own already-specified `ApplicabilityDetermination` (+ its junction) were
-added, plus five new nullable snapshot columns on the pre-existing
-`AssessmentControl` table. A genuinely new, DEDICATED `scope.lock`
-permission was introduced — deliberately NOT a reuse of
-`assessment.finalize`, per explicit instruction, even though both
-currently resolve to Engagement Manager. Proposing/editing a draft Scope
-requires real `EngagementMembership` (a new, narrower authorization
-primitive than this codebase's usual broad engagement-access check) —
-specifically to exclude client-side, Organisation-scoped roles from the
-write path. Tenant isolation, methodology (cross-library-version/
-cross-tenant Control) compatibility, and — the critical acceptance
-criterion — Assessment-snapshot historical integrity were all directly,
-adversarially verified: revising a locked Scope, or flipping a Control's
-decision, after an Assessment already exists never changes that
-Assessment's own snapshot, proven for both a still-draft and a
-since-finalized Assessment. The reference-engagement fixture (Session
-28) now builds a real, locked Scope for ABC Fintech's 25-control demo
-library (21 applicable, 2 not-applicable with rationale grounded
-directly in the real Data Landscape, 2 deliberately left undecided)
-through this real domain layer instead of raw SQL — the Gap Matrix
-(`REFERENCE_ENGAGEMENT.md`) Applicability/Scope row now reads
-YES/YES/YES/None. R1's Engagement Report is completely untouched and
-unaffected (it reads no column this slice added). 800 tests pass (65
-files, +16 new in `tests/app/applicability-scope.test.ts`), typecheck/
-lint/build all clean, every check run twice for stability, zero
-regressions against the Slice D2 baseline of 64/784 (delta: +1 file,
-+16 tests, exactly the new suite). Full details in the "Applicability &
-Scope" section below and in `REFERENCE_ENGAGEMENT.md`. Per explicit
-instruction, STOP after D3 — no Maturity, Client Portal, or any other
-feature without further explicit direction.
+Status: 2026-09-02 — Slice M2 (Maturity Implementation) COMPLETE
+(Session 32): the calculation engine and application layer for
+Maturity, closing the #1 gap D3's own closing review re-ranked to top
+priority. Preceded by two design-only passes (M1, M1.1 — no code) that
+inspected the pre-existing Milestone 8/8A persistence layer (already
+fully built and tested — `MaturityScoringMethodology`, `MaturityDomain`,
+`MaturityDomainWeight`, `MaturityDomainControlMapping`,
+`MaturityAssessment`, `MaturityScore`), proposed a domain-weighted-mean
+methodology, then corrected two parts of that proposal after deeper
+inspection: (1) "delete draft and recompute" is not supported by the
+schema's own grants, so the MVP operation is one atomic
+compute-then-finalize action instead; (2) an unanswered eligible control
+must make its domain `incomplete` and abort the WHOLE computation
+(including the overall score), never silently excluded from the
+denominator — the exact anti-gaming rule the M2 brief itself then
+approved and required. A consultant with the new, DEDICATED
+`maturity.compute` permission (Engagement Manager only, never a reuse of
+`assessment.finalize`/`scope.lock`) can now, entirely from the running
+application, on a finalized Assessment's own page: compute maturity
+once (immutable from that point on — no recompute, no delete), see the
+overall score/level and every domain's score/level, or see exactly why
+computation was refused (which domain, how many eligible/answered/
+unanswered controls). D3's own `applicability_decision` snapshot is the
+sole eligibility source (`not_applicable` excluded, `applicable`/
+`undecided` both eligible) — the live `EngagementScope` is never
+re-read. `AssessmentResponse.effectiveness_rating`, mapped through the
+pinned `MaturityScoringMethodology.definition.rating_scores`, is the
+sole numeric input — ControlTest/Evidence/Risk/Finding/Remediation/
+Validation are traceability/reporting-only, verified directly by
+attaching all of them to a scored control and proving the score is
+unaffected (reaffirms DECISIONS.md R-79/R-80, PRODUCT_SPEC.md Principle
+8). Two small migrations only: a `UNIQUE(assessment_id)` constraint (one
+`MaturityAssessment` per Assessment, sufficient because the atomic
+compute-then-finalize action can never leave a durable partial row) and
+narrowing the `maturity_assessments`/`maturity_scores` RLS write path
+from the previously broad `can_access_engagement` to `maturity.compute`
+— no other schema change; the entire persistence layer already existed.
+R1's Engagement Report gained one minimal section (overall/domain
+scores and levels, or an honest "not calculated" explanation) — no
+analytics, no trend/comparison content. The reference-engagement
+fixture now demonstrates a real, persisted maturity result (a second,
+completed FY2025-26 Assessment period, reusing the same real, locked D3
+Scope) alongside proof that the original, deliberately in-progress
+FY2026-27 Assessment still cannot itself produce one — the Gap Matrix
+(`REFERENCE_ENGAGEMENT.md`) Maturity row now reads YES/YES/YES/None.
+844 tests pass (66 files, +22 new in `tests/app/maturity.test.ts`),
+typecheck/lint/build all clean, every check run twice for stability,
+zero regressions against the Slice D3 baseline of 65/822 (delta: +1
+file, +22 tests, exactly the new suite, plus the pre-existing STAGE 14
+reference-engagement test flipping from expected-MISSING to
+expected-YES). Full details in the "Maturity Implementation" section
+below and in `REFERENCE_ENGAGEMENT.md`. Per explicit instruction, STOP
+after M2 — no Client Portal, trends, dashboards, comparison, AI, or any
+other feature without further explicit direction.
+
+## Maturity Implementation (Session 32, 2026-09-02)
+
+**Scope:** exactly what the M2 implementation brief instructed — on top
+of two design-only passes (M1, M1.1 — no code) that produced
+`M1_MATURITY_DESIGN.md` and `M1.1_MATURITY_FORMULA_INTEGRITY.md`,
+reviewed and approved (with the two corrections those documents
+themselves surfaced) before any code was written. Explicitly NOT built,
+per instruction: Client Portal, dashboards, trend/comparison analytics,
+AI-generated commentary, custom/client-configurable formulas, control
+weighting, risk-adjusted scoring, evidence-quality/confidence scoring,
+a methodology-authoring UI, or an R1 redesign.
+
+**Core finding, carried from M1/M1.1 and reconfirmed during
+implementation:** the entire Maturity persistence layer (Milestone
+8/8A) already existed, fully built and tested — no schema change was
+needed for the calculation engine itself. What was missing was purely
+the calculation engine and application layer: `lib/domain/maturity.ts`
+did not exist before this slice.
+
+**Lifecycle, the corrected design:** `computeAndFinalizeMaturityAssessment`
+performs "insert `MaturityAssessment` as draft → insert every
+`MaturityScore` → flip to finalized" inside ONE transaction, with every
+validation/calculation completed in memory before the first write. No
+separate `finalizeMaturityAssessment` action, no human-review draft
+state, no delete/discard path — M1.1's own finding, reconfirmed:
+`maturity_scores` has no UPDATE/DELETE grant at all, proven directly by
+`tests/maturity/immutability.test.ts` rejecting a mutation even against
+a still-draft score. Since the whole sequence is atomic, a failure
+never leaves a partial row — there is nothing to discard. See
+DECISIONS.md R-144.
+
+**One MaturityAssessment per Assessment:** migration 0029 adds a plain
+`UNIQUE(assessment_id)` constraint — safe as a non-partial form
+specifically because of the atomicity above (a `draft` row can never
+durably exist on its own). No supersession/versioning column was added;
+none was required. See DECISIONS.md R-145.
+
+**Control eligibility (D3 integration), the critical acceptance
+criterion:** `AssessmentControl.applicability_decision` (D3's own
+snapshot, frozen at Assessment creation) is the sole eligibility
+source — `not_applicable` excluded, `applicable`/`undecided` both
+eligible. The live `EngagementScope` is never read at compute time;
+verified directly by revising a locked Scope with different decisions
+AFTER maturity was already computed and proving the persisted result is
+unaffected.
+
+**The anti-gaming rule, the other critical acceptance criterion:** an
+eligible control with no usable numeric rating (no response row, an
+explicit `not_assessed`/`not_applicable` response rating, or a rating
+the pinned methodology has no configured score for) makes its domain
+`incomplete` — no `MaturityScore` row for that domain, and the entire
+computation (including the overall score) is refused via
+`IncompleteMaturityDataError`, carrying per-domain eligible/answered/
+unanswered counts. Never excluded from the denominator, never treated
+as zero, never computed from only the complete domains. A domain with
+literally nothing to score (`no_mapped_controls`/`all_not_applicable`)
+is a DIFFERENT, non-blocking outcome — excluded from the result, never
+fabricated as zero, and never treated as "incomplete" either. See
+DECISIONS.md R-146/R-147.
+
+**Control score / domain score / overall score:** `AssessmentResponse.
+effectiveness_rating`, mapped through the pinned
+`MaturityScoringMethodology.definition.rating_scores` (never
+hard-coded), is the sole numeric input. Domain score = round-half-up of
+the arithmetic mean of its eligible controls' scores; overall score =
+round-half-up of the domain-weighted mean (`MaturityDomainWeight`,
+already-existing, never invented) over every scored domain. Levels
+resolve from the pinned methodology's own `definition.levels`, never
+hard-coded labels. A missing active methodology, a malformed
+`rating_scores` map, or a missing weight for an otherwise-scorable
+domain are each a distinct, named failure — never a fabricated score or
+a silently-assumed weight of 0/1. See DECISIONS.md R-148.
+
+**ControlTest/Evidence/Risk/Finding/Remediation/Validation have zero
+mathematical effect** — reaffirms, not re-litigates, DECISIONS.md
+R-79/R-80 and PRODUCT_SPEC.md Principle 8. Verified directly: a
+contradictory FAILING ControlTest, uploaded Evidence, and a CRITICAL
+residual-rated Risk were all attached to the same scored control in a
+dedicated test, and the resulting maturity score is exactly what the
+AssessmentResponse ratings alone imply.
+
+**Authorization:** a new, DEDICATED `maturity.compute` permission
+(Engagement Manager only) — deliberately NOT a reuse of
+`assessment.finalize`/`scope.lock`, per explicit instruction, even
+though all three currently resolve to the same role. Unlike D3's
+`scope.lock`/`assessment.finalize` split, "compute" and "finalize" are
+one atomic action for Maturity, so a single permission covers both — no
+separate `maturity.finalize`. See DECISIONS.md R-149.
+
+**Security:** migration 0030 narrows the `maturity_assessments`/
+`maturity_scores` RLS write path from the previously broad
+`can_access_engagement` (any active engagement member, migration 0015)
+to `maturity.compute`, mirroring migration 0028's own `scope.lock`
+narrowing exactly. SELECT policies are unchanged. Cross-tenant
+Assessment ids, cross-tenant MaturityAssessment reads, unauthorized
+roles (Consultant, Client Administrator), wrong engagement/organisation
+combinations, direct-SQL tenant-isolation bypass attempts, and direct
+mutation of an already-computed score were all directly, adversarially
+tested and rejected.
+
+**UI:** a minimal Maturity section added to the existing Assessment
+page (only rendered once finalized) — compute button when authorized
+and not yet computed, or the immutable result (overall/domain
+scores/levels) once it exists, or the actionable "why not" explanation
+on failure. No dashboard, no new route.
+
+**R1 report:** one minimal section (overall score/level, per-domain
+scores/levels, methodology name/version, or an honest "not calculated"
+explanation when no result exists for the selected Assessment) plus one
+Executive-Summary line — no analytics section, no trend content.
+
+**Reference engagement:** a second, fully-answered, finalized
+"FY2025-26 Annual DPDP Assessment" period was added (built and
+finalized BEFORE the original in-progress "FY2026-27" period, so
+`getEngagementReportData`'s own "most recent Assessment" selection is
+unaffected), reusing the SAME real, locked D3 Scope — demonstrating
+N/A exclusion (CHI-01/CHI-02), undecided-remains-eligible (ACC-02,
+BRE-02), three sample domains, differentiated domain weighting (1/1/5,
+chosen so the weighted overall score visibly differs from a naive
+unweighted mean), and a real, persisted, immutable overall/domain
+result (Overall 3/Defined; Governance & Accountability 5/Optimized;
+Individual Rights & Transparency 4/Managed; Security & Data Lifecycle
+3/Defined) — verified via the real read path
+(`getMaturityAssessmentForAssessment`), not raw SQL. The original,
+deliberately in-progress FY2026-27 Assessment is proven to still be
+unable to produce a maturity result of its own (refused at the
+finalization precondition, since it stays `draft` throughout). The Gap
+Matrix (`REFERENCE_ENGAGEMENT.md`) Maturity row now reads YES/YES/YES/
+None.
+
+**Testing:** 844 tests pass (66 files: +22 new in
+`tests/app/maturity.test.ts`, covering compute lifecycle, D3 control
+eligibility, the anti-gaming rule, methodology/weighting validation,
+ControlTest/Evidence/Risk non-effect, historical integrity, and
+authorization/security; 7 pre-existing `tests/maturity/*.test.ts` files
+updated for the new one-per-Assessment constraint — each `it()` that
+previously shared one Assessment fixture across multiple
+MaturityAssessment creations now builds its own distinct Assessment,
+preserving each test's own original intent; `tests/app/engagement-
+report.test.ts` updated for the new report page; the pre-existing
+`reference-engagement.test.ts` STAGE 14 rewritten from expected-MISSING
+to expected-YES). Typecheck/lint/build all clean, every check run twice
+for stability, zero regressions against the Slice D3 baseline of
+65/822.
+
+**Files:** `lib/domain/maturity.ts` (new), `db/schema/maturity-
+assessments.ts` (modified — new unique constraint), `db/seed/roles.ts`
+(modified — `maturity.compute`), `lib/authorization/service.ts`
+(modified — `canComputeMaturity`/`requireMaturityComputeAccess`),
+`lib/domain/reports.ts` + `lib/reports/engagement-report-pdf.ts`
+(modified — R1 extension), the Assessment page/actions (modified — UI),
+`drizzle/migrations/0029_maturity_compute.sql` +
+`0030_maturity_compute_security.sql` (new).
 
 ## Applicability & Scope (Session 31, 2026-09-02)
 

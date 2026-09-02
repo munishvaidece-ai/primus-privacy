@@ -513,15 +513,16 @@ describe("Application layer — Engagement Report (Slice R1)", () => {
     expect(pdfBuffer.subarray(0, 5).toString("latin1")).toBe("%PDF-");
     const { numPages, textByPage } = await extractPdfText(pdfBuffer);
     // Cover, Executive Summary, Engagement Overview, Assessment Results,
-    // Risk Register, Findings, Remediation, Validation, Evidence
-    // Summary, Appendix — exactly 10 for this fixture's data volume (one
-    // page per section). A LOOSER `toBeGreaterThanOrEqual` bound here
-    // originally masked a real pdfkit pagination bug (a footer position
-    // that fell just past the printable area silently forced an extra,
-    // near-blank page after every section, found only by this slice's
-    // own manual PDF inspection, PHASE R1 instructions §36) — asserting
-    // the exact count keeps that regression caught automatically too.
-    expect(numPages).toBe(10);
+    // Maturity, Risk Register, Findings, Remediation, Validation, Evidence
+    // Summary, Appendix — exactly 11 for this fixture's data volume (one
+    // page per section; Maturity added by M2). A LOOSER
+    // `toBeGreaterThanOrEqual` bound here originally masked a real pdfkit
+    // pagination bug (a footer position that fell just past the printable
+    // area silently forced an extra, near-blank page after every section,
+    // found only by this slice's own manual PDF inspection, PHASE R1
+    // instructions §36) — asserting the exact count keeps that regression
+    // caught automatically too.
+    expect(numPages).toBe(11);
     // Every page must carry real content — no page should be
     // (near-)empty apart from the footer, which is what the bug above
     // actually produced.

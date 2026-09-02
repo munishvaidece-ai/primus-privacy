@@ -180,9 +180,19 @@ describe("Historical domain-snapshot integrity (Milestone 8A)", () => {
     // A fresh, still-draft MaturityAssessment — MA1 itself is already
     // finalized, and no further MaturityScore can be inserted against it
     // at all (the insert-gate trigger), which is itself the correct,
-    // separately-tested behavior, not what this test is checking.
+    // separately-tested behavior, not what this test is checking. M2
+    // (Maturity Implementation, approval §4)'s new UNIQUE(assessment_id)
+    // constraint also means this needs its own distinct Assessment —
+    // `assessment` already has MA1 from `beforeAll`.
+    const localAssessment = await asFixtureSetup(async (c) => {
+      const a = await createAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, controlLibraryVersionId: library, periodLabel: "FY2027 (spoofed snapshot test)" });
+      const ac = await addAssessmentControl(c, { assessmentId: a, controlId: control, tenantId: tenant, organisationId: org, engagementId: engagement, controlLibraryVersionId: library });
+      await createAssessmentResponse(c, { assessmentControlId: ac, tenantId: tenant, organisationId: org, engagementId: engagement, effectivenessRating: "implemented" });
+      await finalizeAssessment(c, a);
+      return a;
+    });
     const ma3 = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodology }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodology }),
     );
     const spoofedScoreId = await asFixtureSetup((c) =>
       c.query(

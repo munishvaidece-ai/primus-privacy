@@ -9,7 +9,8 @@ import {
 } from "@/lib/domain/assessments";
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { listRisksForControl } from "@/lib/domain/risks";
-import { NotFoundOrForbiddenError, canFinalizeAssessment } from "@/lib/authorization/service";
+import { getMaturityAssessmentForAssessment } from "@/lib/domain/maturity";
+import { NotFoundOrForbiddenError, canFinalizeAssessment, canComputeMaturity } from "@/lib/authorization/service";
 import { Badge, statusTone, riskRatingTone, riskStatusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ import {
   unlinkEvidenceAction,
   createRiskAction,
   finalizeAssessmentAction,
+  computeMaturityAction,
 } from "./actions";
 
 const RATING_OPTIONS = ["low", "medium", "high", "critical"] as const;
@@ -73,6 +75,23 @@ export default async function AssessmentWorkspacePage({
   const canFinalize = !finalized
     ? await withRequestDb(user.id, (db) => canFinalizeAssessment(db, user.id, assessment.engagementId, assessment.organisationId))
     : false;
+
+  // M2 (Maturity Implementation, approval §25): maturity is only ever
+  // relevant once the Assessment is finalized (lib/domain/maturity.ts's
+  // own precondition) — no query, no permission check, and no section
+  // rendered at all otherwise, exactly mirroring how `canFinalize` above
+  // is skipped once already finalized.
+  const [maturity, canComputeMaturityResult] = finalized
+    ? await withRequestDb(user.id, async (db) => {
+        const result = await getMaturityAssessmentForAssessment(db, user.id, {
+          assessmentId: assessment.id,
+          organisationId: assessment.organisationId,
+          engagementId: assessment.engagementId,
+        });
+        const canCompute = result ? false : await canComputeMaturity(db, user.id, assessment.engagementId, assessment.organisationId);
+        return [result, canCompute] as const;
+      })
+    : ([null, false] as const);
 
   // Basic PostgreSQL-backed filtering/search (instructions §22) applied
   // over the already-fetched, bounded control list — see
@@ -195,6 +214,68 @@ export default async function AssessmentWorkspacePage({
         <p role="alert" className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
           {searchParams.error}
         </p>
+      ) : null}
+
+      {finalized ? (
+        <section className="mt-4 rounded-md border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-900">Maturity</h3>
+          {maturity ? (
+            <div className="mt-2">
+              <p className="rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600">
+                This is the permanent, finalized maturity result for this Assessment — computed once and immutable.
+                A correction is made by creating a new Assessment, never by recomputing this one.
+              </p>
+              <div className="mt-3 flex items-baseline gap-3">
+                <span className="text-2xl font-semibold text-slate-900">
+                  {maturity.overallScore ?? "—"}
+                  <span className="text-sm font-normal text-slate-500"> / 5</span>
+                </span>
+                {maturity.overallLevel ? <Badge tone="positive">{maturity.overallLevel}</Badge> : null}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                {maturity.methodologyName} {maturity.methodologyVersion}
+              </p>
+              {maturity.domains.length > 0 ? (
+                <table className="mt-3 w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wide text-slate-500">
+                      <th className="pb-1 font-medium">Domain</th>
+                      <th className="pb-1 font-medium">Score</th>
+                      <th className="pb-1 font-medium">Level</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {maturity.domains.map((d) => (
+                      <tr key={d.maturityDomainId}>
+                        <td className="py-1.5 text-slate-900">{d.domainName}</td>
+                        <td className="py-1.5 text-slate-700">{d.score} / 5</td>
+                        <td className="py-1.5">{d.level ? <Badge tone="positive">{d.level}</Badge> : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : null}
+            </div>
+          ) : canComputeMaturityResult ? (
+            <div className="mt-2">
+              <p className="text-sm text-slate-600">
+                Maturity has not yet been computed for this Assessment. Computing is a one-time, permanent action —
+                it requires every eligible control across every scorable domain to have a real rating; any
+                unanswered eligible control will block computation and be reported here.
+              </p>
+              <form action={computeMaturityAction} className="mt-3">
+                <input type="hidden" name="organisationId" value={params.organisationId} />
+                <input type="hidden" name="engagementId" value={params.engagementId} />
+                <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                <Button type="submit" size="sm">
+                  Compute maturity
+                </Button>
+              </form>
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-slate-500">Maturity has not yet been computed for this Assessment.</p>
+          )}
+        </section>
       ) : null}
 
       {assessment.controlRows.length === 0 ? (

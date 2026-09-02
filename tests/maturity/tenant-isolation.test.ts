@@ -200,16 +200,28 @@ describe("Maturity tenant/organisation/engagement isolation and write protection
 
   // (7) Cross-tenant source Assessment/Risk relationships are rejected.
   it("cross-tenant source Assessment relationship rejected — a real Assessment cannot be claimed under a forged (wrong-tenant) scope", async () => {
-    // assessmentA1 genuinely belongs to (engagementA1, orgA1, tenantA);
-    // claiming tenantB alongside it is exactly the "cross-tenant source
-    // Assessment relationship" the composite FK must reject structurally.
+    // A dedicated, still-unclaimed Assessment (not assessmentA1, which
+    // already has a real MaturityAssessment from `beforeAll` — M2,
+    // approval §4's new UNIQUE(assessment_id) constraint would otherwise
+    // make this insert fail on that constraint before ever reaching the
+    // FK check this test actually means to exercise). Genuinely belongs
+    // to (engagementA1, orgA1, tenantA); claiming tenantB alongside it is
+    // exactly the "cross-tenant source Assessment relationship" the
+    // composite FK must reject structurally.
+    const unclaimedAssessment = await asFixtureSetup(async (c) => {
+      const a = await createAssessment(c, { engagementId: engagementA1, organisationId: orgA1, tenantId: tenantA, controlLibraryVersionId: libraryA, periodLabel: "FY2027 (unclaimed, forged-scope test)" });
+      const ac = await addAssessmentControl(c, { assessmentId: a, controlId: controlA, tenantId: tenantA, organisationId: orgA1, engagementId: engagementA1, controlLibraryVersionId: libraryA });
+      await createAssessmentResponse(c, { assessmentControlId: ac, tenantId: tenantA, organisationId: orgA1, engagementId: engagementA1, effectivenessRating: "implemented" });
+      await finalizeAssessment(c, a);
+      return a;
+    });
     await expect(
       asFixtureSetup((c) =>
         createMaturityAssessment(c, {
           engagementId: engagementA1,
           organisationId: orgA1,
-          tenantId: tenantB, // forged — assessmentA1 does not belong to Tenant B.
-          assessmentId: assessmentA1,
+          tenantId: tenantB, // forged — this Assessment does not belong to Tenant B.
+          assessmentId: unclaimedAssessment,
           maturityScoringMethodologyId: methodologyA,
         }),
       ),
@@ -217,13 +229,23 @@ describe("Maturity tenant/organisation/engagement isolation and write protection
   });
 
   it("cross-tenant source methodology relationship rejected — a Tenant A MaturityAssessment cannot pin a Tenant B methodology", async () => {
+    // Same reasoning as above — a dedicated, still-unclaimed Assessment
+    // so the new UNIQUE(assessment_id) constraint doesn't preempt the
+    // FK check this test means to exercise.
+    const unclaimedAssessment = await asFixtureSetup(async (c) => {
+      const a = await createAssessment(c, { engagementId: engagementA1, organisationId: orgA1, tenantId: tenantA, controlLibraryVersionId: libraryA, periodLabel: "FY2027 (unclaimed, forged-methodology test)" });
+      const ac = await addAssessmentControl(c, { assessmentId: a, controlId: controlA, tenantId: tenantA, organisationId: orgA1, engagementId: engagementA1, controlLibraryVersionId: libraryA });
+      await createAssessmentResponse(c, { assessmentControlId: ac, tenantId: tenantA, organisationId: orgA1, engagementId: engagementA1, effectivenessRating: "implemented" });
+      await finalizeAssessment(c, a);
+      return a;
+    });
     await expect(
       asFixtureSetup((c) =>
         createMaturityAssessment(c, {
           engagementId: engagementA1,
           organisationId: orgA1,
           tenantId: tenantA,
-          assessmentId: assessmentA1,
+          assessmentId: unclaimedAssessment,
           maturityScoringMethodologyId: methodologyB, // cross-tenant methodology.
         }),
       ),

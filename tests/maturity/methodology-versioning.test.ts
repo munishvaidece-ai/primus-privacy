@@ -57,6 +57,19 @@ describe("MaturityScoringMethodology versioning / historical reproducibility", (
     await pool.end();
   });
 
+  // M2 (Maturity Implementation, approval §4)'s new UNIQUE(assessment_id)
+  // constraint on `maturity_assessments` means each `it()` below that
+  // creates its own MaturityAssessment needs its own distinct Assessment.
+  async function freshFinalizedAssessment(periodLabel: string): Promise<string> {
+    return asFixtureSetup(async (c) => {
+      const a = await createAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, controlLibraryVersionId: library, periodLabel });
+      const ac = await addAssessmentControl(c, { assessmentId: a, controlId: control, tenantId: tenant, organisationId: org, engagementId: engagement, controlLibraryVersionId: library });
+      await createAssessmentResponse(c, { assessmentControlId: ac, tenantId: tenant, organisationId: org, engagementId: engagement, effectivenessRating: "implemented" });
+      await finalizeAssessment(c, a);
+      return a;
+    });
+  }
+
   it("a MaturityAssessment pins the active methodology at the time it was created", async () => {
     const maturityAssessmentId = await asFixtureSetup((c) =>
       createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodologyV1 }),
@@ -84,8 +97,9 @@ describe("MaturityScoringMethodology versioning / historical reproducibility", (
   });
 
   it("a MaturityAssessment created under v1 continues to resolve to v1 after v2 exists and is active", async () => {
+    const localAssessment = await freshFinalizedAssessment("FY2027 (v1 resolution test)");
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodologyV1 }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodologyV1 }),
     );
     const { rows } = await asFixtureSetup((c) =>
       c.query(
@@ -111,8 +125,9 @@ describe("MaturityScoringMethodology versioning / historical reproducibility", (
     const methodologyV3 = await asFixtureSetup((c) =>
       createMaturityScoringMethodology(c, { tenantId: tenant, name: "Versioning Test Methodology", version: "v3.0" }),
     );
+    const localAssessment = await freshFinalizedAssessment("FY2028 (pin-frozen test)");
     const maturityAssessmentId = await asFixtureSetup((c) =>
-      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: assessment, maturityScoringMethodologyId: methodologyV1 }),
+      createMaturityAssessment(c, { engagementId: engagement, organisationId: org, tenantId: tenant, assessmentId: localAssessment, maturityScoringMethodologyId: methodologyV1 }),
     );
     await expect(
       asFixtureSetup((c) => c.query(`UPDATE maturity_assessments SET maturity_scoring_methodology_id = $1 WHERE id = $2`, [methodologyV3, maturityAssessmentId])),
