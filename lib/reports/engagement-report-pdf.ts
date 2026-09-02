@@ -154,45 +154,72 @@ export function renderEngagementReportPdf(
       const startX = PAGE_MARGIN;
       const usableWidth = doc.page.width - PAGE_MARGIN * 2;
       const colWidths = widths.map((w) => w * usableWidth);
+      const bottomLimit = () => doc.page.height - PAGE_MARGIN;
 
-      function drawRow(cells: string[], opts: { bold?: boolean; fill?: boolean } = {}) {
+      // Measures a row's height WITHOUT drawing anything (pdfkit's own
+      // `heightOfString` has no side effect on `doc.x`/`doc.y`) — used
+      // to decide, up front, whether the row fits on the current page.
+      // A real bug this slice's own manual PDF inspection (instructions
+      // §36) found: the previous version of this function only checked
+      // a fixed ~40pt threshold before drawing, not the row's ACTUAL
+      // height — a row whose first (tallest) cell wrapped onto 3 lines
+      // near the bottom margin could start just above that threshold,
+      // then have pdfkit silently auto-paginate MID-ROW partway through
+      // drawing its own cells (each cell is one independent `.text()`
+      // call): the wrapped cell's overflow lines moved to the new page,
+      // but every LATER cell in that same row was still drawn at the
+      // OLD page's now-stale `rowTop` y-coordinate — landing at the
+      // wrong position on the new page, corrupting the row. Measuring
+      // every row's real height first, and paginating BEFORE drawing
+      // if it wouldn't fit, means a row is now always drawn entirely on
+      // one page — pdfkit's own mid-cell auto-pagination never triggers
+      // here at all. A small +2pt safety margin covers any minor
+      // rounding difference between `heightOfString`'s estimate and the
+      // actual rendered height.
+      function measureRowHeight(cells: string[], bold: boolean): number {
+        doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(8.5);
+        let max = 14;
+        for (let i = 0; i < cells.length; i++) {
+          const h = doc.heightOfString(cells[i] ?? "", { width: colWidths[i]! - 4 });
+          if (h > max) max = h;
+        }
+        return max + 2;
+      }
+
+      function drawRow(cells: string[], rowHeight: number, opts: { bold?: boolean; fill?: boolean } = {}) {
         const rowTop = doc.y;
         if (opts.fill) {
-          doc.rect(startX, rowTop - 2, usableWidth, 16).fill("#f1f5f9");
+          doc.rect(startX, rowTop - 2, usableWidth, rowHeight + 2).fill("#f1f5f9");
         }
         doc.fillColor(opts.bold ? COLOR_HEADING : COLOR_BODY).font(opts.bold ? "Helvetica-Bold" : "Helvetica").fontSize(8.5);
         let x = startX;
-        const heights: number[] = [];
         for (let i = 0; i < cells.length; i++) {
           doc.text(cells[i] ?? "", x + 2, rowTop, { width: colWidths[i]! - 4 });
-          heights.push(doc.y - rowTop);
           x += colWidths[i]!;
         }
-        const rowHeight = Math.max(...heights, 14);
         doc.y = rowTop + rowHeight + 4;
       }
 
-      if (doc.y > doc.page.height - PAGE_MARGIN - 60) newPage();
-      drawRow(headers, { bold: true, fill: true });
-      doc
-        .strokeColor(COLOR_RULE)
-        .lineWidth(0.5)
-        .moveTo(startX, doc.y - 2)
-        .lineTo(startX + usableWidth, doc.y - 2)
-        .stroke();
+      function drawHeaderRow() {
+        drawRow(headers, measureRowHeight(headers, true), { bold: true, fill: true });
+        doc
+          .strokeColor(COLOR_RULE)
+          .lineWidth(0.5)
+          .moveTo(startX, doc.y - 2)
+          .lineTo(startX + usableWidth, doc.y - 2)
+          .stroke();
+      }
+
+      if (doc.y > bottomLimit() - 60) newPage();
+      drawHeaderRow();
 
       for (const row of rows) {
-        if (doc.y > doc.page.height - PAGE_MARGIN - 40) {
+        const rowHeight = measureRowHeight(row, false);
+        if (doc.y + rowHeight + 4 > bottomLimit()) {
           newPage();
-          drawRow(headers, { bold: true, fill: true });
-          doc
-            .strokeColor(COLOR_RULE)
-            .lineWidth(0.5)
-            .moveTo(startX, doc.y - 2)
-            .lineTo(startX + usableWidth, doc.y - 2)
-            .stroke();
+          drawHeaderRow();
         }
-        drawRow(row);
+        drawRow(row, rowHeight);
       }
     }
 

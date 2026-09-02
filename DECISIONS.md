@@ -3513,3 +3513,88 @@ the test's page-count assertion from a loose bound to an exact `toBe
 exact shape fails automatically in the future. Recorded as a genuine
 example of why instructions §36 requires inspecting the actual
 artifact, not only asserting against extracted text.
+
+### R-127 — Real bug found and fixed: a table row could split mid-row across a page boundary, corrupting later cells (Reference Engagement Dataset session)
+
+**Decision:** `lib/reports/engagement-report-pdf.ts`'s `table()`
+function now measures each row's real height (`doc.heightOfString`,
+which has no side effect on the document cursor) BEFORE drawing it, and
+starts a new page first if the row would not fit — rather than checking
+only a fixed ~40pt threshold and letting pdfkit's own per-cell
+auto-pagination decide mid-row.
+**Why:** R1's own test fixture never produced a control/risk/finding
+title long enough to wrap onto 3+ lines right at a page's bottom
+margin, so this defect was latent and unfound. Building this session's
+much larger, more realistic reference-engagement fixture (a 25-control
+demo library, several multi-line control titles) reproduced it
+immediately: the Assessment Results table's GRI-01 row's Control cell
+wrapped onto 3 lines starting just above the OLD fixed threshold; that
+cell's own `.text()` call then triggered pdfkit's own automatic
+new-page behavior partway through drawing, but every LATER cell in that
+same row (Type, Effectiveness, Rationale, Respondent) was still drawn
+at the row's original, now-stale y-coordinate — landing at the wrong
+position on the new page instead of flowing with the wrapped cell.
+Found by this session's own mandatory manual/visual PDF inspection
+(instructions §36 — a garbled row is invisible to a pure text-extraction
+assertion, since the words are all still present, just mispositioned);
+fixed, and re-verified by re-rendering both this reference-engagement
+PDF and R1's own smaller PDF and re-inspecting both page-by-page —
+neither pagination test regressed, and this exact defect shape (a row
+split across pages) is now structurally prevented rather than merely
+avoided by luck of the data being small.
+**Scope note:** per the brief's own "Do not modify R1 unless an actual
+defect is discovered" instruction, this is the ONLY change made to
+Slice R1's own code this session — a real, reproducible rendering
+defect, not a stylistic or speculative improvement.
+
+### R-128 — No standalone seed script; the reference/demo dataset lives as a Vitest test file, reusing the existing `server-only` test-shim mechanism (Reference Engagement Dataset session)
+
+**Decision:** `tests/app/reference-engagement-fixture.ts` (the builder)
+and `tests/app/reference-engagement.test.ts` (the walkthrough) are the
+whole mechanism — no `db/seed/reference-engagement.ts`-style standalone
+`tsx` script was written.
+**Rationale:** every `lib/domain/*` module begins with `import
+"server-only"`, and the real `server-only` npm package (confirmed by
+reading `node_modules/server-only/index.js` directly) unconditionally
+throws when imported outside a Next.js/webpack bundle — a plain `tsx`
+script cannot import a single real domain function, full stop. The
+ONLY place in this repository real domain functions are ever exercised
+outside the Next.js server itself is Vitest, via
+`tests/shims/server-only.ts`'s alias (`vitest.config.ts`). Building a
+second, parallel mechanism (e.g. a bespoke alias/loader hack for a
+standalone script) would be exactly the "giant new abstraction merely
+to support the fixture" instructions explicitly forbid; reusing the
+existing, already-proven mechanism instead means this fixture is
+simultaneously reproducible (`reset-test-db.ts` + a fresh run),
+reset-cleanly (every run starts from an empty test database), and
+"used in automated tests" (it IS an automated test) — all three
+properties the brief asked for, satisfied by the repository's own
+existing tooling rather than a new one. The direct, practical
+consequence: this reference dataset lives only in the ephemeral test
+database (`primus_privacy_test`), not in a long-lived dev database — an
+honest limitation, not a shortcut, since no live browser walkthrough of
+ANY feature in this repository is currently possible anyway (no real
+Supabase Auth project has ever been provisioned, DECISIONS.md D-03), so
+a persisted dev-database copy would not enable anything a Vitest-based
+walkthrough doesn't already prove.
+
+### R-129 — Maturity: zero rows written, even as a raw fixture (Reference Engagement Dataset session)
+
+**Decision:** unlike Data Landscape/ROPA and the Control Library (both
+populated via raw SQL, since instructions explicitly permit "a clearly
+isolated fixture representation" for an area with real schema but no
+application layer), this fixture writes NO `maturity_assessments`/
+`maturity_scores` rows at all.
+**Rationale:** direct inspection of this repository's own existing test
+fixture helper for MaturityScore (`tests/maturity/helpers.ts`'s
+`createMaturityScore`) found that `score` and `maturityLevel` are
+direct, caller-supplied inputs — proof, from the repository's own code,
+that no computation logic exists anywhere, not even at the database
+trigger level. Any score this fixture invented would therefore be
+arbitrary, fabricated data with no basis in the fixture's own
+Assessment/Risk/Validation content — precisely what instructions §12
+("do not build a new maturity engine... do not invent a score") and
+this codebase's own established "no invented completion %" posture
+(Slice R1, DECISIONS.md) both forbid. Recorded in the Gap Matrix
+(`REFERENCE_ENGAGEMENT.md`) as Application Support: NO — the honest
+finding, not softened by a fixture-only workaround.

@@ -110,3 +110,60 @@ export async function createPersonalDataElement(client: PoolClient, organisation
   );
   return rows[0]!.id;
 }
+
+// The three `*Version` insert helpers below were not needed by the
+// Milestone 2 test suite itself (it exercises the identity-row/SCD2
+// mechanism generically, without needing named content for every
+// entity) but are needed by any fixture that wants a real, readable
+// Purpose/PersonalDataElement/DataPrincipalCategory name — added here,
+// alongside the master-data suite's own helpers, in the exact same
+// shape `insertSystemVersion`/`insertProcessorVersion`/
+// `insertDataStoreVersion` above already use, rather than as a new
+// fixture abstraction elsewhere.
+
+export async function insertPurposeVersion(
+  client: PoolClient,
+  opts: { purposeId: string; organisationId: string; name: string; description?: string },
+) {
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO purpose_versions (purpose_id, organisation_id, name, description)
+     VALUES ($1, $2, $3, $4) RETURNING id`,
+    [opts.purposeId, opts.organisationId, opts.name, opts.description ?? null],
+  );
+  return rows[0]!.id;
+}
+
+export async function insertPersonalDataElementVersion(
+  client: PoolClient,
+  opts: {
+    personalDataElementId: string;
+    organisationId: string;
+    name: string;
+    sensitivityCategory?: "general" | "sensitive" | "critical";
+  },
+) {
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO personal_data_element_versions (personal_data_element_id, organisation_id, name, sensitivity_category)
+     VALUES ($1, $2, $3, $4) RETURNING id`,
+    [opts.personalDataElementId, opts.organisationId, opts.name, opts.sensitivityCategory ?? "general"],
+  );
+  return rows[0]!.id;
+}
+
+export async function insertDataPrincipalCategoryVersion(
+  client: PoolClient,
+  opts: {
+    dataPrincipalCategoryId: string;
+    organisationId: string;
+    name: string;
+    isChildrenFlag?: boolean;
+    description?: string;
+  },
+) {
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO data_principal_category_versions (data_principal_category_id, organisation_id, name, is_children_flag, description)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [opts.dataPrincipalCategoryId, opts.organisationId, opts.name, opts.isChildrenFlag ?? false, opts.description ?? null],
+  );
+  return rows[0]!.id;
+}

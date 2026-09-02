@@ -1,6 +1,186 @@
 # PRIMUS PRIVACY — Progress Log
 
-Status: 2026-09-02 — Slice R1 (Basic Engagement Report) COMPLETE
+Status: 2026-09-02 — Reference/Demo Engagement Dataset COMPLETE
+(Session 28): built ONE fictional, coherent, end-to-end consulting
+engagement — "ABC Fintech Private Limited" / "DPDP Compliance
+Assessment — FY 2026–27" — through this repository's real application
+code wherever real application code exists (`tests/app/reference-
+engagement-fixture.ts`, `tests/app/reference-engagement.test.ts`, 16
+new stage-by-stage tests), and through a clearly-isolated raw-SQL
+fixture only where no application layer exists at all (Regulatory
+Content & Control Library authoring; Data Landscape/ROPA). This is NOT
+a new product feature — no `lib/domain/*` module, app route, or
+migration changed the product's own capabilities this session; the
+point was to actually exercise the full requested workflow
+(Organisation → Engagement → Data Landscape → ROPA → Applicability/
+Scope → DPDP Controls → Assessment → Assessment Responses → Control
+Testing → Evidence → Risks → Findings → Remediation → Validation →
+Maturity → Engagement Report) against real PostgreSQL and record
+exactly what worked, what didn't, and why — see the full Gap Matrix and
+end-to-end findings in `REFERENCE_ENGAGEMENT.md`. Confirmed WORKS end
+to end: Organisation, Engagement, Engagement Membership, Assessment,
+Assessment Responses, Control Testing, Evidence, Risk, Finding,
+Remediation, Validation, Engagement Report — the exact governance loop
+C7.1–C7.3/R1 already closed, re-verified here against a substantially
+larger, more varied fixture (25 demo controls, 6 risks, 7 findings, 8
+remediation actions, 9 evidence items) than any single prior slice's
+own tests used. Confirmed a real, honest gap at three areas: Data
+Landscape/ROPA and the DPDP Control Library both have real, correct
+database schema (Milestones 3/4) but zero application layer (no domain
+module, no UI) — populated here only via the exact raw-SQL fixture
+pattern every existing test suite for those areas already used, never
+pretending an application layer exists; Applicability/Scope has NO
+schema at all (`ApplicabilityDetermination`, documented in
+DATA_MODEL.md §4, was never built — confirmed by a real query against
+it failing with "relation does not exist"); Maturity has real storage/
+RLS/immutability (Milestone 8/8A) but no calculation engine anywhere,
+confirmed from the repository's own MaturityScore test fixture helper
+taking `score` as a direct caller-supplied input — this fixture
+therefore deliberately writes ZERO Maturity rows rather than fabricate
+a score (DECISIONS.md R-129). This session's own mandatory manual/
+visual inspection of the resulting PDF (a much larger, more realistic
+report than R1's own test fixture ever produced) found and fixed one
+real defect in Slice R1's shared PDF-rendering code — a table row could
+split mid-row across a page boundary when a cell's wrapped content
+landed right at the bottom margin, corrupting later cells' positions
+(DECISIONS.md R-127) — the only change made to R1 itself this session,
+per the brief's own "do not modify R1 unless an actual defect is
+discovered" instruction. 733 tests pass (62 files, +16 new in
+`tests/app/reference-engagement.test.ts`), run twice for stability,
+zero regressions against the R1 baseline of 61/717. Full details in the
+"Reference Engagement Dataset" section below and in
+`REFERENCE_ENGAGEMENT.md`.
+
+## Reference Engagement Dataset (Session 28, 2026-09-02)
+
+**Scope:** exactly what the brief instructed — inspect first (no code
+until the inspection in §1 was complete), build one fictional reference
+engagement end to end, identify exactly where the application currently
+supports the requested workflow and where gaps remain, and report a
+Gap Matrix — not a new product feature, and explicitly not permission to
+build Client Portal/Billing/SSO/MFA/AI/notifications/dashboards/a
+custom report builder/a methodology admin UI/malware scanning/advanced
+workflow automation/white-labeling/multi-framework support.
+
+**Inspection (§1) findings, before any code was written:** direct
+`grep`/file-existence checks across `lib/domain/*`, `app/(shell)/**`,
+`db/schema/*`, and every migration confirmed: real, tested application
+code exists for Organisation, Engagement, Engagement Membership,
+Assessment, Assessment Response, Control Test, Evidence, Risk, Finding,
+Remediation, Validation, and the R1 Engagement Report; ZERO application
+code (no domain module, no route) exists for Data Landscape/ROPA,
+Regulatory Content/Control Library authoring, or Maturity, despite each
+having real, well-designed database schema from Milestones 2/3/4/8/8A;
+`ApplicabilityDetermination` (DATA_MODEL.md §4) has no schema at all.
+This matches `package.json`'s own description of those milestones as
+"database foundation... only. No product UI yet" and ROADMAP.md's own
+phase sequencing — an existing, self-consistent finding this session
+only had to confirm and demonstrate concretely, not discover from
+scratch.
+
+**Fixture construction — two deliberately distinct layers** (see
+`REFERENCE_ENGAGEMENT.md` for the full content list and DECISIONS.md
+R-128 for why this lives as a Vitest test file rather than a standalone
+script): raw SQL, via the existing `asFixtureSetup` superuser-connection
+pattern every prior test suite already uses, for the identity/bootstrap
+layer (Tenant, two Users — this product has no sign-up flow) and for
+the two areas with schema but no application layer; real domain
+functions, via `withRequestDb`, for every stage the application layer
+actually implements — `createOrganisation`, `createEngagement`,
+`addEngagementMember`, `createAssessment`, `updateAssessmentResponse`,
+`createControlTest`, `uploadEvidence`, `createRisk`/`updateRiskStatus`,
+`createFinding`/`updateFinding`, `createRemediationAction`/
+`updateRemediationAction`, `createValidationRecord`,
+`getEngagementReportData`/`renderEngagementReportPdf` — the exact
+function a real Server Action would call, with the exact authorization
+checks a real user would go through, nothing bypassed or mocked.
+
+**Two small, in-place additions to existing test-helper files** (not a
+new abstraction): `tests/master-data/helpers.ts` gained
+`insertPurposeVersion`/`insertPersonalDataElementVersion`/
+`insertDataPrincipalCategoryVersion` — mirroring
+`insertSystemVersion`/`insertProcessorVersion`/`insertDataStoreVersion`'s
+exact existing shape, needed only because the Milestone 2 test suite
+itself never needed named Purpose/PersonalDataElement/
+DataPrincipalCategory content and so never built these three helpers.
+
+**Demo Control Library:** 25 original controls (never a statutory
+quotation, never attributed to a specific DPDP Act/Rules section) across
+the 12 categories the brief names, each mapped to one of 12
+Requirements citing one clearly-labeled illustrative RegulatoryReference.
+The library's own version label states plainly it is "SAMPLE — for
+demonstration only, not an official or verified regulatory framework."
+Published through the real, trigger-enforced publish workflow (migration
+0007) — re-verified live this session by attempting a raw edit to a
+published Control and confirming the pre-existing immutability trigger
+still rejects it, exactly as it would for a real consultant.
+
+**Data Landscape / ROPA:** the ten Processing Activities the brief
+itself names, each linked through the real version-pinned junction
+tables (Milestone 3) to a realistic subset of newly-created master data
+(3 Business Units, 4 Systems, 3 Data Stores, 3 Processors — one
+deliberately without a DPA, feeding a real Finding below — 10 Purposes,
+8 Personal Data Elements, 4 Data Principal Categories).
+
+**Assessment through Report — the confirmed-working loop:** one
+`annual` Assessment (kept `draft`, never finalized, per instruction),
+25 auto-populated AssessmentControls, 18 responded (a realistic
+implemented/partially_implemented/not_implemented/not_applicable
+mixture) with 7 deliberately left unresponded, 6 ControlTests across 5
+methodologies and all 3 results, 9 Evidence items exercising all 4
+`EvidenceLink` subject types, 6 Risks (all 3 non-closed statuses), 7
+Findings (severities low→critical), 8 RemediationActions across 2
+different owners (all 3 statuses), 2 ValidationRecords (one accepted,
+one rejected — the rejected remediation was then manually reopened as
+a separate, explicit action, never automatic). The R1 Engagement Report
+was generated for real against this fixture, producing an 11-page PDF —
+manually inspected page-by-page (`pdftoppm`), not merely asserted
+against extracted text — confirming it correctly omits Maturity and
+ROPA/Data Landscape sections even though this reference Engagement has
+real data sitting in the database for both, exactly as R1's own design
+requires.
+
+**A real bug found and fixed in R1's own PDF renderer** (DECISIONS.md
+R-127): this fixture's much larger, more realistic content (a
+25-control demo library, several multi-line control titles) reproduced
+a defect R1's own smaller test fixture never triggered — a table row
+whose tallest cell wrapped onto 3 lines right at the bottom margin
+could have pdfkit silently paginate mid-row, corrupting every later
+cell's position. `lib/reports/engagement-report-pdf.ts`'s `table()`
+function now measures each row's real height before drawing it and
+paginates first if it wouldn't fit, rather than checking a fixed
+threshold and letting pdfkit decide mid-row. Found only by this
+session's own mandatory manual/visual PDF inspection — a garbled row
+is invisible to pure text-extraction assertions, since every word is
+still present, just mispositioned. This is the ONLY change made to
+Slice R1 itself this session, per the brief's own "do not modify R1
+unless an actual defect is discovered" instruction; re-verified by
+re-rendering and re-inspecting both this fixture's PDF and R1's own,
+with neither test regressing.
+
+**Gap Matrix and full end-to-end findings:** `REFERENCE_ENGAGEMENT.md`
+(new) — the 16-row Database/Application/End-to-End/Gap table, the
+full fixture content inventory, and the ranked highest-priority-gaps
+list.
+
+**Tests:** `tests/app/reference-engagement.test.ts` (new, 16 tests) —
+one per workflow stage, each asserting the real, database-verified
+WORKS/PARTIAL/MISSING outcome (not inferred from a table existing):
+real query failures proving `applicability_determinations` doesn't
+exist; real `repoFileExists()` checks proving no `lib/domain/
+processing-activities.ts`/`maturity.ts`/`control-library.ts` module and
+no corresponding app route exist; real domain-function return values
+for every stage that does work. Full regression: 733 tests pass (62
+files), run twice for stability, zero regressions against the R1
+baseline of 717/61.
+
+No Client Portal, Billing, SSO, MFA, AI features, notifications,
+dashboards, custom report builder, methodology admin UI, malware
+scanning, advanced workflow automation, white-labeling, or multi-
+framework support — none was built, per explicit instruction; each is
+recorded in the Gap Matrix where it belongs instead.
+
+## Slice R1 — Basic Engagement Report (Session 27, 2026-09-02)
 (Session 27): PRIMUS can now generate one real, professional,
 client-facing PDF Engagement Report directly from live governance-loop
 data, closing the MVP Gap Review's own recommended next slice. A new
