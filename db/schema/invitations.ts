@@ -52,6 +52,27 @@ import { users } from "./users";
 // ever writes `status = 'accepted'`, and no SECURITY DEFINER
 // `accept_invitation()` function exists yet — that remains P2B.4.
 //
+// P2B.4 (migration 0038, DECISIONS.md R-168 through R-174) is that
+// acceptance slice: `public.accept_invitation(p_token_hash text)`, a
+// narrowly-scoped `SECURITY DEFINER` function taking no parameter
+// beyond the token hash — every other value (`auth.uid()`, the
+// authoritative Auth email via `auth.users`, the invitation's own
+// scope) is derived server-side, never trusted from a caller. It locks
+// the row (`SELECT ... FOR UPDATE`), validates status/expiry/email-
+// match/practice-user/tenant/client-org/role-scope, creates exactly the
+// membership the invitation's own scope calls for (an
+// OrganisationMembership for an organisation-scoped invitation, or
+// ONLY an EngagementMembership — no OrganisationMembership — for an
+// engagement-scoped one), and performs the ONE remaining legitimate
+// transition, `pending -> accepted`, setting `accepted_user_id`/
+// `accepted_at` together. `lib/domain/invitations.ts`'s
+// `acceptInvitation` is its thin TypeScript wrapper. Existing-user
+// identity (`tenant_id`/`client_org_id`) is checked, never reparented;
+// an existing membership with a conflicting role is rejected, never
+// escalated. See that migration's own extensive header comment for the
+// full security reasoning, including why no SECURITY DEFINER
+// alternative (an email parameter, a JWT claim) was chosen instead.
+//
 // Field provenance, matching the approved design's own field list
 // (docs/P2B_CLIENT_INVITATION_DESIGN.md §5) with one deliberate
 // omission: no `revoked_by` column — "who revoked this" is already

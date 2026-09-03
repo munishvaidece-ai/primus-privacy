@@ -1,5 +1,79 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-03 — Slice P2B.4 (Secure Invitation Acceptance & User
+Provisioning) COMPLETE (Session 40): the security-critical transaction
+that turns an invitation bearer token, presented by an already-
+authenticated Supabase identity, into a real organisation/engagement
+membership. Phase 0 inspection (read fresh, not assumed) found that no
+ordinary `authenticated`-role write path exists for a brand-new invitee
+to grant themselves membership — `organisation_memberships_insert`
+requires existing tenant membership, `engagement_memberships_insert`
+requires existing tenant/org membership or `membership.manage`, and
+`invitations_update` (migration 0037) permits only `pending -> revoked`
+for an ordinary actor — confirming exactly what migration 0037's own
+comments anticipated: acceptance needed a `SECURITY DEFINER` function.
+`public.accept_invitation(p_token_hash text)` (migration 0038) is that
+function — narrowly scoped, taking NO parameter beyond the token hash
+(no user/tenant/org/engagement/role/accepted-user parameter of any
+kind for a caller to forge). It derives every value itself: `auth.uid()`
+from the session context, and — the slice's most important design
+decision — the authoritative Auth email via `SELECT email FROM auth.
+users WHERE id = auth.uid()`, INSIDE its own privileged context, never
+as a parameter (accepting one would let a caller bypass the TypeScript
+wrapper and pass a victim's email directly) and never from a JWT claim
+(this codebase's own architecture, and its local dev auth shim, never
+trust JWT claims beyond identity). Locks the invitation row (`SELECT
+... FOR UPDATE`, using the existing unique index on `token_hash` — no
+new index needed), validates status/expiry/email-match/practice-user/
+tenant/client-org/role-scope (a defense-in-depth re-check of the SAME
+allowlist migration 0037 already enforces), creates exactly the
+membership the invitation's own scope calls for — an
+OrganisationMembership for an organisation-scoped invitation, or ONLY
+an EngagementMembership (no OrganisationMembership) for an engagement-
+scoped one, since Phase 0 inspection confirmed the existing
+authorization model (`canAccessOrganisation`'s own engagement-
+membership fallback, `addEngagementMember`'s own eligibility rule)
+never required one — then transitions `pending -> accepted`, reusing
+the existing `prevent_invitation_tampering`/`log_invitation_change`
+triggers unchanged. Never creates a `public.users` row: Phase 0
+inspection found `authenticated` has no INSERT grant on `users` at all,
+and the sole writer (`handle_new_auth_user`) requires `tenant_id` at
+Auth-account-creation time — meaning an authenticated identity
+structurally already has a matching profile by the time it could call
+this function; "user does not exist" fails closed
+(`invitation_user_profile_missing`) rather than inventing a second
+provisioning path, an explicit, stated architectural finding rather
+than an oversight (DECISIONS.md R-171). Existing-user integrity is
+reject-only: `client_org_id`/`tenant_id` mismatches are rejected, never
+silently reparented; an existing membership with a conflicting role is
+rejected, never escalated. `lib/domain/invitations.ts`'s new
+`acceptInvitation` is a thin wrapper — hash the token (the SAME
+`hashInvitationToken` `createInvitation` uses), call the function,
+translate its distinct `RAISE EXCEPTION` message prefixes into eleven
+typed domain errors (a real bug fixed during this slice: drizzle-orm
+wraps the real Postgres error in `.cause`, not `.message` — the first
+test run caught this immediately). 40 new tests
+(`tests/app/invitation-acceptance.test.ts`, categories A-O plus a
+`§21` SECURITY DEFINER escalation-attempt section) covering valid
+acceptance, email normalization/mismatch, authentication, token
+security, controlled-timestamp expiry, every status transition,
+practice-user rejection, client-org/tenant integrity and non-
+reparenting, the full role matrix, membership duplication/conflict,
+scope behavior, audit shape, and — mandatory, real, not simulated — a
+genuine two-PostgreSQL-connection concurrency test proving only one of
+two racing acceptance attempts succeeds (a second real bug fixed during
+this slice: the test's own first draft deadlocked itself by waiting for
+both attempts to settle before committing either — fixed by chaining
+each attempt's own commit/rollback directly onto its own promise). One
+new test helper, `beginAsUser` (tests/rls/helpers.ts), added
+specifically because the existing `asUser` always rolls back and cannot
+express a genuine multi-connection race. 1019 tests pass (73 files, +40
+from P2B.3's 979/72), typecheck/lint/build all clean, full DB suite run
+twice. DECISIONS.md R-168 through R-174 record the seven acceptance
+decisions. Per explicit instruction, STOP after P2B.4 — no acceptance
+UI, no invitation landing page, no real email provider, no public
+signup flow, no password flows, no Client Portal.
+
 Status: 2026-09-03 — Slice P2B.3 (Invitation Creation & Secure Token
 Lifecycle) COMPLETE (Session 39): the first domain function that
 actually writes an `invitations` row —

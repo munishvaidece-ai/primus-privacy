@@ -4684,3 +4684,209 @@ permission, and no new RLS policy required. Explicitly, once again: no
 function in this module ever writes `status = 'accepted'`, creates a
 `users` row, or creates any membership row — acceptance/provisioning
 remains entirely out of scope, for P2B.4.
+
+### R-168 — Invitation acceptance is a SECURITY DEFINER PostgreSQL function, not an ordinary `authenticated`-role transactional domain function (Slice P2B.4)
+
+**Decision:** `public.accept_invitation(p_token_hash text)` (migration
+0038) is a `SECURITY DEFINER` PL/pgSQL function, owned by the same
+superuser that owns every other `SECURITY DEFINER` function in this
+codebase (`handle_new_auth_user`, `has_engagement_permission`, etc.).
+`lib/domain/invitations.ts`'s `acceptInvitation` is a thin wrapper: hash
+the token (`hashInvitationToken`, the SAME function `createInvitation`
+uses), call the function, translate its RAISE EXCEPTION messages into
+typed errors.
+**Rationale:** Phase 0 inspection of the CURRENT policies — not assumed,
+read directly — confirmed no ordinary `authenticated`-role write path
+exists for a brand-new invitee to grant themselves membership:
+`organisation_memberships_insert` (migration 0019) requires the caller
+to already be an active TENANT member (a fresh client invitee never is);
+`engagement_memberships_insert` (migration 0019/0024) requires tenant-
+or organisation-wide membership or `membership.manage` on the target
+scope (a fresh invitee holds none); `invitations_update` (migration
+0037) permits an ordinary `membership.manage` actor to reach ONLY
+`status = 'revoked'` (R-163, deliberately) — `pending -> accepted` is
+structurally unreachable through that policy for any `authenticated`-
+role caller. This is exactly the boundary migration 0037's own comments
+already named as "reserved for a future SECURITY DEFINER
+`accept_invitation()` function." No RLS policy was widened or relaxed to
+make acceptance possible instead — that would have reopened exactly the
+gap P2B.2 closed (an ordinary `membership.manage` actor reaching
+`status = 'accepted'`, or an unrelated caller inserting a membership row
+for themselves).
+
+### R-169 — The authoritative Auth email is read from `auth.users` INSIDE `accept_invitation()`, keyed by `auth.uid()` — never accepted as a parameter, never a JWT claim (Slice P2B.4)
+
+**Decision:** `accept_invitation()` takes exactly ONE parameter,
+`p_token_hash` — no `p_auth_email`, no `user_id`, no `tenant_id`, no
+`organisation_id`, no `engagement_id`, no `role_id`, no
+`accepted_user_id`. The authoritative email is resolved with `SELECT
+email FROM auth.users WHERE id = auth.uid()`, INSIDE the function's own
+`SECURITY DEFINER` context (which already has implicit access to
+`auth.users` — normally unreadable by `authenticated`/`anon` — the same
+trust boundary every other `SECURITY DEFINER` function in this codebase
+already relies on).
+**Rationale:** two rejected alternatives, both real vulnerabilities: (1)
+accepting an `p_auth_email` parameter set by the TypeScript layer (via
+`lib/auth/session.ts`'s `getAuthenticatedUser()`) would let a caller who
+invokes the function directly — bypassing the TypeScript wrapper
+entirely — pass ANY string as `p_auth_email`, including a victim's own
+`invited_email`, and accept an invitation meant for someone else
+regardless of who they are actually authenticated as; this would
+completely defeat the "the accepting identity's own email must match
+`invited_email`" control, which the brief itself identifies as one of
+the most important requirements of this slice. (2) reading a JWT
+`email` claim (`auth.jwt() ->> 'email'`) would contradict SECURITY.md's
+own already-documented architecture — "all tenant/role resolution
+happens server-side against the database, not by trusting claims baked
+into the JWT beyond identity" — and this project's own local dev auth
+shim deliberately implements ONLY `auth.uid()`, no `auth.jwt()`/`auth.
+email()`, matching that same posture; no JWT claim beyond identity is
+read anywhere in this codebase, and this migration does not become the
+first to do so. Reading `auth.users.email` directly, keyed by the
+session's own `auth.uid()`, closes the forgery vector entirely — there
+is no parameter through which a caller could ever supply a different
+email, and no email claim is trusted merely because a JWT carries it.
+
+### R-170 — Engagement-scoped invitation acceptance creates ONLY an EngagementMembership — no OrganisationMembership is created as a side effect (Slice P2B.4)
+
+**Decision:** `accept_invitation()` creates an `OrganisationMembership`
+for an organisation-scoped invitation, and ONLY an
+`EngagementMembership` (never also an `OrganisationMembership`) for an
+engagement-scoped one.
+**Rationale:** Phase 0 inspection confirmed the existing authorization
+model does not require an `OrganisationMembership` for an engagement
+membership to function correctly: `canAccessOrganisation`/`can_access_
+organisation` (migration 0001, `lib/authorization/service.ts`) already
+falls back to "any active membership on an engagement under this
+organisation," and `addEngagementMember`'s own existing eligibility rule
+(Slice C7.2, `lib/domain/engagement-memberships.ts`) already permits a
+client user whose `client_org_id` merely MATCHES the engagement's own
+organisation — no `OrganisationMembership` row is required by either
+mechanism. `accept_invitation()`'s own client-org check (R-172) already
+requires exactly this match before acceptance can succeed at all.
+Creating an `OrganisationMembership` anyway would be exactly the "do not
+accidentally grant Client Administrator unless explicitly justified"
+outcome the brief warns against — an engagement-scoped invitation
+(Business Owner/IT-CISO/Procurement/Legal) never implies organisation-
+wide administrative standing, and no existing product decision
+(docs/P2B_CLIENT_INVITATION_DESIGN.md, PRODUCT_UX_BLUEPRINT.md) says
+otherwise. Tested directly: `tests/app/invitation-acceptance.test.ts`
+A2/L2 assert zero `organisation_memberships` rows exist for the
+accepting user after an engagement-scoped acceptance.
+
+### R-171 — Invitation acceptance never provisions a new `public.users` row; an authenticated identity with no matching profile fails closed (Slice P2B.4)
+
+**Decision:** `accept_invitation()` resolves the caller's own `users`
+row by `auth.uid()` and never inserts one. If none exists, it raises
+`invitation_user_profile_missing` rather than creating one.
+**Rationale:** a genuine architectural finding from Phase 0 inspection,
+stated explicitly per this slice's own "identify any security gaps
+discovered during inspection" instruction rather than silently
+improvised around: `authenticated` holds NO INSERT grant on `users` at
+all (migration 0001 — `GRANT SELECT, UPDATE ON "users" TO authenticated`
+only), and the ONLY writer of a new `users` row anywhere in this schema
+is `handle_new_auth_user` (migration 0001), fired by `auth.users`
+INSERT — which itself REQUIRES `raw_app_meta_data.tenant_id` to already
+be present, or the whole `auth.users` insert (and therefore the
+authentication event itself) fails and rolls back. Consequently, under
+this codebase's CURRENT architecture, an authenticated Supabase identity
+structurally ALREADY has a corresponding `public.users` row by the time
+it could ever call `accept_invitation()` — "the user does not exist yet"
+is not a state reachable through the normal provisioning path at all.
+Inventing a second, parallel provisioning mechanism inside
+`accept_invitation()` to handle a state that should not exist would be
+exactly the "Do NOT bypass the users identity-integrity model" the
+brief warns against, and would duplicate `handle_new_auth_user`'s own
+responsibility in a second place that could drift from it. The brief's
+own "newly provisioned client user must receive tenant_id = invitation.
+tenant_id, client_org_id = invitation.organisation_id" requirement is
+therefore not implemented in this slice — not because it was
+overlooked, but because the scenario it describes cannot arise given
+this codebase's current provisioning architecture; a genuine self-
+service signup flow (P2B's own ROADMAP.md-deferred Phase 3 item) would
+need to resolve this differently, and is explicitly out of this slice's
+scope regardless ("DO NOT implement: public signup flow").
+
+### R-172 — Existing-user integrity: tenant_id and client_org_id are checked, never reparented; a role conflict on an existing membership is rejected, never escalated (Slice P2B.4)
+
+**Decision:** for an authenticated identity with an existing `users`
+row, `accept_invitation()` requires `client_org_id IS NOT NULL`
+(rejecting a practice-side user outright), `users.tenant_id =
+invitation.tenant_id`, and `users.client_org_id = invitation.
+organisation_id` — all three checked before any write, all three
+reject-only (no code path anywhere in this function issues an `UPDATE
+users` statement at all). If an ACTIVE membership already exists at the
+invitation's exact scope with a DIFFERENT `role_id` than the invitation
+names, acceptance is rejected with `invitation_membership_conflict`
+rather than overwriting the existing role; if the existing active
+membership already has the SAME role, acceptance completes without
+inserting a duplicate row.
+**Rationale:** the brief's own explicit, repeated "NEVER automatically
+change an existing user's client_org_id/tenant_id/an existing
+membership's role" requirement, and its own "acceptance is not a user-
+reparenting mechanism." Tested directly: `tests/app/invitation-
+acceptance.test.ts` H2/H4 (client-org mismatch, and that a rejected
+attempt leaves `client_org_id` untouched), I2/I3 (tenant mismatch,
+including a deliberately inconsistent fixture proving tenant_id is
+checked independently of client_org_id — same test), K3/K4 (same-role
+completes with no duplicate; different-role rejects with the existing
+membership's role provably unchanged — the transaction rolls back
+entirely, since the whole check-then-write sequence lives inside one
+`RAISE EXCEPTION`-aborted PL/pgSQL function call).
+
+### R-173 — Single-use acceptance enforced via `SELECT ... FOR UPDATE` row locking, proven with a genuine two-connection concurrency test (Slice P2B.4)
+
+**Decision:** `accept_invitation()` locks the invitation row
+(`SELECT * FROM invitations WHERE token_hash = $1 FOR UPDATE`) before
+any validity check — the SAME unique index already backing
+`invitations_token_hash_key` (migration 0034) makes this an indexed
+lookup, not a table scan, so no new index/migration was needed for it.
+**Rationale:** under PostgreSQL's default READ COMMITTED isolation (this
+project's own default, unchanged), a second concurrent call for the same
+`token_hash` blocks at this exact statement until the first call's
+transaction commits or rolls back, then re-reads the NOW-current row —
+correctly observing `status = 'accepted'` and failing with `invitation_
+already_accepted` rather than racing it. This is tested with a REAL,
+non-simulated concurrency test
+(`tests/app/invitation-acceptance.test.ts` M1): two independent
+PostgreSQL connections, two distinct authenticated identities, firing
+`accept_invitation()` for the identical token_hash without either
+awaiting the other first, each committing/rolling back on its own
+outcome (chained directly onto its own query promise, never waiting for
+both attempts to settle before committing either — an earlier draft of
+this exact test deadlocked itself by waiting for both before committing
+either, since the loser can never settle until the winner commits; fixed
+during this slice, see the test's own comment) — exactly one attempt
+succeeds, the other fails with `invitation_already_accepted`, and
+exactly one membership row exists afterward for whichever identity
+actually won.
+
+### R-174 — Acceptance error semantics: nine distinct, safe, non-leaking error categories, matched via `RAISE EXCEPTION` message prefixes (Slice P2B.4)
+
+**Decision:** `accept_invitation()` raises a distinct, greppable message
+prefix for each failure category (`invitation_not_found`, `_expired`,
+`_already_revoked`, `_already_accepted`, `_email_mismatch`,
+`_practice_user`, `_tenant_mismatch`, `_client_org_mismatch`,
+`_role_invalid_for_scope`, `_membership_conflict`, `_user_profile_
+missing`, `_unauthenticated`); `lib/domain/invitations.ts`'s
+`acceptInvitation` catches drizzle-orm's `DrizzleQueryError` (whose own
+`.message` is merely `"Failed query: ..."` — the real PostgreSQL error,
+carrying the RAISE EXCEPTION text, is attached as `.cause`, the standard
+ES2022 error-chaining shape) and matches against `err.cause.message`
+(falling back to `err.message`) to throw one of eleven correspondingly
+named, exported error classes — the same "catch a specific, documented
+pattern, rethrow as a clean error" discipline `createInvitation`'s own
+unique-constraint catch block already uses.
+**Rationale:** the brief's own explicit list of error categories the
+domain "must safely represent." No message includes `token_hash`, the
+raw token, another user's identity, or unnecessary tenant/organisation
+detail — every message is a short, generic, category-level phrase (e.g.
+"this invitation belongs to a different practice," never naming which
+practice). A nonexistent, mistyped, or modified token is deliberately
+NOT distinguished from any other lookup failure (`invitation_not_found`
+covers all three) — per SECURITY.md §1's own email-enumeration-avoidance
+posture, though this is not the same enumeration risk an unauthenticated
+flow would carry: acceptance is always authenticated (`accept_
+invitation()`'s own `EXECUTE` grant is `authenticated`/`service_role`
+only, never `anon` — R-168), so the caller has already proven an
+identity before this question is ever reached at all.

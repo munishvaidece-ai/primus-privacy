@@ -14,6 +14,7 @@ export {
   asUser,
   asAnon,
   asFixtureSetup,
+  beginAsUser,
   createTenant,
   createOrganisation,
   createEngagement,

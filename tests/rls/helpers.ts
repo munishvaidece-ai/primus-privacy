@@ -32,6 +32,28 @@ export async function asUser<T>(userId: string, fn: (client: PoolClient) => Prom
   }
 }
 
+/**
+ * P2B.4: opens a real, independent connection already `BEGIN`-ed and
+ * `SET LOCAL ROLE authenticated` with `userId`'s own `auth.uid()` claim
+ * — the caller controls `COMMIT`/`ROLLBACK` itself. `asUser` above
+ * cannot express a genuine concurrency test (two independent
+ * transactions racing each other, where at least one must actually
+ * commit to observe a real outcome): it always rolls back at the end of
+ * its own single callback, on a single connection. This is the smallest
+ * extension needed to hold a transaction open across multiple awaited
+ * steps on its OWN connection — e.g. two of these, fired concurrently,
+ * both attempting `accept_invitation()` for the same token. The caller
+ * MUST end the transaction itself and always call `client.release()`
+ * when done (mirrors `pool.connect()`'s own usage contract).
+ */
+export async function beginAsUser(userId: string): Promise<PoolClient> {
+  const client = await pool.connect();
+  await client.query("BEGIN");
+  await client.query("SET LOCAL ROLE authenticated");
+  await client.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [userId]);
+  return client;
+}
+
 /** Runs `fn` as an unauthenticated (anon) request — no JWT claim at all. */
 export async function asAnon<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();

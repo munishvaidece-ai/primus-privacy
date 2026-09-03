@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
 import { invitations, organisations, engagements, roles } from "@/db/schema";
 import {
@@ -131,6 +131,106 @@ export class InvitationNotPendingError extends Error {
   constructor(message = "Only a pending invitation can be revoked.") {
     super(message);
     this.name = "InvitationNotPendingError";
+  }
+}
+
+// --- Acceptance errors (P2B.4) ------------------------------------------
+
+/** No invitation matches the presented token — a nonexistent, mistyped,
+ * or modified token, or (deliberately, per SECURITY.md §1's own
+ * email-enumeration-avoidance posture) never distinguished from any
+ * other reason a lookup fails. Acceptance is always authenticated (no
+ * anonymous caller can ever reach this code path at all — migration
+ * 0038's own EXECUTE grant is `authenticated`/`service_role` only), so
+ * this is not the same email-enumeration risk an unauthenticated flow
+ * would carry. */
+export class InvitationInvalidError extends Error {
+  constructor(message = "This invitation is invalid.") {
+    super(message);
+    this.name = "InvitationInvalidError";
+  }
+}
+
+export class InvitationExpiredError extends Error {
+  constructor(message = "This invitation has expired.") {
+    super(message);
+    this.name = "InvitationExpiredError";
+  }
+}
+
+export class InvitationRevokedError extends Error {
+  constructor(message = "This invitation has been revoked.") {
+    super(message);
+    this.name = "InvitationRevokedError";
+  }
+}
+
+export class InvitationAlreadyAcceptedError extends Error {
+  constructor(message = "This invitation has already been accepted.") {
+    super(message);
+    this.name = "InvitationAlreadyAcceptedError";
+  }
+}
+
+/** The authenticated identity's own authoritative Auth email
+ * (`auth.users.email`, resolved server-side inside `accept_invitation()`
+ * — never `public.users.email`, never a caller-supplied value) does not
+ * match this invitation's `invited_email`. */
+export class InvitationEmailMismatchError extends Error {
+  constructor(message = "This invitation was issued to a different email address.") {
+    super(message);
+    this.name = "InvitationEmailMismatchError";
+  }
+}
+
+/** `users.client_org_id IS NULL` — a practice-side (PRIMUS) identity —
+ * attempted to accept a client invitation. */
+export class PracticeUserCannotAcceptInvitationError extends Error {
+  constructor(message = "A practice-side user cannot accept a client invitation.") {
+    super(message);
+    this.name = "PracticeUserCannotAcceptInvitationError";
+  }
+}
+
+/** The caller's existing `users.tenant_id` does not equal the
+ * invitation's own `tenant_id` — acceptance never moves a user between
+ * tenants. */
+export class InvitationTenantMismatchError extends Error {
+  constructor(message = "This invitation belongs to a different practice.") {
+    super(message);
+    this.name = "InvitationTenantMismatchError";
+  }
+}
+
+/** The caller's existing `users.client_org_id` does not equal the
+ * invitation's own `organisation_id` — acceptance never reparents an
+ * existing client user to a different client organisation. */
+export class InvitationClientOrganisationMismatchError extends Error {
+  constructor(message = "This invitation belongs to a different client organisation.") {
+    super(message);
+    this.name = "InvitationClientOrganisationMismatchError";
+  }
+}
+
+/** An ACTIVE membership already exists at this exact scope, with a
+ * DIFFERENT role than the invitation names — acceptance never silently
+ * overwrites/escalates an existing membership's role. */
+export class InvitationMembershipConflictError extends Error {
+  constructor(message = "An existing membership with a different role already exists.") {
+    super(message);
+    this.name = "InvitationMembershipConflictError";
+  }
+}
+
+/** No `public.users` row exists for the authenticated identity — an
+ * exceptional state this codebase's own provisioning model (migration
+ * 0001's `handle_new_auth_user`) should make unreachable in practice
+ * (see this module's own `acceptInvitation` docstring), handled here by
+ * failing closed rather than inventing a second provisioning path. */
+export class InvitationAcceptanceProfileMissingError extends Error {
+  constructor(message = "No user profile exists for this identity.") {
+    super(message);
+    this.name = "InvitationAcceptanceProfileMissingError";
   }
 }
 
@@ -463,4 +563,112 @@ export async function revokeInvitation(db: RequestDb, userId: string, input: Rev
     .update(invitations)
     .set({ status: "revoked", revokedAt: new Date() })
     .where(eq(invitations.id, invitation.id));
+}
+
+// --- acceptInvitation (P2B.4) ----------------------------------------------
+
+export interface AcceptInvitationResult {
+  invitationId: string;
+  organisationId: string;
+  engagementId: string | null;
+  tenantId: string;
+  roleId: string;
+}
+
+/**
+ * Accepts a pending invitation for the authenticated caller — the
+ * single, atomic transaction that turns a bearer token into a real
+ * organisation/engagement membership. This is a thin TypeScript wrapper
+ * around `public.accept_invitation()` (migration 0038, a SECURITY
+ * DEFINER PostgreSQL function): it hashes the raw token exactly once
+ * (via `hashInvitationToken`, the SAME function `createInvitation`
+ * itself uses — never a second, parallel hashing implementation) and
+ * translates that function's own distinct, greppable RAISE EXCEPTION
+ * messages into typed domain errors, the same "catch a specific,
+ * documented pattern, rethrow as a clean error" discipline
+ * `createInvitation`'s own unique-constraint catch block already uses.
+ *
+ * Why a SECURITY DEFINER SQL function rather than an ordinary
+ * `authenticated`-role transactional domain function (P2B.4's own §15):
+ * Phase 0 inspection of the CURRENT `organisation_memberships_insert`/
+ * `engagement_memberships_insert`/`invitations_update` RLS policies
+ * confirmed no ordinary `authenticated`-role write path exists for a
+ * brand-new invitee to grant themselves the membership their own
+ * invitation names, or for ANY `membership.manage` actor to move an
+ * invitation from `pending` to `accepted` (migration 0037's own WITH
+ * CHECK permits only `pending -> revoked` — DECISIONS.md R-163,
+ * deliberately). See migration 0038's own extensive header comment for
+ * the full reasoning, including why the authoritative Auth email is
+ * read from `auth.users` INSIDE that function (never accepted as a
+ * parameter here or there — this wrapper does not take an email
+ * argument at all, closing the "a forged email parameter could accept
+ * someone else's invitation" vector entirely, not merely by convention).
+ *
+ * `userId` is accepted only for this module's own consistent calling
+ * signature (every other function here is `(db, userId, input)`) — it
+ * is NEVER passed to `accept_invitation()` as a parameter and has no
+ * effect on this function's own behavior beyond what `withRequestDb`
+ * already established before this call (`request.jwt.claim.sub`, which
+ * `auth.uid()` inside the SQL function reads independently). A caller
+ * cannot influence WHO an acceptance is attributed to by varying this
+ * argument — only by being a different real authenticated session.
+ *
+ * This function creates no user, no Supabase Auth identity, and no
+ * membership for anyone other than the CALLER'S OWN already-
+ * authenticated identity — there is no code path here, or in migration
+ * 0038's own function, that provisions a new `public.users` row (see
+ * that migration's §4) or accepts on any user's behalf but the caller's
+ * own (`accepted_user_id` is always `auth.uid()`, never a parameter).
+ */
+export async function acceptInvitation(db: RequestDb, userId: string, rawToken: string): Promise<AcceptInvitationResult> {
+  const tokenHash = hashInvitationToken(rawToken);
+
+  try {
+    // Column names match migration 0038's own `out_`-prefixed RETURNS
+    // TABLE definition — deliberately not the bare `organisation_id`/
+    // `role_id`/etc. names those columns would otherwise share with
+    // real table columns (see that migration's own comment on why).
+    const result = await db.execute<{
+      out_invitation_id: string;
+      out_organisation_id: string;
+      out_engagement_id: string | null;
+      out_tenant_id: string;
+      out_role_id: string;
+    }>(sql`SELECT * FROM public.accept_invitation(${tokenHash})`);
+
+    const row = result.rows[0];
+    if (!row) throw new InvitationInvalidError();
+
+    return {
+      invitationId: row.out_invitation_id,
+      organisationId: row.out_organisation_id,
+      engagementId: row.out_engagement_id,
+      tenantId: row.out_tenant_id,
+      roleId: row.out_role_id,
+    };
+  } catch (err) {
+    // drizzle-orm's node-postgres driver wraps every query failure in
+    // its own `DrizzleQueryError` (message: "Failed query: ...") with
+    // the REAL PostgreSQL error — carrying `accept_invitation()`'s own
+    // RAISE EXCEPTION message text — attached as `.cause` (the standard
+    // ES2022 error-chaining shape), not merged into the outer message.
+    // Check both: the underlying cause first (the common case for any
+    // error this function itself raises), the outer message as a
+    // fallback (defensive, in case some other driver/call path ever
+    // surfaces the message directly).
+    const message = err instanceof Error ? ((err.cause instanceof Error ? err.cause.message : undefined) ?? err.message) : "";
+    if (/^invitation_not_found/.test(message)) throw new InvitationInvalidError();
+    if (/^invitation_expired/.test(message)) throw new InvitationExpiredError();
+    if (/^invitation_already_revoked/.test(message)) throw new InvitationRevokedError();
+    if (/^invitation_already_accepted/.test(message)) throw new InvitationAlreadyAcceptedError();
+    if (/^invitation_email_mismatch/.test(message)) throw new InvitationEmailMismatchError();
+    if (/^invitation_practice_user/.test(message)) throw new PracticeUserCannotAcceptInvitationError();
+    if (/^invitation_tenant_mismatch/.test(message)) throw new InvitationTenantMismatchError();
+    if (/^invitation_client_org_mismatch/.test(message)) throw new InvitationClientOrganisationMismatchError();
+    if (/^invitation_role_invalid_for_scope/.test(message)) throw new InvalidInvitationRoleError();
+    if (/^invitation_membership_conflict/.test(message)) throw new InvitationMembershipConflictError();
+    if (/^invitation_user_profile_missing/.test(message)) throw new InvitationAcceptanceProfileMissingError();
+    if (/^invitation_unauthenticated/.test(message)) throw new NotFoundOrForbiddenError();
+    throw err;
+  }
 }
