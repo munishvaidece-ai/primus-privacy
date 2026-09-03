@@ -4,10 +4,11 @@ import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { withRequestDb } from "@/lib/db/request-client";
 import { getEngagementDetail } from "@/lib/domain/engagements";
 import { listEngagementMembers, listEligibleUsersForEngagement, listEngagementRoles } from "@/lib/domain/engagement-memberships";
+import { listInvitationRoleOptions } from "@/lib/domain/invitations";
 import { NotFoundOrForbiddenError, canManageEngagementMembership } from "@/lib/authorization/service";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { addEngagementMemberAction, revokeEngagementMemberAction } from "./actions";
+import { addEngagementMemberAction, revokeEngagementMemberAction, createEngagementInvitationAction } from "./actions";
 
 const INPUT_CLASS =
   "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
@@ -22,7 +23,15 @@ export default async function EngagementDetailPage({
   searchParams,
 }: {
   params: { organisationId: string; engagementId: string };
-  searchParams: { saved?: string; error?: string; joined?: string };
+  searchParams: {
+    saved?: string;
+    error?: string;
+    joined?: string;
+    invited?: string;
+    invitedEmail?: string;
+    devInviteUrl?: string;
+    inviteError?: string;
+  };
 }) {
   const user = await requireAuthenticatedUser();
 
@@ -40,14 +49,31 @@ export default async function EngagementDetailPage({
   // organisation it actually belongs to.
   if (engagement.organisationId !== params.organisationId) notFound();
 
-  const { members, canManageMembers, eligibleUsers, engagementRoles } = await withRequestDb(user.id, async (db) => {
+  const { members, canManageMembers, eligibleUsers, engagementRoles, invitationRoles } = await withRequestDb(user.id, async (db) => {
     const memberRows = await listEngagementMembers(db, user.id, { organisationId: params.organisationId, engagementId: params.engagementId });
     const canManage = await canManageEngagementMembership(db, user.id, params.engagementId, params.organisationId);
     const eligible = canManage
       ? await listEligibleUsersForEngagement(db, user.id, { organisationId: params.organisationId, engagementId: params.engagementId })
       : [];
     const engagementRoleOptions = canManage ? await listEngagementRoles(db) : [];
-    return { members: memberRows, canManageMembers: canManage, eligibleUsers: eligible, engagementRoles: engagementRoleOptions };
+    // P2B.5.1: the SAME `canManageEngagementMembership` flag already
+    // gates "Add member" below also gates "Invite a client user" — both
+    // are the engagement's own `membership.manage` permission
+    // (`canManageInvitation`'s engagement branch, lib/authorization/
+    // service.ts, reuses this exact function). Deliberately NOT
+    // `engagementRoles` (that's `listEngagementRoles`'s practice-side
+    // scope='engagement' roles — Engagement Manager/Consultant/Auditor,
+    // none of which `createInvitation` accepts for an engagement
+    // invitation); the invite form's own role list is the client-
+    // invitable allowlist from `listInvitationRoleOptions`.
+    const invitationRoleOptions = canManage ? await listInvitationRoleOptions(db, params.engagementId) : [];
+    return {
+      members: memberRows,
+      canManageMembers: canManage,
+      eligibleUsers: eligible,
+      engagementRoles: engagementRoleOptions,
+      invitationRoles: invitationRoleOptions,
+    };
   });
 
   return (
@@ -89,6 +115,29 @@ export default async function EngagementDetailPage({
       {searchParams.error ? (
         <p role="alert" className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
           {searchParams.error}
+        </p>
+      ) : null}
+      {searchParams.invited === "1" ? (
+        <div role="status" className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+          <p>
+            Invitation created for {searchParams.invitedEmail} on this engagement ({engagement.name}).
+          </p>
+          {/* See the organisation detail page's own identical comment
+              (P2B.5.1 §4, DECISIONS.md R-180) — `devInviteUrl` can only
+              ever be populated outside production. */}
+          {searchParams.devInviteUrl ? (
+            <p className="mt-1 break-all">
+              Development invitation link:{" "}
+              <a href={searchParams.devInviteUrl} className="font-medium underline">
+                {searchParams.devInviteUrl}
+              </a>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {searchParams.inviteError ? (
+        <p role="alert" className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+          {searchParams.inviteError}
         </p>
       ) : null}
 
@@ -295,6 +344,60 @@ export default async function EngagementDetailPage({
                 Add member
               </Button>
             ) : null}
+          </form>
+        ) : null}
+
+        {/* P2B.5.1 (Internal Pilot — Invitation Creation UI): invites a
+            client user who may not have a PRIMUS account yet — a sibling
+            to "Add member" above (which only offers already-eligible
+            existing users), not a replacement for it. Engagement-scoped:
+            `createEngagementInvitationAction` (./actions.ts) passes this
+            engagement's own id through to `createInvitation`, which is
+            what actually resolves and enforces its organisation/tenant
+            scope — this form only makes that scope visible to the user
+            (the section heading and "on this engagement" banner text
+            above). */}
+        {canManageMembers ? (
+          <form action={createEngagementInvitationAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+            <input type="hidden" name="organisationId" value={params.organisationId} />
+            <input type="hidden" name="engagementId" value={params.engagementId} />
+
+            <p className="text-xs font-medium text-slate-700">Invite a client user (this engagement)</p>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div>
+                <label htmlFor="engInvitedEmail" className="block text-xs font-medium text-slate-700">
+                  Email
+                </label>
+                <input
+                  id="engInvitedEmail"
+                  name="invitedEmail"
+                  type="email"
+                  required
+                  className={INPUT_CLASS}
+                  placeholder="client@example.com"
+                />
+              </div>
+              <div>
+                <label htmlFor="engInviteRoleId" className="block text-xs font-medium text-slate-700">
+                  Engagement role
+                </label>
+                <select id="engInviteRoleId" name="roleId" required defaultValue="" className={INPUT_CLASS}>
+                  <option value="" disabled>
+                    Select a role
+                  </option>
+                  {invitationRoles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <Button type="submit" size="sm">
+              Send invitation
+            </Button>
           </form>
         ) : null}
       </section>

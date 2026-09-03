@@ -5084,3 +5084,63 @@ token's effective validity further than 7 days once accepted-vs-pending
 volumes are understood). Recorded explicitly per brief §14's own
 "document the decision" instruction — an honest, considered acceptance
 of a known limitation, not an oversight.
+
+### R-181 — Invitation Creation UI closes R-179's deferred gap; a new `getDevInvitationUrl` function is the ONLY sanctioned way a raw invitation token ever reaches a practice user's screen, and it is hard-disabled in production (Slice P2B.5.1)
+
+**Decision:** `createOrganisationInvitationAction` and
+`createEngagementInvitationAction` (the two new Server Actions this
+slice adds) call the SAME, unmodified `createInvitation`
+(`lib/domain/invitations.ts`, P2B.3) that already existed — no
+authorization, role-allowlist, or scope logic was duplicated in the UI
+layer or in either Server Action; both remain thin (Zod parse →
+`createInvitation` → map known errors to a safe message → redirect),
+matching this codebase's established Server Action shape exactly
+(`addEngagementMemberAction`, Slice C7.2). This closes R-179: a PRIMUS
+consultant can now create both an organisation-scoped and an
+engagement-scoped invitation from the running application (Organisation
+Detail → Members, Engagement Detail → Members), gated by
+`canManageOrganisationInvitations`/`canManageEngagementMembership`
+(UI-only visibility — never a UI-only authorization boundary; both
+Server Actions are reached only after `requireAuthenticatedUser`, and
+`createInvitation` itself re-derives and enforces authorization
+server-side regardless of what the UI shows or hides).
+
+`createInvitation` still returns only `{ id }` (unmodified — no raw
+token, no invitation URL) and `InvitationDeliveryAdapter.deliver()`
+still returns `Promise<void>` (unmodified) — confirmed by direct
+inspection before writing any of this slice's code, per this slice's own
+brief. The one new function, `getDevInvitationUrl(invitationId)`
+(`lib/domain/invitation-delivery.ts`), is the sole mechanism through
+which a raw token can reach the UI: it reads ONLY the existing Dev
+delivery adapter's own in-memory captured-deliveries array (P2B.3,
+nothing new is written or persisted anywhere by this function), matches
+by the exact `invitationId` requested (never "the most recent
+delivery"), fails closed to `null` for an unknown id, and — the
+production guard — returns `null` unconditionally the moment
+`process.env.NODE_ENV === "production"`, checked INSIDE the function
+itself rather than trusted to either Server Action's own call site. No
+database column, table, or any other persistence for the raw token was
+added; no permanent production API for retrieving one exists; the real
+email-provider architecture remains exactly as deferred as P2B.3 left
+it.
+
+**R-180 extension:** each Server Action's own success redirect carries
+the dev URL (containing the raw token) as a `devInviteUrl` query
+parameter, rendered as a copyable link on the Organisation/Engagement
+Detail page — this shares, and is covered by, R-180's already-accepted
+token-in-URL/framework-request-logging residual risk; the ADDITIONAL
+guarantee this slice contributes on top of R-180 is that this specific
+query parameter is architecturally incapable of appearing in a
+production build's redirect at all (verified: `getDevInvitationUrl`'s
+own `NODE_ENV` check, not merely an "only call this in dev" convention
+at either call site). A new focused test suite
+(`tests/app/invitation-creation-ui.test.ts`) exercises
+`listInvitationRoleOptions` (the invite form's role dropdown — the
+approved organisation/engagement allowlists, `lib/authorization/
+service.ts`, P2B.2 — deliberately not `listEngagementRoles`, which would
+surface non-client-invitable practice roles) and `getDevInvitationUrl`
+directly, including the production-guard toggle; the Server Actions
+themselves are not unit-tested directly, matching this repository's own
+established convention (no `*Action` Server Action with a `redirect()`
+call is tested directly anywhere in this codebase — only the domain
+functions each one calls are).

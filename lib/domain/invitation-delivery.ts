@@ -105,3 +105,52 @@ export function getDevInvitationDeliveryAdapter(): DevInvitationDeliveryAdapter 
   }
   return adapter;
 }
+
+/**
+ * P2B.5.1 (Internal Pilot — Invitation Creation UI): the ONE sanctioned
+ * way the invitation-creation Server Actions
+ * (`app/(shell)/organisations/[organisationId]/actions.ts`,
+ * `.../engagements/[engagementId]/actions.ts`) may surface a just-
+ * created invitation's URL to a practice user, so the pilot can actually
+ * be run without a real email provider (still explicitly deferred).
+ * Given the invitation id `createInvitation` itself already returns,
+ * looks up the matching captured delivery's own `invitationUrl` — never
+ * "the most recent one" (which would be wrong under any concurrent
+ * creation), always matched by `invitationId`.
+ *
+ * Returns `null`, deliberately, in THREE cases, each closing one avenue
+ * this function could otherwise become "a permanent production API for
+ * retrieving raw invitation tokens" (an explicit non-goal):
+ *
+ *   1. `process.env.NODE_ENV === "production"` — checked HERE, inside
+ *      this function itself, not merely trusted to whichever Server
+ *      Action calls it. A real, deployed build can never observe a URL
+ *      through this path regardless of what any future caller forgets
+ *      to check.
+ *   2. The active adapter is not `DevInvitationDeliveryAdapter` — true
+ *      today for no adapter (there is only one), but stays correct the
+ *      moment a real provider (a future slice) becomes the selected
+ *      adapter instead: nothing but the Dev stand-in ever captures
+ *      anything for this function to find.
+ *   3. No delivery for this exact `invitationId` was captured (a
+ *      genuinely-not-found id, or the Dev adapter's own in-memory state
+ *      was cleared since — e.g. a fresh test run, or a server restart)
+ *      — fails closed, never throws, so a caller can render "invitation
+ *      created" without a link rather than an error.
+ *
+ * This is NOT a new persistence mechanism: it reads only the Dev
+ * adapter's own existing in-memory `deliveries` array (P2B.3) — nothing
+ * is written anywhere by this function, and the raw token this returns
+ * (embedded in the URL) is exactly as transient as it always was, never
+ * assigned anywhere that outlives the request that calls this.
+ */
+export function getDevInvitationUrl(invitationId: string): string | null {
+  if (process.env.NODE_ENV === "production") return null;
+  const adapter = getInvitationDeliveryAdapter();
+  if (!(adapter instanceof DevInvitationDeliveryAdapter)) return null;
+  const deliveries = adapter.getCapturedDeliveries();
+  for (let i = deliveries.length - 1; i >= 0; i--) {
+    if (deliveries[i]!.invitationId === invitationId) return deliveries[i]!.invitationUrl;
+  }
+  return null;
+}

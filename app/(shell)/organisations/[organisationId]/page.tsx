@@ -3,15 +3,21 @@ import { notFound } from "next/navigation";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { withRequestDb } from "@/lib/db/request-client";
 import { getOrganisationDetail } from "@/lib/domain/organisations";
-import { canCreateEngagement, NotFoundOrForbiddenError } from "@/lib/authorization/service";
+import { listInvitationRoleOptions } from "@/lib/domain/invitations";
+import { canCreateEngagement, canManageOrganisationInvitations, NotFoundOrForbiddenError } from "@/lib/authorization/service";
 import { Badge, statusTone } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { createOrganisationInvitationAction } from "./actions";
+
+const INPUT_CLASS =
+  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 export default async function OrganisationDetailPage({
   params,
   searchParams,
 }: {
   params: { organisationId: string };
-  searchParams: { created?: string; name?: string; joined?: string };
+  searchParams: { created?: string; name?: string; joined?: string; invited?: string; invitedEmail?: string; devInviteUrl?: string; inviteError?: string };
 }) {
   const user = await requireAuthenticatedUser();
 
@@ -24,11 +30,13 @@ export default async function OrganisationDetailPage({
       throw err;
     }
     const canCreateEng = await canCreateEngagement(db, user.id, organisation.id, organisation.tenantId);
-    return { organisation, canCreateEng };
+    const canInvite = await canManageOrganisationInvitations(db, user.id, organisation.id);
+    const invitationRoles = canInvite ? await listInvitationRoleOptions(db, null) : [];
+    return { organisation, canCreateEng, canInvite, invitationRoles };
   });
 
   if (!data) notFound();
-  const { organisation, canCreateEng } = data;
+  const { organisation, canCreateEng, canInvite, invitationRoles } = data;
 
   return (
     <div>
@@ -48,6 +56,33 @@ export default async function OrganisationDetailPage({
       {searchParams.joined === "1" ? (
         <p role="status" className="mb-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
           Welcome — you&rsquo;ve joined {organisation.name}.
+        </p>
+      ) : null}
+      {searchParams.invited === "1" ? (
+        <div role="status" className="mb-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
+          <p>
+            Invitation created for {searchParams.invitedEmail} at the organisation level.
+          </p>
+          {/* P2B.5.1 §4: `devInviteUrl` is only ever populated by
+              `createOrganisationInvitationAction` when `getDevInvitationUrl`
+              (lib/domain/invitation-delivery.ts) itself returns non-null —
+              which it never does once NODE_ENV === "production" — so this
+              link can only ever render outside production. See
+              DECISIONS.md R-180 for the accepted token-in-URL residual
+              risk this dev-only mechanism shares with `/invite/[token]`. */}
+          {searchParams.devInviteUrl ? (
+            <p className="mt-1 break-all">
+              Development invitation link:{" "}
+              <a href={searchParams.devInviteUrl} className="font-medium underline">
+                {searchParams.devInviteUrl}
+              </a>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {searchParams.inviteError ? (
+        <p role="alert" className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+          {searchParams.inviteError}
         </p>
       ) : null}
 
@@ -130,6 +165,61 @@ export default async function OrganisationDetailPage({
             ))}
           </ul>
         )}
+
+        {/* P2B.5.1 (Internal Pilot — Invitation Creation UI): the only
+            currently missing piece needed to run Internal Pilot v0.1 —
+            `createInvitation` (lib/domain/invitations.ts), invitation
+            authorization and RLS, and `/invite/[token]` acceptance were
+            all already implemented (P2B.3–P2B.5); no practice-side UI to
+            actually create one existed until now. Gated by
+            `canManageOrganisationInvitations` — the SAME
+            `membership.manage` check `createOrganisationInvitationAction`
+            (./actions.ts) independently re-derives server-side via
+            `createInvitation`'s own `requireInvitationManageAccess`; this
+            `canInvite` flag only hides/shows the form, it is never the
+            authorization boundary itself. */}
+        {canInvite ? (
+          <form action={createOrganisationInvitationAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+            <input type="hidden" name="organisationId" value={organisation.id} />
+
+            <p className="text-xs font-medium text-slate-700">Invite a client user (organisation-level)</p>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div>
+                <label htmlFor="invitedEmail" className="block text-xs font-medium text-slate-700">
+                  Email
+                </label>
+                <input
+                  id="invitedEmail"
+                  name="invitedEmail"
+                  type="email"
+                  required
+                  className={INPUT_CLASS}
+                  placeholder="client@example.com"
+                />
+              </div>
+              <div>
+                <label htmlFor="orgInviteRoleId" className="block text-xs font-medium text-slate-700">
+                  Client role
+                </label>
+                <select id="orgInviteRoleId" name="roleId" required defaultValue="" className={INPUT_CLASS}>
+                  <option value="" disabled>
+                    Select a role
+                  </option>
+                  {invitationRoles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <Button type="submit" size="sm">
+              Send invitation
+            </Button>
+          </form>
+        ) : null}
       </section>
     </div>
   );

@@ -12,17 +12,20 @@ Remediation/Maturity) plus Slice P2B (Client Invitation & Onboarding)
 are implemented and tested — see `PROGRESS.md` for the exact, session-
 by-session build log and what remains open.
 
-**Current MVP workflow** (P2B.5, Session 41): a PRIMUS consultant
-creates an Organisation, an Engagement, and an invitation for a client
-user (today via `lib/domain/invitations.ts`'s `createInvitation` —
-invitation-creation UI does not exist yet, DECISIONS.md R-179); the
-invited client opens `/invite/[token]`, signs in with their invited
-email (existing Supabase Auth, `/login`), and accepts — landing on their
-own Organisation or Engagement page, the same page a consultant already
+**Current MVP workflow** (P2B.5.1, Session 42): a PRIMUS consultant
+creates an Organisation, an Engagement, and — from the Organisation or
+Engagement Detail page's own Members section — an invitation for a
+client user, at either organisation or engagement scope; the invited
+client opens `/invite/[token]`, signs in with their invited email
+(existing Supabase Auth, `/login`), and accepts — landing on their own
+Organisation or Engagement page, the same page a consultant already
 uses, with client-appropriate navigation. From there the client and
 consultant continue the same Assessment / Evidence / Risk / Finding /
 Remediation / Validation workflow together, entirely server-side-
-authorized (SECURITY.md §2).
+authorized (SECURITY.md §2). Real email delivery is still deferred — in
+development/pilot mode only, invitation creation shows a copyable
+"Development invitation link" (DECISIONS.md R-181); this never appears
+in a production build.
 
 ## Documentation
 

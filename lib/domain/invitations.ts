@@ -1,12 +1,14 @@
 import "server-only";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
 import { invitations, organisations, engagements, roles } from "@/db/schema";
 import {
   NotFoundOrForbiddenError,
   requireInvitationManageAccess,
   isInvitationRoleAllowedForScope,
+  ORGANISATION_SCOPED_INVITATION_ROLE_NAMES,
+  ENGAGEMENT_SCOPED_INVITATION_ROLE_NAMES,
 } from "@/lib/authorization/service";
 import { getInvitationDeliveryAdapter } from "@/lib/domain/invitation-delivery";
 
@@ -435,6 +437,43 @@ export async function createInvitation(db: RequestDb, userId: string, input: Cre
   });
 
   return { id };
+}
+
+// --- listInvitationRoleOptions (P2B.5.1) ------------------------------------
+
+export interface InvitationRoleOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * The invitation-creation form's own role dropdown source (P2B.5.1) —
+ * ONLY the roles the approved allowlist actually permits for this
+ * scope (`ORGANISATION_SCOPED_INVITATION_ROLE_NAMES`/`ENGAGEMENT_
+ * SCOPED_INVITATION_ROLE_NAMES`, `lib/authorization/service.ts`), the
+ * SAME two lists `createInvitation`'s own `isInvitationRoleAllowedForScope`
+ * check and migration 0037's own `invitations_insert` RLS policy both
+ * independently enforce. Deliberately NOT `listEngagementRoles`
+ * (`lib/domain/engagement-memberships.ts`)'s own `scope = 'engagement'`
+ * filter reused here — that would ALSO surface "Engagement Manager"/
+ * "Consultant"/"Auditor" (practice-side engagement roles, not
+ * client-invitable at all), silently offering a caller a role
+ * `createInvitation` would immediately reject. `roles` is global
+ * reference/taxonomy data, readable by any authenticated user
+ * (migration 0001) — no additional authorization check is needed to
+ * read it, matching `listEngagementRoles`'s own identical posture; the
+ * INVITE FORM itself is what's gated by `membership.manage` (the
+ * calling page's own `canManageOrganisationInvitations`/
+ * `canManageInvitation` check), not this read.
+ */
+export async function listInvitationRoleOptions(db: RequestDb, engagementId: string | null): Promise<InvitationRoleOption[]> {
+  const allowedNames = engagementId === null ? ORGANISATION_SCOPED_INVITATION_ROLE_NAMES : ENGAGEMENT_SCOPED_INVITATION_ROLE_NAMES;
+  const rows = await db
+    .select({ id: roles.id, name: roles.name })
+    .from(roles)
+    .where(inArray(roles.name, allowedNames as unknown as string[]))
+    .orderBy(asc(roles.name));
+  return rows;
 }
 
 // --- listInvitations ---------------------------------------------------

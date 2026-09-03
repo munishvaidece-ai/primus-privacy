@@ -1,5 +1,99 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-03 — Slice P2B.5.1 (Invitation Creation UI) COMPLETE
+(Session 42): the smallest production-shaped practice-side UI to create
+an invitation — the one precise blocker P2B.5's own Internal Pilot
+Readiness Check identified (below, and DECISIONS.md R-179) and left
+open. Two new fields on the existing Organisation Detail and Engagement
+Detail pages' own Members section (no new page, dashboard, or route):
+"Invite a client user" — email + role, gated by
+`canManageOrganisationInvitations`/`canManageEngagementMembership`
+(UI-only visibility, never authorization) — submitting to two new
+Server Actions, `createOrganisationInvitationAction` and
+`createEngagementInvitationAction`
+(`app/(shell)/organisations/[organisationId]/actions.ts` — new file —
+and its `engagements/[engagementId]/actions.ts` sibling), both thin
+wrappers around the SAME, unmodified `createInvitation`
+(`lib/domain/invitations.ts`, P2B.3) — no authorization, role-allowlist,
+or scope logic was duplicated; `createInvitation` remains exclusively
+authoritative, backed further by RLS (SECURITY.md §2's two independent
+layers, unchanged). Two small additions make the UI itself possible:
+`listInvitationRoleOptions` (`lib/domain/invitations.ts`) — the invite
+form's role dropdown, restricted to the SAME approved organisation/
+engagement allowlists `createInvitation` itself enforces
+(`lib/authorization/service.ts`, P2B.2), deliberately not
+`listEngagementRoles` (which would surface non-client-invitable
+practice-side roles) — and `getDevInvitationUrl`
+(`lib/domain/invitation-delivery.ts`) — confirmed by direct code
+inspection, per this slice's own brief, that neither `createInvitation`
+(returns only `{ id }`) nor `InvitationDeliveryAdapter.deliver()`
+(returns `Promise<void>`) ever return a raw token or invitation URL;
+`getDevInvitationUrl` is the ONE new, narrowly-scoped function that
+reads the existing Dev delivery adapter's own in-memory captured
+deliveries (P2B.3, nothing new persisted), matched by the exact
+invitation id, and returns `null` unconditionally once
+`process.env.NODE_ENV === "production"` — checked inside the function
+itself, not merely trusted to either Server Action's call site. No
+database column for the raw token was added, no raw token is ever
+persisted/logged/audited (unchanged from P2B.3), and no permanent
+production API for retrieving one was introduced. On success, both
+pages show the invited email, scope, and — dev/pilot mode only — a
+copyable "Development invitation link" (via a `devInviteUrl` redirect
+query parameter that cannot exist in a production build); known domain
+errors (`InvalidInvitationRoleError`, `DuplicatePendingInvitationError`,
+`NotFoundOrForbiddenError`) map to a safe, pre-written banner message,
+matching `addEngagementMemberAction`'s own established error-mapping
+convention exactly (Slice C7.2) — not the indirected error-code enum
+`/invite/[token]` uses, since these Server Actions are reached only by
+an already-authenticated, already-`membership.manage`-authorized actor,
+the same trust level as every other existing mutating Server Action in
+this codebase. 11 new focused tests
+(`tests/app/invitation-creation-ui.test.ts`) cover
+`listInvitationRoleOptions` (correct role set per scope, sorted,
+excludes non-invitable roles, ids match what `createInvitation` accepts)
+and `getDevInvitationUrl` (raw token/hash correspondence, matches by
+exact invitation id not "most recent," `null` for an unknown id, `null`
+once `NODE_ENV === "production"`), plus three small end-to-end checks
+confirming the exact pipeline both Server Actions use
+(`createInvitation` → `getDevInvitationUrl`) for an authorized
+organisation inviter, an authorized engagement inviter (scoped
+correctly), and rejection for an unauthorized caller. No new
+authorization/role/scope/duplicate/token-safety tests were added beyond
+this — `createInvitation` itself already carries 36 tests
+(`tests/app/invitations.test.ts`, P2B.3) and 38 RLS tests
+(`tests/rls/invitations-authorization.test.ts`, P2B.2) covering exactly
+those categories against the SAME unmodified function these new Server
+Actions call, so re-testing them here would duplicate, not add,
+coverage. 1056 tests pass (78 files, +11 from P2B.5's 1045/77),
+typecheck/lint/build all clean, full DB suite run twice. No migration
+was needed — no schema or RLS change, only new read-only/UI-facing TS
+functions and Server Actions. DECISIONS.md R-181 records the design
+(closing R-179) and extends R-180's already-accepted token-in-URL
+residual risk to the new `devInviteUrl` redirect parameter, with the
+additional, verified guarantee that parameter is architecturally
+incapable of appearing in a production build.
+
+**Remaining limitations (unchanged scope, explicitly out of this
+slice):** no real email provider (the dev link is copied/shared
+manually — Internal Pilot only); no resend-invitation UI; no invitation
+notifications; no public self-service signup; no client-facing
+dashboard beyond the existing organisation/engagement detail pages; no
+invitation history/analytics UI beyond the existing `listInvitations`
+(P2B.3, not newly surfaced in the UI this slice); no production
+mechanism to retrieve a raw token — none of these were asked for, and
+none were built.
+
+**Internal Pilot v0.1 verdict: ready to execute end-to-end at the
+implementation level.** Every step the P2B.5 Internal Pilot Readiness
+Check enumerated (below) is now a real, reachable application route,
+including the one precise blocker it identified — step (4)/(5),
+invitation creation — which this slice closes. A PRIMUS consultant can
+now, entirely through the running application: create an Organisation,
+create an Engagement, invite a client user at either scope, obtain the
+dev-mode invitation link from the success banner, and have the invited
+client accept it and land in the shared workspace — the goal this
+slice's own brief states verbatim.
+
 Status: 2026-09-03 — Slice P2B.5 (Client Onboarding & Acceptance UX)
 COMPLETE (Session 41): the smallest end-to-end client onboarding
 experience on top of the already-completed P2B.2-P2B.4 invitation
@@ -77,6 +171,12 @@ for a pre-external-customer security pass, not resolved here.
 
 ## Internal Pilot Readiness Check (P2B.5, explicit per its own brief §20)
 
+**Update (P2B.5.1, Session 42): the one blocker step (4)/(5) identified
+below is now CLOSED** — see the P2B.5.1 status entry above for what was
+built. The trace below is left exactly as P2B.5 originally recorded it,
+for an accurate history of what was true at that point; do not read
+steps (4)/(5) as still open.
+
 Verified by actually tracing which application ROUTES exist and are
 reachable for each step — not merely "tests pass":
 
@@ -116,20 +216,25 @@ completely unaffected by this slice (only `GlobalNav` gained a
 client-only branch; every practice-side render path is unchanged),
 reachable.
 
-**Verdict: the internal pilot workflow is functional end-to-end EXCEPT
-for one precise, identified blocker** — step (4)/(5), invitation
-creation, has no UI. Every other numbered step (1-3, 6-15) is a real,
-reachable application route today. Per the brief's own explicit
-instruction ("Do not claim Internal Pilot Ready merely because tests
-pass... If one small blocker remains, identify it precisely"), this is
-reported precisely rather than silently built past (which would have
-been unrequested scope expansion — see DECISIONS.md R-179) or silently
-claimed complete. Closing this one gap — a small "Invite a client user"
-form on the organisation/engagement detail page, following the EXACT
-existing "Add Member" form pattern and calling the already-tested
-`createInvitation` — is the smallest remaining step before this
-workflow can be run end-to-end by a human clicking through the running
-application, with no script involved.
+**Verdict (as recorded by P2B.5): the internal pilot workflow is
+functional end-to-end EXCEPT for one precise, identified blocker** —
+step (4)/(5), invitation creation, has no UI. Every other numbered step
+(1-3, 6-15) is a real, reachable application route today. Per the
+brief's own explicit instruction ("Do not claim Internal Pilot Ready
+merely because tests pass... If one small blocker remains, identify it
+precisely"), this is reported precisely rather than silently built past
+(which would have been unrequested scope expansion — see DECISIONS.md
+R-179) or silently claimed complete. Closing this one gap — a small
+"Invite a client user" form on the organisation/engagement detail page,
+following the EXACT existing "Add Member" form pattern and calling the
+already-tested `createInvitation` — is the smallest remaining step
+before this workflow can be run end-to-end by a human clicking through
+the running application, with no script involved.
+
+**This gap is now closed (P2B.5.1, Session 42) — see the status entry
+above.** Steps (4) and (5) are real, reachable application routes as of
+this slice; the internal pilot workflow is functional end-to-end with
+no remaining blocker at the implementation level.
 
 Status: 2026-09-03 — Slice P2B.4 (Secure Invitation Acceptance & User
 Provisioning) COMPLETE (Session 40): the security-critical transaction
