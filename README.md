@@ -7,8 +7,22 @@ Engagement → Discovery → Evidence → Applicability & Scope → Data Landsca
 Control Testing → Risk → Findings → Remediation → Validation → Maturity →
 Reporting → Continuous Compliance.
 
-**Status:** Architecture phase. No application code has been written yet —
-see `PROGRESS.md` for exactly what exists and what doesn't.
+**Status:** Milestone 8A (database foundation through Risk/Findings/
+Remediation/Maturity) plus Slice P2B (Client Invitation & Onboarding)
+are implemented and tested — see `PROGRESS.md` for the exact, session-
+by-session build log and what remains open.
+
+**Current MVP workflow** (P2B.5, Session 41): a PRIMUS consultant
+creates an Organisation, an Engagement, and an invitation for a client
+user (today via `lib/domain/invitations.ts`'s `createInvitation` —
+invitation-creation UI does not exist yet, DECISIONS.md R-179); the
+invited client opens `/invite/[token]`, signs in with their invited
+email (existing Supabase Auth, `/login`), and accepts — landing on their
+own Organisation or Engagement page, the same page a consultant already
+uses, with client-appropriate navigation. From there the client and
+consultant continue the same Assessment / Evidence / Risk / Finding /
+Remediation / Validation workflow together, entirely server-side-
+authorized (SECURITY.md §2).
 
 ## Documentation
 

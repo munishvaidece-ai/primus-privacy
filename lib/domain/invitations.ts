@@ -672,3 +672,73 @@ export async function acceptInvitation(db: RequestDb, userId: string, rawToken: 
     throw err;
   }
 }
+
+// --- previewInvitation (P2B.5) ----------------------------------------------
+
+export interface InvitationPreview {
+  invitedEmail: string;
+  organisationName: string;
+  /** `null` for an organisation-scoped invitation. */
+  engagementName: string | null;
+  roleName: string;
+  status: string;
+  expiresAt: Date;
+}
+
+/**
+ * Safe, read-only invitation metadata for the confirmation screen
+ * (P2B.5, brief §2) — organisation/engagement/role names and the
+ * invitation's own current status/expiry, so an authenticated invitee
+ * can make an informed "Accept"/"Cancel" decision and the screen can
+ * distinguish expired/revoked/already-accepted/not-found (brief §3)
+ * before any acceptance is attempted. A thin wrapper around
+ * `public.preview_invitation()` (migration 0039), exactly mirroring
+ * `acceptInvitation`'s own shape: hash the token once (the SAME
+ * `hashInvitationToken` both this and `createInvitation`/
+ * `acceptInvitation` use), call the read-only SECURITY DEFINER
+ * function, return `null` if no row matches (an invalid/nonexistent/
+ * modified token — the caller renders the same generic "invalid" state
+ * for all three, never distinguishing them — brief §3G).
+ *
+ * Performs NO validation of its own beyond existence — it does not
+ * check status, expiry, or email match, and it never mutates anything;
+ * every one of those decisions belongs exclusively to
+ * `acceptInvitation`/`accept_invitation()`. This function exists solely
+ * so the confirmation screen has something safe to render — it is
+ * never a substitute for, and never duplicates, the acceptance
+ * transaction itself. Returns no internal identifier of any kind (no
+ * invitation id, tenant/organisation/engagement/role id, and certainly
+ * no `token_hash`) — only the five human-readable/status fields the
+ * screen actually needs.
+ *
+ * `userId` is accepted only for this module's own consistent calling
+ * signature (matching `acceptInvitation`'s identical rationale) — the
+ * underlying function derives nothing from it; only `withRequestDb`'s
+ * own already-established session context (which grants `authenticated`
+ * role EXECUTE privilege on `preview_invitation`, migration 0039)
+ * matters.
+ */
+export async function previewInvitation(db: RequestDb, userId: string, rawToken: string): Promise<InvitationPreview | null> {
+  const tokenHash = hashInvitationToken(rawToken);
+
+  const result = await db.execute<{
+    out_invited_email: string;
+    out_organisation_name: string;
+    out_engagement_name: string | null;
+    out_role_name: string;
+    out_status: string;
+    out_expires_at: string;
+  }>(sql`SELECT * FROM public.preview_invitation(${tokenHash})`);
+
+  const row = result.rows[0];
+  if (!row) return null;
+
+  return {
+    invitedEmail: row.out_invited_email,
+    organisationName: row.out_organisation_name,
+    engagementName: row.out_engagement_name,
+    roleName: row.out_role_name,
+    status: row.out_status,
+    expiresAt: new Date(row.out_expires_at),
+  };
+}

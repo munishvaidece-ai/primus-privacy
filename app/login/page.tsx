@@ -6,10 +6,18 @@ import { Button } from "@/components/ui/button";
 // rendered form posting to a Server Action — works without client-side
 // JavaScript, and every label/input/error message is a real,
 // accessible HTML element (instructions §24).
+//
+// P2B.5 (Client Onboarding & Acceptance UX, brief §15): `returnTo`, when
+// present, is threaded through unvalidated as a plain hidden field —
+// `signIn` (lib/auth/actions.ts) itself is what validates it via
+// `safeReturnTo` before ever calling `redirect()`, so this page does not
+// need its own copy of that logic; a forged/unsafe value merely falls
+// back to the same default `/organisations` destination this page
+// already had before this slice.
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: { error?: string };
+  searchParams: { error?: string; returnTo?: string };
 }) {
   const error = searchParams.error;
 
@@ -26,6 +34,7 @@ export default function LoginPage({
         ) : null}
 
         <form action={signIn} className="mt-6 space-y-4">
+          {searchParams.returnTo ? <input type="hidden" name="returnTo" value={searchParams.returnTo} /> : null}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-700">
               Email

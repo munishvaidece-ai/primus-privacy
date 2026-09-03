@@ -22,7 +22,7 @@ export default async function EngagementDetailPage({
   searchParams,
 }: {
   params: { organisationId: string; engagementId: string };
-  searchParams: { saved?: string; error?: string };
+  searchParams: { saved?: string; error?: string; joined?: string };
 }) {
   const user = await requireAuthenticatedUser();
 
@@ -76,6 +76,11 @@ export default async function EngagementDetailPage({
           : "You can view this engagement through your organisation-level access."}
       </p>
 
+      {searchParams.joined === "1" ? (
+        <p role="status" className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+          Welcome — you&rsquo;ve joined {engagement.name}.
+        </p>
+      ) : null}
       {searchParams.saved === "1" ? (
         <p role="status" className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
           Saved.

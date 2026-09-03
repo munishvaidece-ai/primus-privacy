@@ -4890,3 +4890,197 @@ flow would carry: acceptance is always authenticated (`accept_
 invitation()`'s own `EXECUTE` grant is `authenticated`/`service_role`
 only, never `anon` — R-168), so the caller has already proven an
 identity before this question is ever reached at all.
+
+### R-175 — The client workspace is the EXISTING organisation/engagement detail pages, unchanged — no new "Client Portal" page was built (Slice P2B.5)
+
+**Decision:** after a successful acceptance, the user is redirected to
+the SAME organisation-detail (`/organisations/[organisationId]`) or
+engagement-detail (`/organisations/[organisationId]/engagements/
+[engagementId]`) page every practice user already lands on — with one
+small, additive enhancement: a one-time `?joined=1` welcome banner,
+mirroring the existing `?created=1` convention on the organisation page
+byte-for-byte. No new "workspace" page, dashboard, or route tree was
+created.
+**Rationale:** Phase 0 inspection (read fresh) found these two pages
+already answer the brief's own four required questions ("which
+organisation," "which engagement," "what is it about," "what's next")
+for ANY engagement member — client or practice — via real data already
+queried (`getOrganisationDetail`/`getEngagementDetail`): organisation
+name, engagement name/type/period, the caller's own role (if
+engagement-scoped), most-recent Assessment status, and direct links
+into Scope/Data Landscape/Assessments/Risks/Findings/Remediation/
+Reports/Members. Every write action on these pages (Add/Revoke Member,
+Create Engagement, etc.) is ALREADY conditionally rendered behind its
+own `canX` check (`canManageEngagementMembership`, `canCreateEngagement`,
+etc.) — the exact "one client workspace with permissions determining
+available actions" shape brief §16 asks for, already built, slice by
+slice, since Milestone 1. Building a second, parallel "client" version
+of this same page would duplicate real engineering for no safety
+benefit (server-side authorization, not page choice, is what actually
+protects a client from consultant-only actions — brief §7's own explicit
+"the UI is NOT the security boundary") and would directly contradict
+the brief's own repeated "do not expand this into a general client
+portal" instruction.
+
+### R-176 — Client vs. consultant navigation is a UI convenience only, driven by the EXISTING `users.client_org_id` column, never a new authorization concept (Slice P2B.5)
+
+**Decision:** `components/shell/nav.tsx`'s `GlobalNav` accepts a plain
+`isClient: boolean` prop, computed once in `app/(shell)/layout.tsx` via
+a new, minimal `getUserClientOrgId(db, userId)`
+(`lib/authorization/service.ts`, mirroring `getUserTenantId`'s identical
+shape) — `!== null` means client-side. When `isClient`, the
+"Methodology" link is omitted and "Organisations" is relabeled "Home."
+No other page, Server Action, or authorization check anywhere in the
+codebase reads this value.
+**Rationale:** `users.client_org_id` is not a new signal invented for
+this slice — it is the SAME authoritative column `accept_invitation()`
+(migration 0038) already uses to reject a practice-side user's attempt
+to accept a client invitation (`invitation_practice_user`, R-172).
+Reading it once more, here, for a navigation decision, is not "a new
+`isClient` boolean" in the sense the brief warns against (§7) — it is
+the existing authoritative fact, read directly, exactly as instructed
+("Determine the user's role/context from existing authoritative
+membership/user information"). Phase 0 inspection additionally confirmed
+`/methodology` was ALREADY unreachable for a client user before this
+change: its own page gates on `requireTenantAccess`, which
+`canAccessTenant` (`lib/authorization/service.ts`) satisfies only via
+`TenantMembership` — no client-side role ever holds one, and
+`canAccessTenant` deliberately has no organisation-membership fallback
+(its own pre-existing docstring). Hiding the link is therefore a UX
+courtesy (never offering a link that can only ever 404 for its viewer),
+not a security fix — the security boundary was already correct and is
+completely unchanged by this slice.
+
+### R-177 — `preview_invitation()`: a new, narrowly-scoped, read-only SECURITY DEFINER function for the confirmation screen — not a widening of `invitations_select` (Slice P2B.5)
+
+**Decision:** migration 0039 adds `public.preview_invitation(p_token_hash
+text)` — `LANGUAGE sql SECURITY DEFINER STABLE`, returning exactly five
+human-readable fields (invited email, organisation name, engagement
+name, role name, status, expiry) for whichever invitation matches the
+given hash, with no row-locking and no mutation. `EXECUTE` is
+`authenticated`/`service_role` only, mirroring `accept_invitation()`'s
+own grant shape exactly. `lib/domain/invitations.ts`'s `previewInvitation`
+is its thin wrapper, hashing the raw token via the SAME
+`hashInvitationToken` every other invitation function already uses.
+**Rationale:** the confirmation screen (brief §2) must show an
+authenticated invitee safe context — organisation/engagement/role name
+— before they choose to accept, so the choice is informed; `invitations_
+select`'s own RLS policy (migration 0037, P2B.2) is deliberately
+restricted to `membership.manage` actors, and the invitee holds no
+membership at all yet (that is the entire point of the invitation), so
+there is no existing read path this screen could reuse instead. This is
+the identical "resolve something RLS would otherwise hide, for a narrow,
+legitimate purpose" shape migration 0024's own `eligible_engagement_
+members`/`resolve_membership_candidate` already established — applying
+an existing pattern, not inventing a new authorization model.
+`invitations_select` itself is untouched, unwidened, and still exactly
+what P2B.2 established. This function performs NO validation beyond
+existence and NO mutation — every actual acceptance decision (status,
+expiry, email match, tenant/client-org integrity, role-scope) remains
+exclusively `accept_invitation()`'s own responsibility; `preview_
+invitation()` cannot be used to accept, or to simulate accepting,
+anything.
+
+### R-178 — Open-redirect prevention: `safeReturnTo` accepts only a same-origin absolute path (Slice P2B.5)
+
+**Decision:** `lib/auth/return-to.ts`'s `safeReturnTo` is the sole
+validator for a caller-supplied post-login/post-logout destination —
+`signIn`/`signOut` (`lib/auth/actions.ts`) call it before ever passing
+the value to `redirect()`. Accepts a value only if it starts with a
+single `/`, does not start with `//` or `/\`, and does not itself look
+like an absolute URL with a scheme (`javascript:`/`https:`/etc.);
+returns `null` (falling back to each caller's own pre-existing default
+destination) for anything else. Lives in its own plain module, not
+inside `lib/auth/actions.ts` itself, because a `"use server"` file may
+export ONLY async Server Actions — Next.js enforces this at build time,
+confirmed directly when this slice's own first build attempt failed
+with "Server actions must be async functions" against this exact,
+originally-inline, synchronous export.
+**Rationale:** the invitation landing flow (brief §15) needs `/login` to
+return an unauthenticated visitor to `/invite/[token]` after sign-in —
+the first caller-influenced redirect destination anywhere in this
+codebase (every prior `redirect()` call target has been a fixed literal
+or a server-derived value, never a raw request parameter). An
+unvalidated `returnTo` would be a textbook open-redirect vector
+(`/login?returnTo=https://evil.example` or the protocol-relative
+`//evil.example`, both resolved by browsers against an attacker-chosen
+host). `signOut` gained the identical, optional field for one specific
+use — the invitation email-mismatch screen's "sign out and try a
+different account" control — backward-compatible by construction: its
+one pre-existing caller (`components/shell/user-menu.tsx`'s `UserMenu`)
+posts no such field at all, so `safeReturnTo` returns `null` there and
+behavior is byte-for-byte unchanged.
+
+### R-179 — Deferred/out-of-scope for P2B.5, precisely: no invitation-creation UI exists yet (Slice P2B.5)
+
+**Decision:** this slice builds the ACCEPTANCE side of client onboarding
+only, exactly as its own brief's flow diagram states ("Invitation ->
+Authentication -> Invitation acceptance -> ... -> Client workspace," a
+diagram that begins AT an already-existing invitation, never at its
+creation). No Server Action, form, or page anywhere in `app/` calls
+`createInvitation` (P2B.3) — a PRIMUS consultant cannot yet create an
+invitation through the running application; doing so today requires
+calling `createInvitation` directly (fully implemented and tested,
+P2B.3) from a script or REPL, which also prints/returns the Dev delivery
+adapter's captured invitation URL for manual delivery.
+**Rationale:** the brief's own 22 numbered sections describe the
+receiving/acceptance experience exclusively — none instructs building
+invitation-creation UI, and the brief's own "STRICTLY OUT OF SCOPE"
+list, while it does not name this specifically, sits alongside an
+explicit closing instruction not to "immediately start another major
+feature" and to let the "Internal Pilot Readiness Check" (brief §20)
+surface exactly this kind of precise, small gap for review rather than
+have the implementing slice silently expand its own scope to close it.
+Building it was a live, considered option (the underlying backend is
+100% ready — `createInvitation`, `lib/domain/invitations.ts` — and the
+UI pattern already exists, `EngagementDetailPage`'s own "Add Member"
+form) but was deliberately deferred to keep this slice to what was
+actually asked, and reported here precisely rather than silently
+assumed either way. See PROGRESS.md's own Internal Pilot Readiness
+section for the full end-to-end verification this decision is drawn
+from.
+
+### R-180 — Invitation token-in-URL handling: accepted as the standard, unavoidable shape of a bearer-credential link; framework-level request logging is a documented, MVP-accepted residual risk (Slice P2B.5)
+
+**Decision:** the raw invitation token appears in the `/invite/[token]`
+URL path itself (both as the route parameter and, once authenticated,
+as a hidden form field's `value` submitting back to `acceptInvitationAction`)
+— this is the standard shape of every bearer-token "magic link" flow
+and was not redesigned into something else (e.g. a POST-only landing
+step, or a token held only in a cookie/session) — brief §1's own
+"prefer the simplest secure mechanism compatible with the existing
+routing architecture." The token is never assigned to a variable that
+outlives one request/render, never logged by application code (no
+`console.*`/logger call anywhere in `app/invite/**` references it),
+never included in an error message (the error-code mapping, R-179's
+sibling decision on error UX, uses a fixed enum, never the raw
+exception), never rendered as page TEXT content (only inside a hidden
+input's `value` attribute and inside `href`/redirect URLs), and is
+hashed immediately by the SAME `hashInvitationToken` (P2B.3) before
+either `previewInvitation` or `acceptInvitation` ever reaches SQL — no
+raw token is ever passed to, or could appear in, a PostgreSQL error,
+audit row, or `EXPLAIN`/query log.
+**Residual, explicitly accepted risk:** Next.js's own development server
+(and most conventional production HTTP access-log configurations) logs
+request PATHS, including query strings and dynamic route segments, by
+default — this is a general framework/infrastructure behavior, not
+something this slice's own code controls or can fully suppress, and it
+already applies identically to every OTHER dynamic route in this
+application (an `organisationId`/`engagementId` UUID is exactly as
+"in the URL, potentially logged" as an invitation token is). Unlike
+those UUIDs, however, the invitation token is a genuine bearer
+credential — a leaked access log entry containing it could, in
+principle, let whoever reads that log accept the invitation themselves,
+though `accept_invitation()`'s own independent email-match check
+(migration 0038, R-169) means a leaked token alone is still
+insufficient without also controlling the invited email's own Supabase
+Auth session. Not resolved in this slice — no logging-infrastructure
+change was made or is warranted at this stage — and explicitly flagged
+here as something a genuine pre-external-customer security pass MUST
+revisit (e.g. moving to a one-time, single-use, POST-exchanged token, or
+ensuring whatever production access-log pipeline is eventually
+provisioned redacts path segments matching `/invite/`, or shortening the
+token's effective validity further than 7 days once accepted-vs-pending
+volumes are understood). Recorded explicitly per brief §14's own
+"document the decision" instruction — an honest, considered acceptance
+of a known limitation, not an oversight.

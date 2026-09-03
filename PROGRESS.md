@@ -1,5 +1,136 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-03 — Slice P2B.5 (Client Onboarding & Acceptance UX)
+COMPLETE (Session 41): the smallest end-to-end client onboarding
+experience on top of the already-completed P2B.2-P2B.4 invitation
+backend — Invitation -> Authentication -> Acceptance -> correct
+Organisation/Engagement -> client workspace. Explicitly NOT a general
+Client Portal: no new workspace page, dashboard, or route tree was
+built. `app/invite/[token]/page.tsx` (outside app/(shell), reachable
+unauthenticated) is the new invitation landing/confirmation route:
+unauthenticated visitors see a generic "you've been invited" message
+and a sign-in link carrying `?returnTo=/invite/[token]`; authenticated
+visitors see safe metadata (organisation/engagement/role/invited email)
+resolved by a new, narrowly-scoped, read-only SECURITY DEFINER function,
+`public.preview_invitation()` (migration 0039) — needed because
+`invitations_select` RLS (P2B.2) deliberately restricts reads to
+`membership.manage` actors, and the invitee holds no membership at all
+yet. The page independently distinguishes invalid/expired/revoked/
+already-accepted/email-mismatch on every load (never duplicating
+`accept_invitation()`'s own logic — a thin Server Action just calls the
+existing `acceptInvitation`, P2B.4, and redirects); a small, fixed
+error-code enum (never raw exception text) covers the few categories
+(practice-user/tenant-mismatch/client-org-mismatch/role-invalid/
+membership-conflict/profile-missing) the page's own fresh preview can't
+already re-detect on its own. Post-acceptance destination
+(`/organisations/[id]` or `/organisations/[id]/engagements/[id]?joined=1`)
+is derived ENTIRELY from `acceptInvitation`'s own return value, never
+from a caller-supplied parameter — both existing pages gained a small,
+additive `?joined=1` welcome banner, mirroring the existing `?created=1`
+convention byte-for-byte. `/login` gained an optional, open-redirect-
+guarded `returnTo` field (a new `safeReturnTo` validator, its own
+module because a `"use server"` file may only export async Server
+Actions — confirmed directly when this slice's first build attempt
+failed on it) so the sign-in round trip returns to the invitation.
+Client vs. consultant navigation is a UI convenience only, driven by
+the EXISTING `users.client_org_id` column (a new, minimal
+`getUserClientOrgId`, mirroring `getUserTenantId` exactly) — not a new
+"isClient" flag or authorization concept: `GlobalNav` hides
+"Methodology" for a client (already unreachable for one regardless,
+Phase 0 confirmed — `requireTenantAccess` has no organisation-membership
+fallback) and relabels "Organisations" to "Home." Phase 0 inspection
+(read fresh) found the EXISTING organisation-detail/engagement-detail
+pages already answer this slice's own "which organisation/engagement,
+what's it about, what's next" requirement for any engagement member,
+client or practice — real Assessment status, and links into Scope/
+Data Landscape/Assessments/Risks/Findings/Remediation/Reports/Members,
+every write action already conditionally rendered behind its own `canX`
+check — so these pages ARE the client workspace, reused entirely
+unchanged (beyond the welcome banner). Evidence visibility
+(`getEvidenceSummaryForControl`'s own `client_visible`-only filter for a
+caller without `evidence.review`, P2A) and Risk/Finding/Remediation
+read access (client-side roles' own approved CV-only standing, P2A's
+own db/seed/roles.ts comment) were both verified already correct and
+unchanged — no new confidentiality architecture was built or needed.
+41 new tests across four files (`tests/app/invitation-preview.test.ts`,
+`tests/app/auth-return-to.test.ts`, `tests/app/invite-acceptance-ux.test.ts`,
+`tests/app/client-onboarding.test.ts`) — real PostgreSQL throughout,
+following this codebase's own established convention of testing the
+domain/authorization layer directly rather than rendering `.tsx` pages
+(a convention already consistent across every one of the ~30 prior
+slices touching `app/`, confirmed by inspection before writing a single
+test). Covers: safe preview fields for every invitation status, no
+token_hash/internal identifier ever returned, anon cannot call
+`preview_invitation`; the open-redirect guard (protocol-relative URLs,
+scheme URLs, backslash tricks, all rejected); the error-code mapping
+and destination builder; and a full pilot-loop integration test —
+invite, preview, accept, reach own organisation/engagement, blocked
+from an unrelated organisation/engagement AND cross-tenant, holds no
+consultant-only capability (`assessment.finalize`/`risk.manage`/
+`evidence.review` all correctly `false`), and the inviting consultant's
+own standing is completely unaffected. 1045 tests pass (77 files, +26
+from P2B.4's 1019/73), typecheck/lint/build all clean, full DB suite run
+twice. DECISIONS.md R-175 through R-180 record the decisions, including
+an explicit, considered acceptance of one residual risk (framework-level
+request-path logging potentially recording the token — R-180) flagged
+for a pre-external-customer security pass, not resolved here.
+
+## Internal Pilot Readiness Check (P2B.5, explicit per its own brief §20)
+
+Verified by actually tracing which application ROUTES exist and are
+reachable for each step — not merely "tests pass":
+
+**PRACTICE SIDE:** (1) Create Organisation — `/organisations/new`,
+existing, unaffected. (2) Create Engagement — `/organisations/
+[id]/engagements/new`, existing, unaffected. (3) Add/configure an
+Assessment — `/organisations/[id]/engagements/[id]/assessments/new`,
+existing, unaffected. (4) Create an invitation — **NO UI EXISTS.**
+`createInvitation` (P2B.3) is fully implemented, authorized, and tested,
+but no Server Action or page anywhere in `app/` calls it — this slice's
+own 22-section brief describes the RECEIVING side of onboarding
+exclusively (its own flow diagram begins AT an existing invitation, not
+at creating one) and never once instructs building invitation-creation
+UI; DECISIONS.md R-179 records this as a deliberate, considered
+deferral, not an oversight. (5) Obtain the controlled dev delivery
+output — reachable only via a script/REPL call to `createInvitation`
+today (its return value plus `getDevInvitationDeliveryAdapter().
+getCapturedDeliveries()`, P2B.3), for the same reason as (4).
+
+**CLIENT SIDE:** (6) Open invitation — `/invite/[token]`, new this
+slice, reachable. (7) Authenticate — existing `/login`, now with
+`returnTo` support, reachable. (8) Accept invitation — `acceptInvitationAction`
+-> `acceptInvitation` (P2B.4), reachable. (9) Land in the correct
+Organisation/Engagement — `buildPostAcceptanceDestination`, reachable,
+tested. (10) See the client workspace — the existing organisation/
+engagement detail pages, now nav-differentiated, reachable. (11) Access
+whatever Assessment/Evidence views are safely exposed — the existing
+Assessment workspace page and its own inline Evidence upload/review,
+gated exactly as before (client role gets `client_visible` Evidence
+only, no write actions it lacks permission for), reachable.
+
+**CONSULTANT SIDE:** (12)-(15) Return to the engagement, continue the
+Assessment workflow, see the client's own membership correctly
+represented in the Members section, continue Evidence/Risk/Finding/
+Remediation/Validation work — all EXISTING pages/Server Actions,
+completely unaffected by this slice (only `GlobalNav` gained a
+client-only branch; every practice-side render path is unchanged),
+reachable.
+
+**Verdict: the internal pilot workflow is functional end-to-end EXCEPT
+for one precise, identified blocker** — step (4)/(5), invitation
+creation, has no UI. Every other numbered step (1-3, 6-15) is a real,
+reachable application route today. Per the brief's own explicit
+instruction ("Do not claim Internal Pilot Ready merely because tests
+pass... If one small blocker remains, identify it precisely"), this is
+reported precisely rather than silently built past (which would have
+been unrequested scope expansion — see DECISIONS.md R-179) or silently
+claimed complete. Closing this one gap — a small "Invite a client user"
+form on the organisation/engagement detail page, following the EXACT
+existing "Add Member" form pattern and calling the already-tested
+`createInvitation` — is the smallest remaining step before this
+workflow can be run end-to-end by a human clicking through the running
+application, with no script involved.
+
 Status: 2026-09-03 — Slice P2B.4 (Secure Invitation Acceptance & User
 Provisioning) COMPLETE (Session 40): the security-critical transaction
 that turns an invitation bearer token, presented by an already-

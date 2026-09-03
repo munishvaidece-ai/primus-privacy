@@ -11,7 +11,7 @@ export default async function OrganisationDetailPage({
   searchParams,
 }: {
   params: { organisationId: string };
-  searchParams: { created?: string; name?: string };
+  searchParams: { created?: string; name?: string; joined?: string };
 }) {
   const user = await requireAuthenticatedUser();
 
@@ -43,6 +43,11 @@ export default async function OrganisationDetailPage({
         <p role="status" className="mb-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
           {searchParams.name ? <>“{searchParams.name}” was</> : "The organisation was"} created successfully. You
           are now an organisation member.
+        </p>
+      ) : null}
+      {searchParams.joined === "1" ? (
+        <p role="status" className="mb-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
+          Welcome — you&rsquo;ve joined {organisation.name}.
         </p>
       ) : null}
 

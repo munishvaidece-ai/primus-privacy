@@ -242,6 +242,26 @@ export async function getUserTenantId(db: RequestDb, userId: string): Promise<st
 }
 
 /**
+ * P2B.5 (Client Onboarding & Acceptance UX): the SAME authoritative
+ * signal `accept_invitation()` (migration 0038) already uses to
+ * distinguish a practice-side identity from a client one —
+ * `users.client_org_id`, `NULL` for practice-side (PRIMUS) users, set
+ * for client-side users (`users.ts`'s own schema comment; P2B.4's own
+ * `invitation_practice_user` check). Not a new "isClient" boolean: this
+ * reads the existing authoritative column directly, mirroring
+ * `getUserTenantId`'s identical shape and identical "every user can
+ * always read their own row" justification (`users_select` RLS,
+ * `id = auth.uid()`). Used by the shell layout to decide which
+ * navigation to render — a UI convenience only; every actual access
+ * decision remains whichever `canX`/`requireX` check already gates that
+ * specific operation, unchanged by this function's own result.
+ */
+export async function getUserClientOrgId(db: RequestDb, userId: string): Promise<string | null> {
+  const [row] = await db.select({ clientOrgId: users.clientOrgId }).from(users).where(eq(users.id, userId)).limit(1);
+  return row?.clientOrgId ?? null;
+}
+
+/**
  * Slice B1 (PHASE B instructions §7): the exact narrow check migration
  * 0001's `organisations_insert` RLS policy performs —
  * `is_active_tenant_member(tenant_id)`, nothing broader. Deliberately a

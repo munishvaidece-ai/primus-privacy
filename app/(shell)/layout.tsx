@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { withRequestDb } from "@/lib/db/request-client";
+import { getUserClientOrgId } from "@/lib/authorization/service";
 import { GlobalNav } from "@/components/shell/nav";
 import { UserMenu } from "@/components/shell/user-menu";
 
@@ -24,6 +26,18 @@ export const dynamic = "force-dynamic";
 export default async function ShellLayout({ children }: { children: ReactNode }) {
   const user = await requireAuthenticatedUser();
 
+  // P2B.5 (Client Onboarding & Acceptance UX): reads the EXISTING
+  // authoritative `users.client_org_id` column (via
+  // `getUserClientOrgId`, mirroring `getUserTenantId`'s identical
+  // shape) — not a new "isClient" flag stored anywhere, just the same
+  // signal `accept_invitation()` (migration 0038) already uses to
+  // distinguish a practice-side identity from a client one. A UI
+  // convenience only (which nav items to render) — every actual access
+  // decision remains whichever `canX`/`requireX` check already gates
+  // that specific server-side operation, entirely unaffected by this
+  // value.
+  const isClient = await withRequestDb(user.id, (db) => getUserClientOrgId(db, user.id)) !== null;
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">
@@ -32,7 +46,7 @@ export default async function ShellLayout({ children }: { children: ReactNode })
             <Link href="/organisations" className="text-sm font-semibold tracking-tight text-slate-900">
               PRIMUS PRIVACY
             </Link>
-            <GlobalNav />
+            <GlobalNav isClient={isClient} />
           </div>
           <UserMenu email={user.email} />
         </div>
