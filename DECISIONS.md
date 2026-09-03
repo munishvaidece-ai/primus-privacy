@@ -4541,3 +4541,146 @@ already-revoked row (`status`/`accepted_at`/`accepted_user_id`/
 the SAME migration's `invitations_insert` policy (`status = 'pending'
 AND accepted_user_id IS NULL AND accepted_at IS NULL AND revoked_at IS
 NULL`), tested by E7/E8.
+
+### R-164 — Invitation token: 32 bytes of CSPRNG entropy, base64url-encoded, SHA-256 hashed, unsalted (Slice P2B.3)
+
+**Decision:** `lib/domain/invitations.ts`'s `generateInvitationToken()`
+generates the raw invitation token via `node:crypto`'s `randomBytes(32)`
+— 256 bits from Node's CSPRNG, the same primitive `crypto.randomUUID()`
+itself is built on — encoded with Node's built-in `"base64url"` `Buffer`
+encoding (URL-safe, no padding, no dependency added). `hashInvitationToken()`
+computes a plain, unsalted `SHA-256` hex digest via `node:crypto`'s
+`createHash`, mirroring `lib/storage/evidence-storage.ts`'s own
+`sha256Buffer` (an existing project utility, reused in shape though not
+literally called — that function hashes file content for integrity, this
+hashes a credential for verification, different enough call sites to
+warrant their own small functions, per the same "narrowly scoped, not a
+premature shared abstraction" posture this codebase already applies
+elsewhere) rather than a password-hashing KDF (`bcrypt`/`scrypt`/`argon2`).
+**Rationale:** no new dependency needed — Node's built-in crypto module is
+sufficient (P2B.3 brief's own explicit preference). 256 bits of entropy is
+far beyond what any realistic offline or online brute-force could
+exhaust regardless of hash speed, which is exactly why a KDF (designed to
+slow down brute-forcing a LOW-entropy, human-chosen secret like a
+password) is the wrong tool here and a plain fast hash is the right one —
+this is the same distinction R-159 already drew for `token_hash` being a
+"verifier for a bearer invitation credential," not a password. Unsalted
+is a deliberate, necessary choice, not an oversight: a future
+`accept_invitation()` function (P2B.4) must compute `SHA-256(incoming raw
+token)` and compare it, directly, against the single stored `token_hash`
+value with no way to know a per-row salt in advance without an extra
+lookup — salting would not add meaningful protection against a
+256-bit-entropy secret and would only complicate that comparison. Forward
+note for P2B.4: this decision does not itself specify HOW that future
+comparison should be performed (P2B.3 implements no acceptance/lookup
+logic at all) — the future slice should perform the comparison as an
+ordinary indexed `WHERE token_hash = $1` equality lookup (the standard,
+correct pattern for a random bearer-token verifier; unlike comparing two
+values already held in application memory, a lookup query's timing is
+dominated by index access, not by a hash-value trend a client could
+usefully measure), not by fetching every candidate row and diffing hash
+bytes in application code — `hashInvitationToken()` is exported
+specifically so that future slice computes the identical hash via this
+same function rather than reimplementing it.
+
+### R-165 — Invitation delivery boundary: one interface, one method, a Dev-only in-memory adapter; no real email provider in this slice (Slice P2B.3)
+
+**Decision:** `lib/domain/invitation-delivery.ts` introduces
+`InvitationDeliveryPayload`/`InvitationDeliveryAdapter` (a single
+`deliver(payload): Promise<void>` method) and exactly one
+implementation, `DevInvitationDeliveryAdapter`, which captures each
+payload in memory only (never disk, never any log) and is selected
+unconditionally by `getInvitationDeliveryAdapter()` — there is no real
+adapter to select between yet. The selector-function shape deliberately
+mirrors `lib/storage/evidence-storage.ts`'s own `getEvidenceStorageAdapter()`
+("real once configured, local/test stand-in otherwise") even though,
+today, there is only ever one branch — so that introducing a real
+provider (Resend/SendGrid/AWS SES/etc., explicitly out of this slice's
+scope) later is a change to that one function, not to `createInvitation`
+or any other caller.
+**Rationale:** no notification/email abstraction existed anywhere in this
+codebase before this slice (grepped fresh) — building a general-purpose
+notification architecture now would be speculative; this is the smallest
+boundary that lets `createInvitation` hand off a raw token without ever
+persisting, logging, or returning it through its own return value, while
+leaving the real delivery mechanism entirely for a later slice to add.
+`getDevInvitationDeliveryAdapter()` is a SEPARATE, test-only accessor
+that narrows the interface-typed result back to the concrete Dev type —
+`getCapturedDeliveries()`/`clear()` are deliberately NOT part of the
+public `InvitationDeliveryAdapter` interface (a real future provider
+would not implement them), so a caller that only ever depends on the
+interface can never accidentally read back a captured token.
+
+### R-166 — `createInvitation`: 7-day TTL, normalized email, duplicate-pending rejected, every security-sensitive field server-controlled with no caller input at all (Slice P2B.3)
+
+**Decision:** `lib/domain/invitations.ts`'s `createInvitation` is the
+first domain function to write an `invitations` row. It reuses P2B.2's
+authorization dispatcher (`requireInvitationManageAccess`) and role
+allowlist (`isInvitationRoleAllowedForScope`) UNCHANGED — no second
+authorization model. `CreateInvitationInput` names exactly four
+caller-controllable fields (`organisationId`, `engagementId`,
+`invitedEmail`, `roleId`); there is no `tenantId` field on it at all —
+`tenant_id` is derived exclusively from the Organisation's own database
+row (`loadAuthoritativeOrganisation`), making "caller-controlled
+tenant_id" structurally impossible rather than merely rejected by a
+check. `invited_by` is always the authenticated caller (`userId` from
+`withRequestDb`), never an input; `expires_at` is always
+`now() + 7 days`, computed server-side (`INVITATION_TTL_MS`), never an
+input; `status`/`accepted_user_id`/`accepted_at`/`revoked_at` are never
+set by this function at all (column defaults / NULL). `invitedEmail` is
+trimmed and lowercased before persistence, matching the database's own
+`invitations_invited_email_normalized_check` (migration 0034) exactly. A
+duplicate pending invitation for the same normalized email at the same
+scope is rejected with a clean `DuplicatePendingInvitationError` — an
+RLS-scoped application precheck for the common case (mirroring
+`createOrganisation`/`createEngagement`'s own established "best-effort,
+not race-safe on its own" duplicate-name checks), with the existing
+partial unique indexes (migration 0034) as the real, race-safe backstop,
+explicitly caught and re-thrown as the same clean error. No automatic
+revoke-and-reissue behavior was added — a duplicate is always rejected,
+never silently superseded, per the brief's own explicit "safest default"
+instruction; nothing in the approved design (docs/P2B_CLIENT_INVITATION_
+DESIGN.md) establishes a reissue behavior to implement instead.
+**Rationale:** every item on P2B.3's own "must not permit a caller to
+override" list (tenant_id, invited_by, status, token_hash, expires_at,
+created_at, accepted_user_id, accepted_at, revoked_at) is closed at the
+TYPE level, not merely by a runtime check — `CreateInvitationInput` does
+not carry a field for any of them, so there is no code path by which a
+value for one could even be read from the caller's own input object.
+`createInvitation` returns only `{ id }` — the same minimal shape
+`createOrganisation`/`createEngagement` already return — deliberately
+never the raw token, its hash, or the full row; a future caller re-reads
+the row it already knows the id of, subject to the same `invitations_
+select` RLS this function's own caller already satisfies by construction
+(the authorization check above).
+
+### R-167 — `listInvitations`/`revokeInvitation`: minimal, built in this slice; no acceptance path added (Slice P2B.3)
+
+**Decision:** P2B.3's own brief left `listInvitations`/`revokeInvitation`
+optional — build them only if they make invitation creation
+"operationally usable" without materially expanding the slice. Both were
+built, minimally: `listInvitations(db, userId, { organisationId,
+engagementId })` returns the roster for ONE exact scope (never "every
+invitation this actor can manage across the tenant"), gated by the SAME
+`requireInvitationManageAccess` check, and never selects `token_hash` at
+the query level at all (not merely omitted from the returned shape).
+`revokeInvitation` performs ONLY `pending -> revoked`: idempotent for an
+already-revoked row (mirrors `revokeEngagementMember`'s own "a redundant
+safe action is not a failure" posture), and throws a new
+`InvitationNotPendingError` for an already-accepted row rather than
+attempting the write at all (which migration 0035's own
+`prevent_invitation_tampering` trigger would reject regardless — this is
+a clean error in front of that hard backstop, not a replacement for it).
+**Rationale:** both functions add zero new authorization surface — they
+call the exact same `requireInvitationManageAccess` dispatcher
+`createInvitation` already uses, and remain additionally, independently
+subject to migration 0037's own RLS policies unchanged. Building them now
+was judged to fit cleanly rather than materially expand the slice: doing
+so completes the exact authorization boundary P2B.2 already prepared and
+documented as "reserved for" this purpose (R-163's own "prepares that
+boundary without introducing acceptance itself"), using functions that
+already existed before this slice, with no new schema, no new
+permission, and no new RLS policy required. Explicitly, once again: no
+function in this module ever writes `status = 'accepted'`, creates a
+`users` row, or creates any membership row — acceptance/provisioning
+remains entirely out of scope, for P2B.4.

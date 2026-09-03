@@ -39,6 +39,19 @@ import { users } from "./users";
 // `canManageInvitation`/`isInvitationRoleAllowedForScope`/
 // `canAssignInvitationRole`) for the full contract.
 //
+// P2B.3 (DECISIONS.md R-164 through R-167) is the first slice to
+// actually write a row here: `lib/domain/invitations.ts`'s
+// `createInvitation`/`listInvitations`/`revokeInvitation`, reusing the
+// authorization/RLS layer above entirely unchanged. `token_hash` is now
+// genuinely populated — a SHA-256 digest of a 32-byte CSPRNG-generated
+// raw token that is never itself persisted anywhere on this or any
+// other table (`lib/domain/invitations.ts`'s own `generateInvitationToken`/
+// `hashInvitationToken`); the raw token is handed to
+// `lib/domain/invitation-delivery.ts`'s delivery boundary and never
+// returned, logged, or stored. Still no acceptance: nothing in P2B.3
+// ever writes `status = 'accepted'`, and no SECURITY DEFINER
+// `accept_invitation()` function exists yet — that remains P2B.4.
+//
 // Field provenance, matching the approved design's own field list
 // (docs/P2B_CLIENT_INVITATION_DESIGN.md §5) with one deliberate
 // omission: no `revoked_by` column — "who revoked this" is already

@@ -1,5 +1,69 @@
 # PRIMUS PRIVACY — Progress Log
 
+Status: 2026-09-03 — Slice P2B.3 (Invitation Creation & Secure Token
+Lifecycle) COMPLETE (Session 39): the first domain function that
+actually writes an `invitations` row —
+`lib/domain/invitations.ts`'s `createInvitation`, plus the minimal
+`listInvitations`/`revokeInvitation` pair. Reuses P2B.2's authorization
+dispatcher (`requireInvitationManageAccess`) and role allowlist
+(`isInvitationRoleAllowedForScope`) unchanged — no second authorization
+model, no new migration, no new RLS policy (migration 0037 already
+covers every write this slice performs). `CreateInvitationInput` names
+exactly four caller-controllable fields (organisationId/engagementId/
+invitedEmail/roleId) — there is no `tenantId` field on it at all, so
+`tenant_id` is structurally impossible to spoof (derived exclusively
+from the Organisation's own database row); `invited_by`/`expires_at`/
+`status`/`token_hash`/`accepted_user_id`/`accepted_at`/`revoked_at` are
+never caller inputs either, closed at the type level, not merely by a
+runtime check. The raw invitation token is 32 bytes (256 bits) of
+`node:crypto` CSPRNG entropy, base64url-encoded (no new dependency),
+SHA-256-hashed (unsalted — the correct choice for a high-entropy random
+credential, not a password) before the ONLY database write that ever
+touches it; the raw value itself exists only in local scope between
+generation and being handed to a new, minimal delivery boundary
+(`lib/domain/invitation-delivery.ts`) — never logged, never returned
+through `createInvitation`'s own return value (`{ id }` only, mirroring
+`createOrganisation`/`createEngagement`'s existing minimal-return
+convention). That delivery boundary is one interface
+(`InvitationDeliveryAdapter`, one `deliver()` method) and exactly one
+implementation — an in-memory-only Dev stand-in, selected
+unconditionally (mirrors `lib/storage/evidence-storage.ts`'s own
+"real once configured, local stand-in otherwise" selector shape, with
+only one branch so far); P2B.3 explicitly does NOT integrate a real
+email provider and sends no real email. 7-day TTL computed server-side;
+`invited_email` trimmed and lowercased to match the database's own
+normalization CHECK exactly; a duplicate pending invitation at the same
+normalized scope is rejected (`DuplicatePendingInvitationError`) via an
+RLS-scoped application precheck backed by the existing partial unique
+indexes as the real, race-safe enforcement — never silently
+revoked-and-reissued. 36 new focused tests
+(`tests/app/invitations.test.ts`, categories A-K plus a minimal
+list/revoke pair, real PostgreSQL throughout) covering: basic creation
+or +7d expiry math; token entropy/encoding; the raw token absent from
+the persisted row, the audit log, and every console output; token_hash
+deterministically reproducible and an altered token producing a
+different hash (acceptance/verification NOT implemented — this is
+purely a hash-consistency proof); email normalization and normalized
+duplicate detection; the full organisation/engagement role allowlist
+(positive and negative); scope-mismatch, cross-tenant-organisation, and
+cross-tenant-engagement rejection; every authorization boundary
+(same-org, same-engagement, unrelated-org, unrelated-engagement,
+cross-tenant actor); the database unique-index backstop independent of
+the application precheck; five representative direct-SQL RLS-backstop
+checks (invited_by forgery, wrong initial status, disallowed role,
+cross-tenant insert, anon); the audit entry's own shape; and an
+explicit proof that creating and revoking an invitation never creates a
+user or membership row and never marks anything accepted. 979 tests
+pass (72 files, +36 from P2B.2's 943/71), typecheck/lint/build all
+clean, full DB suite run twice (twice again after a lint fix, all four
+runs green). DECISIONS.md R-164 through R-167 record the token/
+delivery/creation/list-revoke decisions, including a forward note for
+P2B.4 on how the future acceptance function should perform its
+token_hash comparison. Per explicit instruction, STOP after P2B.3 — no
+invitation acceptance, account provisioning, Supabase Auth user
+creation, membership-as-acceptance, SECURITY DEFINER acceptance
+function, real email integration, or Client Portal UI was implemented.
+
 Status: 2026-09-02 — Slice P2B.2 (Invitation Authorization & RLS)
 COMPLETE (Session 38): the authorization/security slice P2B.1/P2B.1.1
 deliberately deferred — "who may create, list/read, or revoke an
