@@ -8,6 +8,11 @@ export default defineConfig({
   // in a plugin dependency for one alias.
   resolve: {
     alias: {
+      // Ordered before the broader "@" alias below so this exact,
+      // longer specifier is matched first — see tests/shims/
+      // evidence-storage.ts for why this one module needs its own
+      // override rather than resolving through the general "@" alias.
+      "@/lib/storage/evidence-storage": fileURLToPath(new URL("./tests/shims/evidence-storage.ts", import.meta.url)),
       "@": fileURLToPath(new URL(".", import.meta.url)),
       // See tests/shims/server-only.ts for why.
       "server-only": fileURLToPath(new URL("./tests/shims/server-only.ts", import.meta.url)),

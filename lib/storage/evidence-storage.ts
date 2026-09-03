@@ -164,8 +164,17 @@ class SupabaseEvidenceStorageAdapter implements EvidenceStorageAdapter {
  * and cannot, prove anything about real Supabase Storage's own bucket
  * privacy or public-URL rejection (DECISIONS.md R-95, PROGRESS.md's own
  * explicit "not tested" list).
+ *
+ * Exported (not merely module-private) so `tests/shims/evidence-storage.ts`
+ * can construct this SAME class directly — reusing its real, unmodified
+ * implementation — rather than duplicating it. This does not change
+ * `getEvidenceStorageAdapter()`'s own real-app selection logic below at
+ * all: a real Supabase-configured `next dev`/`next build`/`next start`
+ * still selects `SupabaseEvidenceStorageAdapter` exactly as before: this
+ * export only makes the class reachable to import, it does not change
+ * which one `getEvidenceStorageAdapter()` picks.
  */
-class LocalEvidenceStorageAdapter implements EvidenceStorageAdapter {
+export class LocalEvidenceStorageAdapter implements EvidenceStorageAdapter {
   private root(): string {
     return path.join(process.cwd(), ".local-storage", "evidence");
   }

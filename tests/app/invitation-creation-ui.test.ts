@@ -177,14 +177,20 @@ describe("Application layer — Invitation Creation UI support functions (P2B.5.
     expect(getDevInvitationUrl(id)).toBeTruthy(); // sanity: available under the real test NODE_ENV
 
     const original = process.env.NODE_ENV;
-    // @ts-expect-error — NODE_ENV is typed readonly in some Next.js type
-    // shims; a direct assignment is the standard way tests toggle it.
-    process.env.NODE_ENV = "production";
+    // `NODE_ENV` is declared `readonly` on the global `NodeJS.ProcessEnv`
+    // by some `next` versions' own type shim (node_modules/next/types/
+    // global.d.ts) and not by others — rather than a `@ts-expect-error`
+    // whose necessity depends on exactly which one resolved, cast
+    // `process.env` to a plain mutable-string-indexed type first; the
+    // assignment is then unconditionally valid TypeScript regardless of
+    // whether the ambient declaration happens to mark the property
+    // read-only in a given install.
+    const mutableEnv = process.env as Record<string, string | undefined>;
+    mutableEnv.NODE_ENV = "production";
     try {
       expect(getDevInvitationUrl(id)).toBeNull();
     } finally {
-      // @ts-expect-error — see above.
-      process.env.NODE_ENV = original;
+      mutableEnv.NODE_ENV = original;
     }
   });
 

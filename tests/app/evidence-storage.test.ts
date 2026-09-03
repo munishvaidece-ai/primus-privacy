@@ -2,15 +2,21 @@
 // PostgreSQL (PHASE C2 instructions §25: "Clearly distinguish: database
 // tests / storage integration tests / production Supabase validation").
 // This file exercises `LocalEvidenceStorageAdapter` — the local/test
-// stand-in `getEvidenceStorageAdapter()` selects whenever
-// NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY are unset,
-// which is the case throughout this test run (no real Supabase project
-// exists — DECISIONS.md D-03/R-95). Real file I/O, a real SHA-256 over
-// real bytes, and a real deletion are exercised here; what is NOT
-// exercised anywhere in this project is real Supabase Storage's own
-// bucket privacy or public-URL rejection — see PROGRESS.md's explicit
-// "not tested" list and this file's own comments on the specific tests
-// PHASE C2 instructions §26 (18-22) ask for that cannot run here.
+// stand-in every Vitest run receives regardless of `.env`'s own
+// NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY contents,
+// because `@/lib/storage/evidence-storage` resolves to
+// `tests/shims/evidence-storage.ts` under Vitest (see that file, and
+// `vitest.config.ts`'s own alias entry, for why: those two vars are
+// legitimately configured in local `.env` for real Supabase Auth, but
+// their presence must never make an automated test run attempt real
+// Supabase Storage access — no production Supabase project's bucket
+// should ever see traffic from a `vitest` run). Real file I/O, a real
+// SHA-256 over real bytes, and a real deletion are exercised here; what
+// is NOT exercised anywhere in this project is real Supabase Storage's
+// own bucket privacy or public-URL rejection — see PROGRESS.md's
+// explicit "not tested" list and this file's own comments on the
+// specific tests PHASE C2 instructions §26 (18-22) ask for that cannot
+// run here.
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -21,16 +27,22 @@ import {
   parseLocalSignedUrl,
   sha256Buffer,
   EVIDENCE_BUCKET,
+  LocalEvidenceStorageAdapter,
 } from "@/lib/storage/evidence-storage";
 
 describe("Evidence storage adapter (Slice C2) — local/test stand-in", () => {
   const localStorageRoot = path.join(process.cwd(), ".local-storage", "evidence");
 
   beforeEach(async () => {
-    // Confirms the adapter selected is genuinely the local one for this
-    // test run — NEXT_PUBLIC_SUPABASE_URL/ANON_KEY are never set in this
-    // suite (tests/app/helpers.ts only sets DATABASE_URL).
-    expect(process.env.NEXT_PUBLIC_SUPABASE_URL).toBeFalsy();
+    // The meaningful invariant is adapter SELECTION, not raw env-var
+    // presence — `.env` legitimately carries real Supabase configuration
+    // for local development (real Auth needs it), so asserting those
+    // vars are absent is no longer a valid precondition. What must hold
+    // regardless is that Vitest itself never receives the real
+    // Supabase-backed adapter: confirmed directly, by identity, via the
+    // module-alias shim (tests/shims/evidence-storage.ts) rather than by
+    // inferring it from `.env`'s contents.
+    expect(getEvidenceStorageAdapter()).toBeInstanceOf(LocalEvidenceStorageAdapter);
   });
 
   afterEach(async () => {
