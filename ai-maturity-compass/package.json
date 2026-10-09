@@ -1,0 +1,48 @@
+{
+  "name": "ai-maturity-compass",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Maturity Compass — Assessment, Governance & Value Realization Platform (Primus Partners prototype)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "start": "vite preview --host 127.0.0.1 --port 4173",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "extract:spec": "python3 -I scripts/extract_questions.py"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "5.2.2",
+    "clsx": "2.1.1",
+    "jspdf": "4.2.1",
+    "jspdf-autotable": "5.0.8",
+    "lucide-react": "0.469.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-hook-form": "7.62.0",
+    "react-router-dom": "6.30.1",
+    "recharts": "2.15.4",
+    "zod": "3.25.76",
+    "zustand": "4.5.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.1.0",
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitejs/plugin-react": "4.3.4",
+    "autoprefixer": "10.4.20",
+    "jsdom": "25.0.1",
+    "postcss": "8.4.49",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.7.2",
+    "vite": "5.4.11",
+    "vitest": "2.1.8"
+  }
+}

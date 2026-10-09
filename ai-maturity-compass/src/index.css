@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body { @apply bg-canvas text-ink font-sans antialiased; font-size: 15px; line-height: 1.5; }
+  h1, h2, h3, h4 { @apply text-ink; letter-spacing: -0.01em; }
+  :focus-visible { outline: 2px solid #1597A2; outline-offset: 2px; border-radius: 4px; }
+  button, [role='button'], a { -webkit-tap-highlight-color: transparent; }
+  ::selection { background: #D5EEF0; }
+  table { border-collapse: collapse; }
+  dialog::backdrop { background: rgba(7, 20, 40, 0.55); }
+  dialog { @apply p-0 bg-transparent; max-width: 100vw; max-height: 100vh; }
+}
+
+@layer components {
+  .card { @apply bg-white border border-line rounded-xl shadow-card min-w-0; }
+  .card-pad { @apply p-5; }
+  .kicker { @apply text-xs font-semibold uppercase tracking-wider text-muted; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors select-none disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap; }
+  .btn-md { @apply px-3.5 py-2 text-sm; }
+  .btn-sm { @apply px-2.5 py-1.5 text-[13px]; }
+  .btn-primary { @apply bg-navy-900 text-white hover:bg-navy-700 active:bg-navy-800; }
+  .btn-teal { @apply bg-teal-600 text-white hover:bg-teal-700; }
+  .btn-secondary { @apply bg-white text-ink border border-navy-200 hover:bg-navy-50; }
+  .btn-ghost { @apply bg-transparent text-navy-700 hover:bg-navy-100; }
+  .btn-danger { @apply bg-bad text-white hover:bg-red-800; }
+  .btn-danger-outline { @apply bg-white text-bad border border-red-300 hover:bg-bad-bg; }
+  .input { @apply w-full rounded-lg border border-navy-200 bg-white px-3 py-2 text-sm text-ink placeholder:text-navy-400 focus:border-teal-500 disabled:bg-navy-50 disabled:text-muted; }
+  .label { @apply block text-sm font-medium text-ink mb-1; }
+  .hint { @apply text-xs text-muted mt-1; }
+  .th { @apply text-left text-xs font-semibold uppercase tracking-wide text-muted px-3 py-2 bg-navy-50 border-b border-line whitespace-nowrap; }
+  .td { @apply px-3 py-2.5 text-sm border-b border-line align-top; }
+  .link { @apply text-teal-700 hover:text-teal-800 underline underline-offset-2; }
+}
+
+/* Hatch used for Not Applicable / evidence-gap segments (never colour alone). */
+.hatch-na { background-image: repeating-linear-gradient(45deg, #cfd8e3 0 2px, #eef2f6 2px 6px); }
+.hatch-gap { background-image: repeating-linear-gradient(135deg, #f2c14e 0 2px, #fff4d6 2px 6px); }
+
+/* Printable report view */
+.print-only { display: none; }
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body { background: #fff; font-size: 11px; }
+  .no-print { display: none !important; }
+  .print-only { display: block; }
+  .print-page-break { break-before: page; }
+  .avoid-break { break-inside: avoid; }
+  .card { box-shadow: none; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
