@@ -21,12 +21,23 @@ npm run dev          # development server → http://127.0.0.1:5173
 npm run build        # type-check + production build → dist/
 npm run preview      # serve the production build → http://127.0.0.1:4173   (alias: npm start)
 
+npm run build:artifact  # single self-contained HTML page → dist-artifact/artifact.html (for a sandboxed viewer)
+
 npm test             # unit tests (Vitest)
 npm run test:e2e     # end-to-end tests (Playwright, real Chromium, against the production build)
 ```
 
 Requires Node 18+ (developed on Node 22). For `test:e2e`, Chromium is expected at `/opt/pw-browsers/chromium`
 (override with `CHROMIUM_PATH=/path/to/chrome`); `pdftotext` (poppler) is used to read the generated PDF.
+
+### Single-file build (no install needed to view)
+
+`npm run build:artifact` bundles everything — JS, CSS, charts, PDF generator — into one HTML page
+(`dist-artifact/artifact.html`, ~1.8 MB, no network requests). It is what was published as a Claude Artifact. In that build:
+the router is in-memory (the viewer's URL is never rewritten), file exports go through the viewer's `downloads` capability
+(the viewer asks you to confirm each save), the print button is hidden (print dialogs are unavailable), and if the viewer blocks
+browser storage the app keeps working in memory and says so (changes then last until the page is closed). `e2e/artifact.spec.ts`
+loads that page in a sandboxed iframe under a strict CSP to check all of this.
 
 On first launch the app loads a clearly-labelled **illustrative demonstration assessment** (synthetic, fictional
 organization). Use **New assessment** to start a blank one — the demo is never overwritten.

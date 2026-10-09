@@ -6,7 +6,7 @@ import { NeedAssessment, NeedProfile } from '../components/shared';
 import { Badge, Button, Callout, Card, EmptyState, Modal, PageHeader, ProgressBar, SelectField, Tabs, TabPanel, TextArea, TextField, useDocumentTitle, useToast, type Tone } from '../components/ui';
 import { DIMENSIONS, DIMENSION_BY_ID } from '../data/spec';
 import { bucketSchema, prioritySchema, recStatusSchema, type Assessment, type Bucket, type Priority, type RecOverride, type RecStatus } from '../domain/schema';
-import { downloadText } from '../export/download';
+import { downloadText, saveMessage } from '../export/download';
 import { exportFilename, recommendationsCsv } from '../export/csv';
 import { ADVISORY_NOTICE, BUCKET_LABELS, PRIORITY_LABELS, STATUS_LABELS, type Recommendation } from '../scoring/recommendations';
 import type { AssessmentResults } from '../scoring/results';
@@ -73,7 +73,7 @@ function Inner({ a, res }: { a: Assessment; res: AssessmentResults }) {
         description="Prioritized by deficient controls, low-maturity high-weight dimensions and missing evidence before lighter enhancements."
         actions={
           <>
-            <Button onClick={() => { downloadText(exportFilename(a, 'recommendations', 'csv'), recommendationsCsv(res)); toast('Recommendations exported'); }}><Download className="h-4 w-4" aria-hidden /> Export CSV</Button>
+            <Button onClick={async () => { const m = saveMessage(await downloadText(exportFilename(a, 'recommendations', 'csv'), recommendationsCsv(res)), 'Recommendations CSV'); toast(m.message, m.tone); }}><Download className="h-4 w-4" aria-hidden /> Export CSV</Button>
             <Button variant="primary" onClick={() => setAdding(true)}><Plus className="h-4 w-4" aria-hidden /> Add initiative</Button>
           </>
         }

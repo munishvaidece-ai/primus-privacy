@@ -208,6 +208,7 @@ export default function AppShell() {
   const warnings = useStore((s) => s.loadWarnings);
   const dismiss = useStore((s) => s.dismissWarnings);
   const storageError = useStore((s) => s.storageError);
+  const persistent = useStore((s) => s.persistent);
   const title = TITLES.find(([p]) => loc.pathname.startsWith(p))?.[1] ?? 'Executive Overview';
   const isPrint = loc.pathname === '/reports/print';
 
@@ -229,7 +230,7 @@ export default function AppShell() {
         </div>
       )}
       <div className="lg:pl-[268px]">
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-white/95 px-4 py-2.5 backdrop-blur sm:px-6 no-print">
+        <header style={{ top: 'env(safe-area-inset-top, 0px)' }} className="sticky z-20 flex items-center gap-3 border-b border-line bg-white/95 px-4 py-2.5 backdrop-blur sm:px-6 no-print">
           <button type="button" className="rounded-md p-1.5 hover:bg-navy-100 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open navigation menu"><Menu className="h-5 w-5" /></button>
           <div className="hidden min-w-0 sm:block">
             <div className="kicker">Primus Partners</div>
@@ -247,6 +248,7 @@ export default function AppShell() {
               <Callout key={i} tone="warn" title="Stored data notice" action={<button type="button" className="text-xs link" onClick={dismiss}>Dismiss</button>}>{w}</Callout>
             ))}
             {storageError && <Callout tone="bad" title="Changes are not being saved">{storageError}</Callout>}
+            {!persistent && <Callout tone="info" title="Changes last for this visit only">This view blocks browser storage, so your work is kept in memory until you close or reload the page. Use Export JSON on the Assessments page to keep anything you create.</Callout>}
             {a?.isDemo && (
               <Callout tone="warn" title="Illustrative demonstration assessment" action={<Link to="/assessments/new" className="btn btn-sm btn-secondary">Start a new assessment</Link>}>
                 Synthetic data for a fictional organization. Every figure is calculated from the seeded responses but is not a client finding and not a validated benchmark.

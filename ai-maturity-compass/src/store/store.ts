@@ -6,7 +6,7 @@ import {
   type Assessment, type AssessorProfile, type BenchmarkRecord, type CustomRec, type GateDecision, type IndicatorEntry, type IndiaItem, type Profile,
   type RecOverride, type Response, type RoiInputs, type ValueEvidence,
 } from '../domain/schema';
-import { clearStorage, loadState, saveState, type ExternalBenchmarkMeta } from './storage';
+import { clearStorage, loadState, saveState, storageMode, type ExternalBenchmarkMeta } from './storage';
 import { createDemoAssessment, DEMO_ID } from './seed/demo';
 
 type ScoringConfig = Assessment['config'];
@@ -20,6 +20,8 @@ export interface AppState {
   externalBenchmarks: BenchmarkRecord[];
   externalMeta: ExternalBenchmarkMeta | null;
   lastSavedAt: string | null;
+  /** False when the browser blocks storage and changes last only for this page session. */
+  persistent: boolean;
   storageError: string | null;
   loadWarnings: string[];
 
@@ -98,12 +100,14 @@ export const useStore = create<AppState>((set, get) => {
     externalBenchmarks: [],
     externalMeta: null,
     lastSavedAt: null,
+    persistent: true,
     storageError: null,
     loadWarnings: [],
 
     init() {
       if (get().ready) return;
       const { state, warnings } = loadState();
+      set({ persistent: storageMode() === 'local' });
       if (state) {
         const map: Record<string, Assessment> = {};
         state.assessments.forEach((a) => (map[a.id] = a));

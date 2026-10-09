@@ -14,7 +14,7 @@ export default defineConfig({
     launchOptions: { executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium', args: ['--no-sandbox'] },
   },
   webServer: {
-    command: 'npm run build && npm run preview',
+    command: 'npm run build && npm run build:artifact && npm run preview',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: true,
     timeout: 180_000,

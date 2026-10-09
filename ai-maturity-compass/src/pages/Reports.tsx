@@ -5,7 +5,7 @@ import { NeedAssessment, NeedProfile, ResultStatusBadge } from '../components/sh
 import { Badge, Button, Callout, Card, CardHeader, PageHeader, useDocumentTitle, useToast } from '../components/ui';
 import type { Assessment } from '../domain/schema';
 import { dimensionScoresCsv, exportFilename, indiaCsv, indicatorsCsv, principalScoresCsv, questionnaireCsv, recommendationsCsv } from '../export/csv';
-import { downloadBlob, downloadText } from '../export/download';
+import { downloadBlob, downloadText, saveMessage } from '../export/download';
 import { executiveSummary, fmt1 } from '../export/narrative';
 import type { AssessmentResults } from '../scoring/results';
 import { useCurrent, useResults } from '../store/hooks';
@@ -32,8 +32,8 @@ function Inner({ a, res }: { a: Assessment; res: AssessmentResults }) {
     setBusy(true);
     try {
       const { reportPdfBlob } = await import('../export/pdf');
-      downloadBlob(exportFilename(a, 'AI-maturity-report', 'pdf'), reportPdfBlob(a, res));
-      toast('PDF report generated from the current results');
+      const m = saveMessage(await downloadBlob(exportFilename(a, 'AI-maturity-report', 'pdf'), reportPdfBlob(a, res)), 'PDF report (from the current results)');
+      toast(m.message, m.tone);
     } catch (e) {
       console.error(e);
       toast('The PDF could not be generated', 'bad');
@@ -94,13 +94,13 @@ function Inner({ a, res }: { a: Assessment; res: AssessmentResults }) {
             <li key={c.key} className="flex items-start gap-3 rounded-lg border border-line p-3.5">
               <FileSpreadsheet className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" aria-hidden />
               <div className="min-w-0 flex-1"><div className="text-sm font-semibold">{c.label}</div><p className="text-xs text-muted">{c.desc}</p></div>
-              <Button size="sm" aria-label={`Download CSV: ${c.label}`} onClick={() => { downloadText(exportFilename(a, c.kind, 'csv'), c.build()); toast(`${c.label} exported`); }}><Download className="h-4 w-4" aria-hidden /> CSV</Button>
+              <Button size="sm" aria-label={`Download CSV: ${c.label}`} onClick={async () => { const m = saveMessage(await downloadText(exportFilename(a, c.kind, 'csv'), c.build()), c.label); toast(m.message, m.tone); }}><Download className="h-4 w-4" aria-hidden /> CSV</Button>
             </li>
           ))}
           <li className="flex items-start gap-3 rounded-lg border border-line p-3.5">
             <FileJson className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" aria-hidden />
             <div className="min-w-0 flex-1"><div className="text-sm font-semibold">Complete assessment (JSON)</div><p className="text-xs text-muted">Full record for backup or transfer. Can be re-imported on the Assessments page.</p></div>
-            <Button size="sm" aria-label="Download JSON: complete assessment" onClick={() => { downloadText(exportFilename(a, 'assessment-export', 'json'), JSON.stringify({ app: 'AI Maturity Compass', exportVersion: 1, exportedAt: new Date().toISOString(), assessment: a }, null, 2), 'application/json;charset=utf-8'); toast('Assessment exported'); }}><Download className="h-4 w-4" aria-hidden /> JSON</Button>
+            <Button size="sm" aria-label="Download JSON: complete assessment" onClick={async () => { const m = saveMessage(await downloadText(exportFilename(a, 'assessment-export', 'json'), JSON.stringify({ app: 'AI Maturity Compass', exportVersion: 1, exportedAt: new Date().toISOString(), assessment: a }, null, 2), 'application/json;charset=utf-8'), 'Assessment JSON'); toast(m.message, m.tone); }}><Download className="h-4 w-4" aria-hidden /> JSON</Button>
           </li>
         </ul>
       </Card>

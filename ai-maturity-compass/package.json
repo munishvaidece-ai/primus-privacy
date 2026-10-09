@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "extract:spec": "python3 -I scripts/extract_questions.py"
+    "extract:spec": "python3 -I scripts/extract_questions.py",
+    "build:artifact": "tsc -b && vite build --mode artifact && node scripts/make_artifact.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "5.2.2",
@@ -43,6 +44,7 @@
     "tailwindcss": "3.4.17",
     "typescript": "5.7.2",
     "vite": "5.4.11",
+    "vite-plugin-singlefile": "2.0.3",
     "vitest": "2.1.8"
   }
 }

@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AssessmentStatusBadge, DemoTag } from '../components/shared';
 import { Badge, Button, Callout, Card, ConfirmDialog, EmptyState, Modal, PageHeader, ProgressBar, TextField, formatDateTime, useDocumentTitle, useToast } from '../components/ui';
 import type { Assessment } from '../domain/schema';
-import { downloadText } from '../export/download';
+import { downloadText, saveMessage } from '../export/download';
 import { exportFilename } from '../export/csv';
 import { fmt1, orgTypeLabel } from '../export/narrative';
 import { computeResults } from '../scoring/results';
@@ -39,9 +39,9 @@ export default function Assessments() {
     navigate(a.status === 'draft' ? `/assessments/new?id=${a.id}` : '/');
   };
 
-  const exportJson = (a: Assessment) => {
-    downloadText(exportFilename(a, 'assessment-export', 'json'), JSON.stringify({ app: 'AI Maturity Compass', exportVersion: 1, exportedAt: new Date().toISOString(), assessment: a }, null, 2), 'application/json;charset=utf-8');
-    toast('Assessment exported as JSON');
+  const exportJson = async (a: Assessment) => {
+    const m = saveMessage(await downloadText(exportFilename(a, 'assessment-export', 'json'), JSON.stringify({ app: 'AI Maturity Compass', exportVersion: 1, exportedAt: new Date().toISOString(), assessment: a }, null, 2), 'application/json;charset=utf-8'), 'Assessment JSON');
+    toast(m.message, m.tone);
   };
 
   const onImport = async (file: File | undefined) => {

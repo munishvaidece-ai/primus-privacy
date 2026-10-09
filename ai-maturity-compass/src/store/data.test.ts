@@ -358,3 +358,23 @@ describe('benchmarking dataset', () => {
     expect(excluded).toHaveLength(2);
   });
 });
+
+describe('storage fallback when the browser blocks localStorage', () => {
+  it('keeps working in memory for the session and reports the mode', async () => {
+    const { vi } = await import('vitest');
+    const { storageMode } = await import('./storage');
+    const blocked = { getItem() { throw new DOMException('denied', 'SecurityError'); }, setItem() { throw new DOMException('denied', 'SecurityError'); }, removeItem() { throw new DOMException('denied', 'SecurityError'); } };
+    vi.stubGlobal('localStorage', blocked);
+    try {
+      expect(storageMode()).toBe('memory');
+      expect(loadState()).toEqual({ state: null, warnings: [] }); // first launch in memory, no spurious warning
+      const a = createDemoAssessment();
+      const saved = saveState({ assessments: [a], currentId: a.id, assessor: { name: 'M', role: 'R', firm: 'F' }, externalBenchmarks: [], externalMeta: null });
+      expect(saved.ok).toBe(true); // survives within the page session
+      expect(loadState().state!.assessments[0].id).toBe(a.id);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(storageMode()).toBe('local');
+  });
+});

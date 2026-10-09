@@ -8,7 +8,8 @@ import { INDIA_DIAGNOSTICS, INDIA_DISCLAIMER } from '../data/india';
 import { CLASSIFICATIONS, DIMENSIONS, DIMENSION_BY_ID, RISK_COMPONENTS, ROI_BANDS, VALUE_COMPONENTS } from '../data/spec';
 import { EVIDENCE_STATUS_LABELS, type Assessment } from '../domain/schema';
 import { exportFilename } from '../export/csv';
-import { downloadBlob } from '../export/download';
+import { downloadBlob, saveMessage } from '../export/download';
+import { IS_ARTIFACT } from '../env';
 import { LIMITATIONS, METHODOLOGY, executiveSummary, fmt1, pctText, profileRows } from '../export/narrative';
 import { CONFIDENCE_LABELS } from '../scoring/coverage';
 import { formatIndicatorValue, formatInr } from '../scoring/indicators';
@@ -37,7 +38,8 @@ function Report({ a, res }: { a: Assessment; res: AssessmentResults }) {
     setBusy(true);
     try {
       const { reportPdfBlob } = await import('../export/pdf');
-      downloadBlob(exportFilename(a, 'AI-maturity-report', 'pdf'), reportPdfBlob(a, res));
+      const m = saveMessage(await downloadBlob(exportFilename(a, 'AI-maturity-report', 'pdf'), reportPdfBlob(a, res)), 'PDF report');
+      toast(m.message, m.tone);
     } catch { toast('The PDF could not be generated', 'bad'); } finally { setBusy(false); }
   };
 
@@ -45,10 +47,10 @@ function Report({ a, res }: { a: Assessment; res: AssessmentResults }) {
     <div className="min-h-screen bg-white">
       <div className="no-print sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-line bg-white/95 px-4 py-2.5 backdrop-blur">
         <Link to="/reports" className="btn btn-sm btn-secondary"><ArrowLeft className="h-4 w-4" aria-hidden /> Back to reports</Link>
-        <span className="text-sm text-muted">Printable report view — use your browser's Print dialog (choose “Save as PDF” to keep a copy).</span>
+        <span className="text-sm text-muted">{IS_ARTIFACT ? 'Report view — use Download PDF to keep a copy.' : "Printable report view — use your browser's Print dialog (choose “Save as PDF” to keep a copy)."}</span>
         <div className="ml-auto flex gap-2">
           <Button size="sm" onClick={pdf} disabled={busy}><Download className="h-4 w-4" aria-hidden /> Download PDF</Button>
-          <Button size="sm" variant="primary" onClick={() => window.print()}><Printer className="h-4 w-4" aria-hidden /> Print</Button>
+          {!IS_ARTIFACT && <Button size="sm" variant="primary" onClick={() => window.print()}><Printer className="h-4 w-4" aria-hidden /> Print</Button>}
         </div>
       </div>
 

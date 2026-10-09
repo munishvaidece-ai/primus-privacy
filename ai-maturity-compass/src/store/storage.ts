@@ -45,17 +45,37 @@ export interface Storage {
   removeItem(k: string): void;
 }
 
-function backend(): Storage | null {
+/** Used when the browser blocks localStorage (sandboxed frames, some private modes): the app still works for the session. */
+const memoryStore: Storage = (() => {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k: string) => (m.has(k) ? (m.get(k) as string) : null),
+    setItem: (k: string, v: string) => { m.set(k, v); },
+    removeItem: (k: string) => { m.delete(k); },
+  };
+})();
+
+let mode: 'local' | 'memory' = 'local';
+
+function backend(): Storage {
   try {
     const s = globalThis.localStorage;
-    if (!s) return null;
+    if (!s) throw new Error('no localStorage');
     const probe = '__aimc_probe__';
     s.setItem(probe, '1');
     s.removeItem(probe);
+    mode = 'local';
     return s;
   } catch {
-    return null;
+    mode = 'memory';
+    return memoryStore;
   }
+}
+
+/** Whether changes persist across page loads ('local') or only for this page session ('memory'). */
+export function storageMode(): 'local' | 'memory' {
+  backend();
+  return mode;
 }
 
 type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;

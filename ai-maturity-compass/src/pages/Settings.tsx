@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge, Button, Callout, Card, CardHeader, Checkbox, ConfirmDialog, PageHeader, SelectField, TabPanel, Tabs, TextField, useDocumentTitle, useToast } from '../components/ui';
 import { CLASSIFICATIONS, DIMENSIONS, QUESTION_BY_ID, RISK_COMPONENTS, SCHEMA_VERSION, SPEC_VERSION, VALUE_COMPONENTS, type ClassificationId } from '../data/spec';
-import { downloadText } from '../export/download';
+import { downloadText, saveMessage } from '../export/download';
 import { LIMITATIONS, METHODOLOGY } from '../export/narrative';
 import { storageUsageBytes } from '../store/storage';
 import { useCurrent } from '../store/hooks';
@@ -170,9 +170,10 @@ function DataTab() {
   const [clear, setClear] = useState(false);
   const kb = Math.round(storageUsageBytes() / 1024);
 
-  const exportAll = () => {
-    downloadText(`ai-maturity-compass_all-assessments_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ app: 'AI Maturity Compass', exportVersion: 1, exportedAt: new Date().toISOString(), assessments: order.map((id) => assessments[id]) }, null, 2), 'application/json;charset=utf-8');
-    toast('All assessments exported');
+  const exportAll = async () => {
+    const status = await downloadText(`ai-maturity-compass_all-assessments_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ app: 'AI Maturity Compass', exportVersion: 1, exportedAt: new Date().toISOString(), assessments: order.map((id) => assessments[id]) }, null, 2), 'application/json;charset=utf-8');
+    const m = saveMessage(status, 'All assessments (JSON)');
+    toast(m.message, m.tone);
   };
   const importOne = async (f: File | undefined) => {
     if (!f) return;
