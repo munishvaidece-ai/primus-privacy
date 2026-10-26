@@ -3,7 +3,8 @@ import Link from "next/link";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { withRequestDb } from "@/lib/db/request-client";
 import { getUserClientOrgId } from "@/lib/authorization/service";
-import { GlobalNav } from "@/components/shell/nav";
+import { Sidebar } from "@/components/shell/sidebar";
+import { unreadCount } from "@/lib/workspace/notifications";
 import { UserMenu } from "@/components/shell/user-menu";
 
 // The authenticated application shell (PHASE A instructions §8). Every
@@ -36,22 +37,26 @@ export default async function ShellLayout({ children }: { children: ReactNode })
   // decision remains whichever `canX`/`requireX` check already gates
   // that specific server-side operation, entirely unaffected by this
   // value.
-  const isClient = await withRequestDb(user.id, (db) => getUserClientOrgId(db, user.id)) !== null;
+  const { isClient, unread } = await withRequestDb(user.id, async (db) => ({
+    isClient: (await getUserClientOrgId(db, user.id)) !== null,
+    unread: await unreadCount(db, user.id),
+  }));
+  const home = isClient ? "/portal" : "/dashboard";
 
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-6">
-            <Link href="/organisations" className="text-sm font-semibold tracking-tight text-slate-900">
-              PRIMUS PRIVACY
-            </Link>
-            <GlobalNav isClient={isClient} />
-          </div>
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+          <Link href={home} className="text-sm font-semibold tracking-tight text-slate-900">
+            PRIMUS PRIVACY
+          </Link>
           <UserMenu email={user.email} />
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 md:flex-row">
+        <Sidebar isClient={isClient} unread={unread} />
+        <main className="min-w-0 flex-1">{children}</main>
+      </div>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { getEngagementReportData, NoAssessmentForEngagementError } from "@/lib/d
 import { renderEngagementReportPdf } from "@/lib/reports/engagement-report-pdf";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 import { auditLog } from "@/db/schema";
+import { getViewer } from "@/lib/workspace/common";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,9 @@ export async function GET(
 
   try {
     const pdfBuffer = await withRequestDb(user.id, async (db) => {
+      // Clients only receive reports a person at Primus has released
+      // (Reports page); the on-demand report includes unreleased findings.
+      if ((await getViewer(db, user.id)).isClient) throw new NotFoundOrForbiddenError();
       const data = await getEngagementReportData(db, user.id, {
         organisationId: params.organisationId,
         engagementId: params.engagementId,

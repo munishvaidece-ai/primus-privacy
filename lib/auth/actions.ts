@@ -60,7 +60,7 @@ export async function signIn(formData: FormData): Promise<void> {
     redirect(`/login?error=${encodeURIComponent("Incorrect email or password.")}${returnToQuery}`);
   }
 
-  redirect(returnTo ?? "/organisations");
+  redirect(returnTo ?? "/");
 }
 
 /**

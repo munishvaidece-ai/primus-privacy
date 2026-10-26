@@ -449,7 +449,7 @@ describe("Maturity — ControlTest/Evidence/Risk do not alter the numeric score"
       tenant = await createTenant(client, "Maturity Non-Numeric Tenant");
       org = await createOrganisation(client, tenant, "Maturity Non-Numeric Client");
       engagement = await createEngagement(client, tenant, org, "Maturity Non-Numeric Engagement");
-      engManager = await createUser(client, { tenantId: tenant, clientOrgId: org });
+      engManager = await createUser(client, { tenantId: tenant });
       await grantEngagementMembership(client, engManager, engagement, "Engagement Manager");
 
       library = await createControlLibraryVersionFixture(client, { tenantId: tenant, versionLabel: "Non-Numeric Library" });

@@ -49,6 +49,9 @@ export const assessments = pgTable(
     // circular-import reasoning as every audit column since tenants.ts.
     createdBy: uuid("created_by"),
     updatedBy: uuid("updated_by"),
+    // Migration 0046: the client submits the assessment for review.
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    submittedBy: uuid("submitted_by"),
   },
   (table) => ({
     // The database-enforced version of "Assessment.{organisation_id,

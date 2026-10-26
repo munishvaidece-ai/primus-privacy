@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 // Milestone 7 instructions §15: Risk creation/scoring/status changes/
 // material updates; Finding creation/severity-or-status changes/material
 // updates; Remediation creation/assignment/status changes/completion;
@@ -135,12 +136,15 @@ describe("Risk, Findings & Remediation auditability", () => {
         await client.query("BEGIN");
         await client.query("SET LOCAL ROLE authenticated");
         await client.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [user]);
-        const { rows } = await client.query<{ id: string }>(
-          `INSERT INTO findings (engagement_id, organisation_id, tenant_id, title, severity) VALUES ($1, $2, $3, 'Attribution Check', 'low') RETURNING id`,
-          [engagement, org, tenant],
+        // The id is chosen here, with no RETURNING: a draft finding is invisible
+        // to a client user, so it could not be read back as part of the insert.
+        const newId = randomUUID();
+        await client.query(
+          `INSERT INTO findings (id, engagement_id, organisation_id, tenant_id, title, severity) VALUES ($4, $1, $2, $3, 'Attribution Check', 'low')`,
+          [engagement, org, tenant, newId],
         );
         await client.query("COMMIT");
-        return rows[0]!.id;
+        return newId;
       } catch (err) {
         await client.query("ROLLBACK").catch(() => {});
         throw err;

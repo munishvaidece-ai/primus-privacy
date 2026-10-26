@@ -5187,3 +5187,46 @@ functions each one calls are).
 ### R-190 — Migrations are recorded; worker is a separate process
 
 **Decision:** `scripts/apply-migrations.ts` records each applied file (with checksum) in `schema_migrations`, runs each in a transaction, and refuses edited or unrecorded-but-populated databases (`--baseline` for existing ones). The AI worker is a separate Node process sharing the web app's code and image, claiming jobs with `FOR UPDATE SKIP LOCKED`.
+
+### R-191 — Two audiences, told apart by the user record
+
+**Decision:** A user with no `client_org_id` is Primus; one with it set is a client. `is_practice_user()` exposes this to policies; the app routes `/` to `/dashboard` or `/portal` accordingly.
+**Rationale:** one signal already used by invitation acceptance; no second flag to drift out of step.
+
+### R-192 — Findings are draft until released
+
+**Decision:** `findings.released_at/by`; clients' policy requires `released_at IS NOT NULL`. Release needs `finding.release`; existing findings were backfilled as released. Release cannot be undone; the AI agent cannot release.
+**Rationale:** consultants need room to review before the client sees an issue.
+
+### R-193 — Assessment submission and validation
+
+**Decision:** The client submits (`client.submit`); once submitted a trigger blocks client edits. A reviewer (`assessment.review`) validates answers one-by-one or all answered, or returns the assessment, which clears the lock.
+**Rationale:** gives the Validation phase a real meaning and protects the record the reviewer checked.
+
+### R-194 — `client.contribute` separates readers from contributors
+
+**Decision:** Client Administrator, Privacy Officer and the four engagement roles can answer, upload and edit discovery; CXO / Executive Viewer cannot. Enforced in triggers and policies. Found by tests: read-only executives could previously answer.
+**Rationale:** executives should be able to read progress without altering the record.
+
+### R-195 — Activity feed and notifications, no email
+
+**Decision:** `emit()` writes an append-only `engagement_activity` line (with a client-visible flag) and in-app `notifications`. Nothing is emailed.
+**Rationale:** no mail service is assumed in the deployment; email can be added later as a delivery channel without changing these tables.
+
+### R-196 — Phase and progress are derived
+
+**Decision:** Phase and progress percentage are computed from real records (discovery 20, answers 30, validation 20, report released 10, remediation 20), not stored.
+**Rationale:** cannot disagree with the underlying data.
+
+### R-197 — Released reports are versioned copies
+
+**Decision:** `report_releases` holds a PDF built from client-safe data (no draft findings, no remediation linked only to drafts). Each release is a new version; clients see only their own. The on-demand working report is Primus-only.
+
+### R-198 — Data Principal request log
+
+**Decision:** Kept as `ops_cases` entries reached by SECURITY DEFINER functions gated by `rights.view` / `rights.manage`; holds summary, type, channel and dates, not identity details.
+
+### R-199 — Organisation profile is Primus-edited
+
+**Decision:** Industry and headquarters change only through a Primus tenant member (trigger-enforced). Found by tests: a client could previously change them.
+

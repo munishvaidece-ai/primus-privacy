@@ -206,6 +206,8 @@ export interface FindingListRow {
   ownerEmail: string | null;
   sourceRiskTitle: string | null;
   createdAt: Date;
+  /** Null while the finding is a draft visible to the Primus team only. */
+  releasedAt: Date | null;
 }
 
 /**
@@ -232,6 +234,7 @@ export async function listFindingsForEngagement(
       ownerEmail: users.email,
       sourceRiskTitle: risks.title,
       createdAt: findings.createdAt,
+      releasedAt: findings.releasedAt,
     })
     .from(findings)
     .leftJoin(users, eq(users.id, findings.ownerId))
@@ -287,6 +290,7 @@ export interface FindingDetail {
   updatedAt: Date;
   organisationId: string;
   engagementId: string;
+  releasedAt: Date | null;
   sourceRisks: { id: string; title: string; inherentRating: string; status: string }[];
 }
 
@@ -325,6 +329,7 @@ export async function getFindingDetail(
       updatedAt: findings.updatedAt,
       organisationId: findings.organisationId,
       engagementId: findings.engagementId,
+      releasedAt: findings.releasedAt,
     })
     .from(findings)
     .leftJoin(users, eq(users.id, findings.ownerId))

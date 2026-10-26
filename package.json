@@ -21,11 +21,12 @@
     "test:risk-remediation": "tsx scripts/reset-test-db.ts && vitest run tests/risk-remediation",
     "test:maturity": "tsx scripts/reset-test-db.ts && vitest run tests/maturity",
     "test:app": "tsx scripts/reset-test-db.ts && vitest run tests/app",
-    "test:db": "tsx scripts/reset-test-db.ts && vitest run tests/rls tests/master-data tests/processing-activity tests/control-library tests/assessment-engine tests/evidence tests/risk-remediation tests/maturity tests/app tests/ai tests/connectors",
+    "test:db": "tsx scripts/reset-test-db.ts && vitest run tests/rls tests/master-data tests/processing-activity tests/control-library tests/assessment-engine tests/evidence tests/risk-remediation tests/maturity tests/app tests/ai tests/connectors tests/workspace",
     "ai:worker": "tsx --require ./scripts/preload-server-only.cjs scripts/ai-worker.ts",
     "ai:provision-agent": "tsx --require ./scripts/preload-server-only.cjs scripts/provision-ai-agent.ts",
     "bootstrap": "tsx --require ./scripts/preload-server-only.cjs scripts/bootstrap.ts",
     "db:baseline": "tsx scripts/apply-migrations.ts --baseline",
+    "test:workspace": "tsx scripts/reset-test-db.ts && vitest run tests/workspace",
     "test:ai": "tsx scripts/reset-test-db.ts && vitest run tests/ai tests/connectors"
   },
   "dependencies": {

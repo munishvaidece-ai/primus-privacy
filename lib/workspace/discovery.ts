@@ -1,0 +1,131 @@
+import "server-only";
+import { eq } from "drizzle-orm";
+import type { RequestDb } from "@/lib/db/request-client";
+import { discoverySections, engagementDiscovery } from "@/db/schema";
+import { NotFoundOrForbiddenError, hasEngagementPermission, hasOrganisationPermission } from "@/lib/authorization/service";
+import { WorkspaceInputError, loadEngagement } from "./common";
+import { actorName, emit } from "./emit";
+import {
+  SECTIONS,
+  missingFields,
+  previewObligations,
+  sanitizeAnswers,
+  sectionByKey,
+  sectionComplete,
+  type AllAnswers,
+  type Answers,
+  type ObligationPreview,
+} from "./discovery-sections";
+
+export type DiscoveryStatus = "in_progress" | "submitted" | "approved";
+
+export interface DiscoveryState {
+  engagementId: string;
+  status: DiscoveryStatus;
+  submittedAt: Date | null;
+  approvedAt: Date | null;
+  answers: AllAnswers;
+  completed: Record<string, boolean>;
+  completedCount: number;
+  total: number;
+  preview: ObligationPreview[];
+}
+
+export async function getDiscovery(db: RequestDb, userId: string, engagementId: string): Promise<DiscoveryState> {
+  await loadEngagement(db, userId, engagementId);
+  const [head] = await db.select().from(engagementDiscovery).where(eq(engagementDiscovery.engagementId, engagementId)).limit(1);
+  const rows = await db.select().from(discoverySections).where(eq(discoverySections.engagementId, engagementId));
+  const answers: AllAnswers = {};
+  const completed: Record<string, boolean> = {};
+  for (const s of SECTIONS) {
+    const row = rows.find((r) => r.sectionKey === s.key);
+    answers[s.key] = sanitizeAnswers(s, (row?.answers as Record<string, unknown>) ?? {});
+    completed[s.key] = Boolean(row?.completedAt);
+  }
+  return {
+    engagementId,
+    status: (head?.status as DiscoveryStatus) ?? "in_progress",
+    submittedAt: head?.submittedAt ?? null,
+    approvedAt: head?.approvedAt ?? null,
+    answers,
+    completed,
+    completedCount: Object.values(completed).filter(Boolean).length,
+    total: SECTIONS.length,
+    preview: previewObligations(answers),
+  };
+}
+
+async function ensureHead(db: RequestDb, eng: { id: string; tenantId: string; organisationId: string }) {
+  await db.insert(engagementDiscovery).values({ tenantId: eng.tenantId, organisationId: eng.organisationId, engagementId: eng.id }).onConflictDoNothing();
+  const [head] = await db.select().from(engagementDiscovery).where(eq(engagementDiscovery.engagementId, eng.id)).limit(1);
+  return head!;
+}
+
+/** Saves one step. With `complete`, the step is marked complete only if every required answer is given. */
+export async function saveDiscoverySection(
+  db: RequestDb,
+  userId: string,
+  input: { engagementId: string; sectionKey: string; answers: Record<string, unknown>; complete: boolean },
+): Promise<{ complete: boolean; missing: string[] }> {
+  const eng = await loadEngagement(db, userId, input.engagementId);
+  const section = sectionByKey(input.sectionKey);
+  if (!section) throw new WorkspaceInputError("Unknown step.");
+  const head = await ensureHead(db, eng);
+  if (head.status === "approved") throw new WorkspaceInputError("Scope was approved by Primus. The questionnaire is now read-only.");
+  const clean: Answers = sanitizeAnswers(section, input.answers);
+  const missing = input.complete ? missingFields(section, clean).map((f) => f.label) : [];
+  const isComplete = input.complete && sectionComplete(section, clean);
+  if (input.complete && !isComplete) {
+    if (missing.length === 0) throw new WorkspaceInputError("Please tick the confirmation before completing this step.");
+    throw new WorkspaceInputError(`Please answer: ${missing.slice(0, 3).join("; ")}${missing.length > 3 ? " and more" : ""}.`);
+  }
+  try {
+    await db
+      .insert(discoverySections)
+      .values({ tenantId: eng.tenantId, organisationId: eng.organisationId, engagementId: eng.id, sectionKey: section.key, answers: clean, completedAt: isComplete ? new Date() : null, updatedBy: userId })
+      .onConflictDoUpdate({ target: [discoverySections.engagementId, discoverySections.sectionKey], set: { answers: clean, completedAt: isComplete ? new Date() : null, updatedBy: userId, updatedAt: new Date() } });
+  } catch (err) {
+    if (err instanceof Error && /row-level security/i.test(err.message)) throw new WorkspaceInputError("The questionnaire is locked while Primus reviews it.");
+    throw err;
+  }
+  return { complete: isComplete, missing: [] };
+}
+
+export async function submitDiscovery(db: RequestDb, userId: string, engagementId: string): Promise<void> {
+  const eng = await loadEngagement(db, userId, engagementId);
+  const canSubmit = (await hasEngagementPermission(db, userId, eng.id, "client.submit")) || (await hasOrganisationPermission(db, userId, eng.organisationId, "client.submit")) || (await hasEngagementPermission(db, userId, eng.id, "discovery.approve"));
+  if (!canSubmit) throw new NotFoundOrForbiddenError();
+  const state = await getDiscovery(db, userId, engagementId);
+  if (state.status !== "in_progress") throw new WorkspaceInputError("The questionnaire was already submitted.");
+  if (state.completedCount < state.total) throw new WorkspaceInputError(`${state.total - state.completedCount} step${state.total - state.completedCount === 1 ? " is" : "s are"} not complete yet.`);
+  await ensureHead(db, eng);
+  await db.update(engagementDiscovery).set({ status: "submitted" }).where(eq(engagementDiscovery.engagementId, eng.id));
+  const who = await actorName(db, userId);
+  await emit(db, {
+    engagementId: eng.id,
+    kind: "discovery_submitted",
+    summary: `${who} submitted the discovery questionnaire`,
+    subjectType: "engagement",
+    subjectId: eng.id,
+    clientVisible: true,
+    notify: { audience: "practice", title: `${eng.organisationName} submitted discovery`, body: "Review the answers and approve the scope.", link: `/discovery` },
+  });
+}
+
+async function reviewerTransition(db: RequestDb, userId: string, engagementId: string, to: DiscoveryStatus, kind: string, verb: string, notifyTitle: string) {
+  const eng = await loadEngagement(db, userId, engagementId);
+  if (!(await hasEngagementPermission(db, userId, eng.id, "discovery.approve"))) throw new NotFoundOrForbiddenError();
+  const state = await getDiscovery(db, userId, engagementId);
+  if (to === "approved" && state.status !== "submitted") throw new WorkspaceInputError("Only a submitted questionnaire can be approved.");
+  if (to === "in_progress" && state.status === "in_progress") throw new WorkspaceInputError("The questionnaire is already open for editing.");
+  await db.update(engagementDiscovery).set({ status: to }).where(eq(engagementDiscovery.engagementId, eng.id));
+  const who = await actorName(db, userId);
+  await emit(db, { engagementId: eng.id, kind, summary: `${who} ${verb}`, subjectType: "engagement", subjectId: eng.id, clientVisible: true, notify: { audience: "client", title: notifyTitle, link: "/portal/discovery" } });
+}
+
+export const approveDiscovery = (db: RequestDb, userId: string, engagementId: string) =>
+  reviewerTransition(db, userId, engagementId, "approved", "discovery_approved", "approved the discovery scope", "Primus approved your scope");
+
+/** Sends a submitted (or approved) questionnaire back to the client for changes. */
+export const returnDiscovery = (db: RequestDb, userId: string, engagementId: string) =>
+  reviewerTransition(db, userId, engagementId, "in_progress", "discovery_returned", "returned the discovery questionnaire for changes", "Primus returned your questionnaire for changes");

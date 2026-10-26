@@ -317,3 +317,12 @@ are:
 ## 9. AI layer (implemented)
 
 Components: **web app** (screens under `/organisations/.../engagements/.../ai`), **AI worker** (`scripts/ai-worker.ts` → `lib/ai/worker.ts`), **Postgres** (`ai_*` tables, `ops_cases`), optional **outside model**. Flow: an event (upload, case opened, "Run now", the 15-minute plan) → `plan` job finds work → per-subject jobs (`evidence_review`, `applicability`, `rating`, `finding_create`, `report_issue`, `ops_case`, `connector_test|scan`) → each task produces a **suggestion** (proposal + rationale + verified citations + confidence + tier) → **routing** decides apply-now or queue (autopilot level, thresholds, sign-off gates) → applied through the same domain functions a person uses → recorded in `ai_events`. Design decisions: DECISIONS.md R-182 … R-190. Operating guide: docs/DEPLOYMENT.md; users: docs/USER_GUIDE.md.
+
+## 10. Workspace and client portal (implemented)
+
+Primus users work in a **workspace** (sidebar: Dashboard, Tasks, Notifications; Organisations, Engagements, Stakeholders; Discovery, Assessments, Evidence review, Findings, Risks, Remediation, Clarifications; Audit trail, Methodology, Connectors). Client users see a **portal** (`/portal/...`: Overview, Tasks, Notifications, Company profile, Business units, Processing activities, Discovery questionnaire, Assessment, Evidence, Clarifications, Findings, Remediation, Risks, Reports, Data Principal requests). The same engagement pages are shared; role-based access decides what each person sees.
+
+* Services live in `lib/workspace/*` (tasks, clarifications, evidence requests, discovery, review, reports, rights, audit, portfolio figures, notifications); screens in `app/(shell)/...`; migrations 0046–0048.
+* Phase and progress are **derived** from real records (discovery status, answers, validation, report release, remediation), never typed in.
+* Every event that matters calls `emit()`, which writes a client-visible or Primus-only activity line and, where useful, in-app notifications to the other side.
+

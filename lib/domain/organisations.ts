@@ -132,6 +132,8 @@ export class DuplicateOrganisationError extends Error {
 
 export interface CreateOrganisationInput {
   name: string;
+  industry?: string | null;
+  hqLocation?: string | null;
 }
 
 /**
@@ -216,6 +218,8 @@ export async function createOrganisation(
     id,
     tenantId,
     name: input.name,
+    industry: input.industry?.trim() ? input.industry.trim().slice(0, 80) : null,
+    hqLocation: input.hqLocation?.trim() ? input.hqLocation.trim().slice(0, 120) : null,
     createdBy: userId,
     updatedBy: userId,
   });

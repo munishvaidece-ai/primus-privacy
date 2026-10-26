@@ -136,11 +136,15 @@ export async function createFinding(
     description?: string;
     severity?: "low" | "medium" | "high" | "critical";
     ownerId?: string;
+    /** Findings are private to the Primus team until released (migration 0048).
+     * Fixtures default to released so older tests that read them as a client
+     * keep their meaning; pass `released: false` for a draft. */
+    released?: boolean;
   },
 ) {
   const { rows } = await client.query<{ id: string }>(
-    `INSERT INTO findings (engagement_id, organisation_id, tenant_id, title, description, severity, owner_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    `INSERT INTO findings (engagement_id, organisation_id, tenant_id, title, description, severity, owner_id, released_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, ${opts.released === false ? "NULL" : "now()"}) RETURNING id`,
     [
       opts.engagementId,
       opts.organisationId,

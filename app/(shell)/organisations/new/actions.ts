@@ -14,6 +14,8 @@ const createOrganisationSchema = z.object({
     .trim()
     .min(2, "Organisation name must be at least 2 characters.")
     .max(200, "Organisation name must be 200 characters or fewer."),
+  industry: z.string().trim().max(80, "Industry must be 80 characters or fewer.").optional(),
+  hqLocation: z.string().trim().max(120, "Headquarters must be 120 characters or fewer.").optional(),
 });
 
 /**
@@ -28,7 +30,7 @@ const createOrganisationSchema = z.object({
 export async function createOrganisationAction(formData: FormData): Promise<void> {
   const user = await requireAuthenticatedUser();
 
-  const parsed = createOrganisationSchema.safeParse({ name: formData.get("name") });
+  const parsed = createOrganisationSchema.safeParse({ name: formData.get("name"), industry: String(formData.get("industry") ?? ""), hqLocation: String(formData.get("hqLocation") ?? "") });
   if (!parsed.success) {
     redirect(`/organisations/new?error=${encodeURIComponent(parsed.error.issues[0]?.message ?? "Invalid input.")}`);
   }
@@ -36,7 +38,7 @@ export async function createOrganisationAction(formData: FormData): Promise<void
   let newOrganisationId: string | null = null;
   let errorMessage: string | null = null;
   try {
-    const result = await withRequestDb(user.id, (db) => createOrganisation(db, user.id, { name: parsed.data.name }));
+    const result = await withRequestDb(user.id, (db) => createOrganisation(db, user.id, { name: parsed.data.name, industry: parsed.data.industry, hqLocation: parsed.data.hqLocation }));
     newOrganisationId = result.id;
   } catch (err) {
     if (err instanceof DuplicateOrganisationError) {

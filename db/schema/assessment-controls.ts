@@ -170,6 +170,9 @@ export const assessmentResponses = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdBy: uuid("created_by"),
     updatedBy: uuid("updated_by"),
+    // Migration 0046: a reviewer validates the answer; changing the answer clears it.
+    validatedAt: timestamp("validated_at", { withTimezone: true }),
+    validatedBy: uuid("validated_by"),
   },
   (table) => ({
     assessmentControlScopeFk: foreignKey({

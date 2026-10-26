@@ -8,6 +8,10 @@ import { canCreateEngagement, canManageOrganisationInvitations, NotFoundOrForbid
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { createOrganisationInvitationAction } from "./actions";
+import { eq } from "drizzle-orm";
+import { organisations } from "@/db/schema";
+import { getViewer } from "@/lib/workspace/common";
+import { updateOrganisationProfileAction } from "@/app/(shell)/workspace-actions";
 
 const INPUT_CLASS =
   "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
@@ -32,11 +36,13 @@ export default async function OrganisationDetailPage({
     const canCreateEng = await canCreateEngagement(db, user.id, organisation.id, organisation.tenantId);
     const canInvite = await canManageOrganisationInvitations(db, user.id, organisation.id);
     const invitationRoles = canInvite ? await listInvitationRoleOptions(db, null) : [];
-    return { organisation, canCreateEng, canInvite, invitationRoles };
+    const [profile] = await db.select({ industry: organisations.industry, hqLocation: organisations.hqLocation }).from(organisations).where(eq(organisations.id, organisation.id)).limit(1);
+    const isClient = (await getViewer(db, user.id)).isClient;
+    return { organisation, canCreateEng, canInvite, invitationRoles, profile: profile ?? { industry: null, hqLocation: null }, isClient };
   });
 
   if (!data) notFound();
-  const { organisation, canCreateEng, canInvite, invitationRoles } = data;
+  const { organisation, canCreateEng, canInvite, invitationRoles, profile, isClient } = data;
 
   return (
     <div>
@@ -86,6 +92,8 @@ export default async function OrganisationDetailPage({
         </p>
       ) : null}
 
+      {(searchParams as { saved?: string }).saved ? <p role="status" className="mb-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">{(searchParams as { saved?: string }).saved === "1" ? "Saved." : (searchParams as { saved?: string }).saved}</p> : null}
+      {(searchParams as { error?: string }).error ? <p role="alert" className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">{(searchParams as { error?: string }).error}</p> : null}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">{organisation.name}</h1>
@@ -95,6 +103,21 @@ export default async function OrganisationDetailPage({
         </div>
         <Badge tone={statusTone(organisation.status)}>{organisation.status}</Badge>
       </div>
+
+      <section className="mt-6 rounded-md border border-slate-200 bg-white p-4" aria-labelledby="profile-h">
+        <h2 id="profile-h" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Profile</h2>
+        {isClient ? (
+          <p className="mt-2 text-sm text-slate-700">Industry: {profile.industry ?? "not recorded"} · Headquarters: {profile.hqLocation ?? "not recorded"}</p>
+        ) : (
+          <form action={updateOrganisationProfileAction} className="mt-3 grid gap-3 md:grid-cols-3 md:items-end">
+            <input type="hidden" name="organisationId" value={organisation.id} />
+            <input type="hidden" name="back" value={`/organisations/${organisation.id}`} />
+            <label className="block text-xs font-medium text-slate-700">Industry<input name="industry" maxLength={80} defaultValue={profile.industry ?? ""} className={INPUT_CLASS} /></label>
+            <label className="block text-xs font-medium text-slate-700">Headquarters<input name="hqLocation" maxLength={120} defaultValue={profile.hqLocation ?? ""} className={INPUT_CLASS} /></label>
+            <div><Button type="submit" size="sm" variant="secondary">Save profile</Button></div>
+          </form>
+        )}
+      </section>
 
       <section className="mt-8">
         <div className="flex items-center justify-between">

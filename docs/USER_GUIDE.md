@@ -61,6 +61,25 @@ Open the case to read the assessment, edit the draft, **approve for sending**, a
 
 Approve, change or reject its own work · apply anything held at a gate · change settings or connectors · finalise an assessment or lock scope · see anything while paused · see anything on an engagement where it has not been switched on.
 
+## The workspace — your day-to-day
+
+After signing in you land on **Dashboard**: clients, engagements and where each one is (Draft, Discovery, Assessment, Validation, Reporting, Remediation, Closed), what is overdue, and what is waiting for you. The left menu is grouped by portfolio and by delivery stage; every list can be filtered.
+
+* **Tasks** — tasks and milestones for you or for the client. Milestones are shown to the client.
+* **Discovery** — read the client's questionnaire answers and the obligations they point to; **Approve scope** or **Return for changes**.
+* **Assessments** — open an assessment; **Validate all answered** once you have checked the answers, or **Return for changes**. After the client submits, their answers are locked.
+* **Evidence review** — accept or reject what clients upload; ask a client for evidence from here or from the engagement page.
+* **Findings** — new findings are **draft** and invisible to the client. Tick the ones to share and **Release**. A release cannot be undone.
+* **Clarifications** — short two-way threads with the client.
+* **Engagement page → Reports** — **Release report to client** creates a client copy (draft findings left out), kept as a numbered version.
+* **Audit trail** — who did what and when, for an engagement.
+
+The platform does not send email. People see alerts under **Notifications** when they sign in.
+
+## For your client (what they see)
+
+Clients sign in to a **portal** built around one engagement: an Overview with "what to do next", the Discovery questionnaire (13 short steps, saved as they type), the Assessment, evidence requests and uploads, clarifications, released findings, remediation, risks, released reports and a log of Data Principal requests. People with read-only roles (for example CXO / Executive Viewer) can look but not change anything.
+
 ## Honest limits
 
 * The built-in engine is rules and text matching, not a language model: it is careful, so expect more items in your review list than with a language model. If your devops team connects a model (hosted where the client requires), the same screens and controls apply.

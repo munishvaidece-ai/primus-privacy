@@ -20,6 +20,9 @@ export const organisations = pgTable(
       .references(() => tenants.id),
     name: text("name").notNull(),
     status: organisationStatusEnum("status").notNull().default("active"),
+    // Migration 0046: shown in lists and filters.
+    industry: text("industry"),
+    hqLocation: text("hq_location"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -11,7 +11,7 @@ export default function NotFound() {
       <p className="max-w-sm text-sm text-slate-600">
         This page doesn&apos;t exist, or you don&apos;t have access to it.
       </p>
-      <Link href="/organisations" className="text-sm font-medium text-blue-700 hover:underline">
+      <Link href="/" className="text-sm font-medium text-blue-700 hover:underline">
         Back to Organisations
       </Link>
     </div>

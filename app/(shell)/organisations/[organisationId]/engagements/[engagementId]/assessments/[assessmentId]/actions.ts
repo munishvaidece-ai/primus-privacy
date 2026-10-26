@@ -1,5 +1,6 @@
 "use server";
 
+import { friendlyError } from "@/lib/workspace/page";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -121,10 +122,10 @@ export async function updateAssessmentResponseAction(formData: FormData): Promis
     } else if (err instanceof NotFoundOrForbiddenError) {
       errorMessage = "You do not have access to update this response.";
     } else {
-      // instructions §17: never expose database internals to users —
-      // full detail goes to the server log only.
-      console.error("updateAssessmentResponseAction failed", err);
-      errorMessage = "Something went wrong saving your response. Please try again.";
+      // Locked after submission, or a role that may not answer: the database
+      // says so and friendlyError turns it into a plain sentence. Anything
+      // else is logged and shown as a generic message (instructions §17).
+      errorMessage = friendlyError(err);
     }
   }
 

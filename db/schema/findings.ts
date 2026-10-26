@@ -47,6 +47,9 @@ export const findings = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdBy: uuid("created_by"),
     updatedBy: uuid("updated_by"),
+    // Migration 0046: a finding is private to the Primus team until released.
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    releasedBy: uuid("released_by"),
   },
   (table) => ({
     engagementOrganisationTenantFk: foreignKey({

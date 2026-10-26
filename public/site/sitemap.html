@@ -428,7 +428,7 @@ html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset
     [/breach|incident/,'The breach domain checks that your plan covers intimation to the Board and to affected Data Principals, and that roles and timelines are defined.'],
     [/remediat|action|finding|risk/,'Each finding becomes an owned action with a due date. Overdue actions rise to the command centre, and closure needs validation by a reviewer.'],
     [/report|export/,'Reports are generated from validated findings, so the board pack matches what the team signed off.'],
-    [/demo|login|workspace|portal/,'The demo has two entry points: the Primus Partners Workspace for the consulting team and the Organisation Portal for the client. Both use simulated identities.']
+    [/demo|login|workspace|portal/,'The demo has two entry points: the Primus Partners Workspace for the consulting team and the Organisation Portal for the client. The demo uses simulated identities and fictional data; the real platform behind Sign in uses real accounts.']
   ];
   var SUG=['What applies to my sector?','How does evidence review work?','What happens to a finding?','Open the demo'];
   function add(t,c){var d=document.createElement('div');d.className='cm '+c;d.textContent=t;B.appendChild(d);B.scrollTop=B.scrollHeight}
@@ -455,11 +455,12 @@ html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset
    ['C','Sectors',[['Financial Services','portal.html#sectors'],['Healthcare','portal.html#sectors'],['Retail & E-commerce','portal.html#sectors'],['OTT & Media','portal.html#sectors'],['Aviation & Travel','portal.html#sectors'],['AI & Analytics','portal.html#sectors']]],
    ['D','Advantage Primus Privacy',[['One record, every stakeholder','portal.html#live'],['Evidence that stands up','portal.html#live'],['Remediation that closes','portal.html#live'],['Reporting without the rework','portal.html#glance'],['Obligation library','portal.html#library']]],
    ['E','About the platform',[['Overview','index.html'],['Platform architecture','platform.html'],['Workflows (step by step)','workflows.html'],['AI layer','ai-layer.html'],['Live skeleton','live-skeleton.html'],['Configurator','configurator.html']]],
-   ['F','Workspace & clients (platform, sign in)',[['Organisations',W],['Engagements',W],['Members & invitations',W],['Portfolio dashboard (planned)',null],['My tasks (planned)',null],['Notifications (planned)',null]]],
-   ['G','Assessment (platform, sign in)',[['Discovery & scope',W],['Assessment centre',W],['Control library',W],['Evidence review',W],['Findings',W],['Risk register',W],['Remediation & validation',W]]],
+   ['F','Workspace & clients (platform, sign in)',[['Organisations',W],['Engagements',W],['Members & invitations',W],['Portfolio dashboard',W],['Stakeholders',W],['Tasks & milestones',W],['Notifications',W],['Clarifications',W]]],
+   ['G','Assessment (platform, sign in)',[['Discovery review & scope approval',W],['Assessment centre',W],['Control library',W],['Evidence review',W],['Findings',W],['Risk register',W],['Remediation & validation',W]]],
    ['H','Privacy operations (platform, sign in)',[['Data landscape & ROPA',W],['Rights requests (AI-assisted)',W],['Breach handling (AI-assisted)',W],['Consent review (AI-assisted)',W],['Vendor review (AI-assisted)',W],['Consent & notice management (planned)',null],['Third-party risk module (planned)',null]]],
-   ['I','Intelligence (platform, sign in)',[['Regulatory content',W],['Applicability',W],['Maturity scoring',W],['Engagement report (PDF)',W],['Maturity trend dashboards (planned)',null],['Sector framework packs (planned)',null]]],
-   ['J','Administration (platform, sign in)',[['Control library authoring',W],['Users & access',W],['AI settings & autopilot level',W],['Connectors',W],['AI activity trail',W],['Platform-wide audit trail screen (planned)',null]]]
+   ['I','Intelligence (platform, sign in)',[['Regulatory content',W],['Applicability',W],['Maturity scoring',W],['Engagement report (PDF) & release to client',W],['Maturity trend dashboards (planned)',null],['Sector framework packs (planned)',null]]],
+   ['J','Client portal (platform, sign in as a client)',[['Overview & next steps',D],['Discovery questionnaire',D],['Assessment & submission',D],['Evidence requests & uploads',D],['Findings (released only)',D],['Remediation & risks',D],['Reports (released versions)',D],['Data Principal requests log',D]]],
+   ['K','Administration (platform, sign in)',[['Control library authoring',W],['Users & access',W],['AI settings & autopilot level',W],['Connectors',W],['AI activity trail',W],['Engagement audit trail',W]]]
   ];
   var tot=0;G.forEach(function(g){tot+=g[2].length});
   var el=document.getElementById('sg'),sc=document.getElementById('sc');

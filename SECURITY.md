@@ -286,3 +286,15 @@ samples). Concretely:
 * **Connector secrets:** AES-256-GCM with `CONNECTOR_SECRET_KEY`; table has no user grants; two SECURITY DEFINER functions only.
 * **Scanner hardening:** website scans block private/internal addresses and re-check each redirect hop; folder scans are confined to `CONNECTOR_FOLDER_ROOTS` (symlinks resolved); database scans run in a read-only transaction with timeouts.
 * **Not covered:** no malware scanning of uploads, no OCR, no web-app rate limiting, dependency vulnerabilities pre-dating this work (see docs/DEPLOYMENT.md §6).
+
+## 16. Workspace and client portal
+
+* **Two audiences, one database:** `users.client_org_id` is NULL for Primus users and set for client users. `is_practice_user()` and the existing access functions drive every policy; the screens only choose what to show.
+* **Findings are private until released:** a client can never read a finding whose `released_at` is empty (row-level security). Releasing needs `finding.release` (Engagement Manager), is recorded, and cannot be reversed. The AI agent cannot release.
+* **Reports:** a client sees only rows in `report_releases` for their own engagement. The released copy is built without draft findings. The on-demand working report route refuses client users.
+* **Assessment lock:** once the client submits, a trigger blocks further answer changes by client users; only a reviewer with `assessment.review` can return it. Read-only roles (`client.contribute` missing, e.g. CXO / Executive Viewer) cannot answer, upload or edit the discovery questionnaire — enforced in the database, not just hidden in the screen.
+* **Organisation profile:** industry and headquarters can be changed only by a Primus user who is an active member of the tenant (trigger `organisations_guard_profile`).
+* **Activity and notifications:** `engagement_activity` is append-only; each line carries a client-visible flag and RLS hides Primus-only lines from clients. Notifications are readable only by their recipient. Nothing is emailed.
+* **Data-principal request log:** clients reach it only through SECURITY DEFINER functions that check `rights.view` / `rights.manage`; the log holds a summary, type, channel and dates, not the individual's identity.
+* **Audit trail screen:** requires `audit.view` on the engagement (Engagement Manager, Consultant, Auditor); clients do not have it.
+

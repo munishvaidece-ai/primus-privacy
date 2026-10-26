@@ -9076,3 +9076,10 @@ owner.
 
 Added: AI layer (migrations 0040–0045), AI worker, offline rules engine + optional outside-model providers, routing with three autopilot levels and four sign-off gates, pause, suggestion queue with approve/change/reject, audit trail, operations cases (rights, breach, consent, vendor), report issuance, connector framework (document upload, folder scan, PostgreSQL scan, website scan; 19 more listed as planned), screens, migration tracking, bootstrap script, Dockerfile and compose example, docs (DEPLOYMENT, USER_GUIDE).
 Tests: `tests/ai` (unit, autopilot, cases, ui) and `tests/connectors`. Not verified: live language-model APIs, a live Supabase project, the Docker build, large volumes. See docs/DEPLOYMENT.md §8.
+
+---
+
+## Workspace and client portal release
+
+Added: migrations 0046–0048 (released-only findings, assessment submission/validation, notifications, activity, tasks, clarifications, evidence requests, discovery questionnaire, report releases, data-principal request log, audit trail function), `lib/workspace/*`, the Primus workspace screens and the client portal screens (see ARCHITECTURE §10, USER_GUIDE). Tests: `tests/workspace` (80), full suite 1,218 passing. Not verified: a real browser session, live Supabase, Docker build, load.
+

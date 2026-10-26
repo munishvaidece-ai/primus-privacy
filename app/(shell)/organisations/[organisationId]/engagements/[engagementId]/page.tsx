@@ -8,6 +8,12 @@ import { listInvitationRoleOptions } from "@/lib/domain/invitations";
 import { NotFoundOrForbiddenError, canManageEngagementMembership, hasEngagementPermission } from "@/lib/authorization/service";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getViewer } from "@/lib/workspace/common";
+import { engagementMetrics } from "@/lib/workspace/portfolio";
+import { listReleasedReports } from "@/lib/workspace/reports";
+import { listEvidenceRequests } from "@/lib/workspace/evidence-requests";
+import { PhaseBadge, Progress, fmtDateTime } from "@/components/ui/kit";
+import { releaseReportAction, requestEvidenceAction } from "@/app/(shell)/workspace-actions";
 import { addEngagementMemberAction, revokeEngagementMemberAction, createEngagementInvitationAction } from "./actions";
 
 const INPUT_CLASS =
@@ -52,6 +58,20 @@ export default async function EngagementDetailPage({
   const canUseAi = await withRequestDb(user.id, async (db) =>
     (await hasEngagementPermission(db, user.id, params.engagementId, "ai.supervise")) || (await hasEngagementPermission(db, user.id, params.engagementId, "ai.configure")),
   );
+
+  const delivery = await withRequestDb(user.id, async (db) => {
+    const viewer = await getViewer(db, user.id);
+    const [m] = await engagementMetrics(db, { engagementId: params.engagementId });
+    return {
+      isClient: viewer.isClient,
+      metrics: m ?? null,
+      canRelease: !viewer.isClient && (await hasEngagementPermission(db, user.id, params.engagementId, "report.release")),
+      canRequestEvidence: !viewer.isClient && (await hasEngagementPermission(db, user.id, params.engagementId, "evidence.review")),
+      releases: await listReleasedReports(db, { engagementId: params.engagementId }),
+      requests: viewer.isClient ? [] : await listEvidenceRequests(db, { engagementId: params.engagementId, status: "requested" }),
+    };
+  });
+  const enginePath = `/organisations/${params.organisationId}/engagements/${params.engagementId}`;
 
   const { members, canManageMembers, eligibleUsers, engagementRoles, invitationRoles } = await withRequestDb(user.id, async (db) => {
     const memberRows = await listEngagementMembers(db, user.id, { organisationId: params.organisationId, engagementId: params.engagementId });
@@ -111,9 +131,9 @@ export default async function EngagementDetailPage({
           Welcome — you&rsquo;ve joined {engagement.name}.
         </p>
       ) : null}
-      {searchParams.saved === "1" ? (
+      {searchParams.saved ? (
         <p role="status" className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
-          Saved.
+          {searchParams.saved === "1" ? "Saved." : searchParams.saved}
         </p>
       ) : null}
       {searchParams.error ? (
@@ -143,6 +163,30 @@ export default async function EngagementDetailPage({
         <p role="alert" className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
           {searchParams.inviteError}
         </p>
+      ) : null}
+
+      {delivery.metrics ? (
+        <section className="mt-8 rounded-md border border-slate-200 bg-white p-4" aria-labelledby="delivery-h">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="delivery-h" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Delivery status</h2>
+            <PhaseBadge phase={delivery.metrics.phase} />
+          </div>
+          <div className="mt-3 max-w-md"><Progress value={delivery.metrics.progress} label="Engagement progress" /><p className="mt-1 text-xs text-slate-500">{delivery.metrics.progress}% · worked out from discovery, answers, validation, report release and remediation</p></div>
+          <dl className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <div><dt className="text-xs text-slate-500">Discovery</dt><dd>{delivery.metrics.discoveryStatus === "none" ? "Not started" : delivery.metrics.discoveryStatus.replace("_", " ")}</dd></div>
+            <div><dt className="text-xs text-slate-500">Answers</dt><dd>{delivery.metrics.questionsAnswered}/{delivery.metrics.questionsTotal} answered · {delivery.metrics.questionsValidated} validated</dd></div>
+            <div><dt className="text-xs text-slate-500">Findings</dt><dd>{delivery.metrics.findingsOpen} open{!delivery.isClient ? ` · ${delivery.metrics.findingsDraft} draft` : ""}</dd></div>
+            <div><dt className="text-xs text-slate-500">Remediation</dt><dd>{delivery.metrics.remediationClosed}/{delivery.metrics.remediationTotal} closed</dd></div>
+          </dl>
+          {!delivery.isClient ? (
+            <p className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+              <Link href={`/discovery/${params.engagementId}`} className="font-medium text-slate-900 underline">Discovery answers</Link>
+              <Link href="/findings" className="font-medium text-slate-900 underline">Release findings</Link>
+              <Link href="/tasks" className="font-medium text-slate-900 underline">Tasks &amp; milestones</Link>
+              <Link href="/clarifications" className="font-medium text-slate-900 underline">Clarifications</Link>
+            </p>
+          ) : null}
+        </section>
       ) : null}
 
       {canUseAi ? (
@@ -267,22 +311,57 @@ export default async function EngagementDetailPage({
           <p className="mt-3 text-sm text-slate-500">
             An Engagement Report requires at least one Assessment. Create an Assessment first.
           </p>
-        ) : (
+        ) : !delivery.isClient ? (
           <>
             <p className="mt-3 text-sm text-slate-600">
               Generates a PDF covering this Engagement&rsquo;s most recent Assessment (
               {engagement.assessments[0]!.periodLabel}) and its current Risks, Findings, Remediation, Validation and
-              Evidence.
+              Evidence. This working copy includes draft findings and is for the Primus team only.
             </p>
             <a
               href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/reports`}
               className="mt-2 inline-block text-sm font-medium text-slate-900 underline"
             >
-              Generate Engagement Report (PDF)
+              Generate working report (PDF)
             </a>
+            {delivery.canRelease ? (
+              <form action={releaseReportAction} className="mt-4 flex flex-wrap items-end gap-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <input type="hidden" name="organisationId" value={engagement.organisationId} />
+                <input type="hidden" name="engagementId" value={engagement.id} />
+                <input type="hidden" name="back" value={enginePath} />
+                <label className="block text-xs font-medium text-slate-700">Title shown to the client (optional)<input name="title" maxLength={200} className={INPUT_CLASS} /></label>
+                <Button type="submit" size="sm">Release report to client</Button>
+                <p className="w-full text-xs text-slate-600">Releases a client copy that leaves out draft findings. Each release is kept as its own version and cannot be taken back.</p>
+              </form>
+            ) : null}
           </>
-        )}
+        ) : null}
+        {delivery.releases.length > 0 ? (
+          <ul className="mt-4 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white text-sm">
+            {delivery.releases.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
+                <span>{r.title} · v{r.version} · released {fmtDateTime(r.releasedAt)}</span>
+                <a href={`/portal/reports/${r.id}/download`} className="font-medium text-slate-900 underline">Download</a>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-3 text-sm text-slate-500">No report has been released to the client yet.</p>}
       </section>
+
+      {delivery.canRequestEvidence ? (
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Ask the client for evidence</h2>
+          <form action={requestEvidenceAction} className="mt-3 grid gap-3 rounded-md border border-slate-200 bg-white p-4 md:grid-cols-2">
+            <input type="hidden" name="engagementId" value={engagement.id} />
+            <input type="hidden" name="back" value={enginePath} />
+            <label className="block text-xs font-medium text-slate-700">What do you need?<input name="title" required maxLength={200} className={INPUT_CLASS} /></label>
+            <label className="block text-xs font-medium text-slate-700">Needed by (optional)<input name="dueDate" type="date" className={INPUT_CLASS} /></label>
+            <label className="block text-xs font-medium text-slate-700 md:col-span-2">Details (optional)<textarea name="description" rows={2} maxLength={2000} className={INPUT_CLASS} /></label>
+            <div><Button type="submit" size="sm">Send request</Button></div>
+          </form>
+          {delivery.requests.length > 0 ? <p className="mt-2 text-xs text-slate-500">{delivery.requests.length} open request{delivery.requests.length === 1 ? "" : "s"} on this engagement. <Link href="/evidence-review" className="underline">Manage on the evidence review page</Link>.</p> : null}
+        </section>
+      ) : null}
 
       <section className="mt-8">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Members</h2>

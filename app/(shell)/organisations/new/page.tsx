@@ -65,6 +65,18 @@ export default async function NewOrganisationPage({
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
           />
         </div>
+        <div>
+          <label htmlFor="industry" className="block text-sm font-medium text-slate-700">
+            Industry <span className="font-normal text-slate-500">(optional)</span>
+          </label>
+          <input id="industry" name="industry" type="text" maxLength={80} placeholder="e.g. Financial services" className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600" />
+        </div>
+        <div>
+          <label htmlFor="hqLocation" className="block text-sm font-medium text-slate-700">
+            Headquarters <span className="font-normal text-slate-500">(optional)</span>
+          </label>
+          <input id="hqLocation" name="hqLocation" type="text" maxLength={120} placeholder="e.g. Mumbai" className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600" />
+        </div>
         <Button type="submit">Create Organisation</Button>
       </form>
     </div>

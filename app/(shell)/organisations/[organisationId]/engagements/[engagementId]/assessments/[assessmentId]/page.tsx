@@ -10,6 +10,10 @@ import {
 import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { listRisksForControl } from "@/lib/domain/risks";
 import { getMaturityAssessmentForAssessment } from "@/lib/domain/maturity";
+import { getViewer, hasPermission } from "@/lib/workspace/common";
+import { getReviewState, getValidatedResponseIds } from "@/lib/workspace/review";
+import { hasEngagementPermission } from "@/lib/authorization/service";
+import { submitAssessmentAction, validateAnswersAction, returnAssessmentAction } from "../../../../../../workspace-actions";
 import { NotFoundOrForbiddenError, canFinalizeAssessment, canComputeMaturity, canReviewEvidence, canManageRisk } from "@/lib/authorization/service";
 import { Badge, statusTone, riskRatingTone, riskStatusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -66,6 +70,27 @@ export default async function AssessmentWorkspacePage({
   }
 
   const finalized = assessment.status === "finalized";
+
+  // Review and submission (client submits; a reviewer validates or returns).
+  // Decided on the server; the database enforces the same rules.
+  const review = await withRequestDb(user.id, async (db) => {
+    const viewer = await getViewer(db, user.id);
+    const eng = { id: assessment.engagementId, organisationId: assessment.organisationId };
+    const state = await getReviewState(db, assessment.id);
+    return {
+      isClient: viewer.isClient,
+      state,
+      validatedIds: await getValidatedResponseIds(db, assessment.id),
+      canContribute: viewer.isClient ? await hasPermission(db, user.id, eng, "client.contribute") : true,
+      canSubmit: viewer.isClient ? await hasPermission(db, user.id, eng, "client.submit") : false,
+      canReview: !viewer.isClient && (await hasEngagementPermission(db, user.id, eng.id, "assessment.review")),
+    };
+  });
+  const submitted = review.state.submittedAt !== null;
+  // Locked for the client once submitted (or finalized); read-only for a
+  // client whose role cannot contribute. Practice users stay able to work
+  // until the assessment is finalized.
+  const readOnly = finalized || (review.isClient && (submitted || !review.canContribute));
 
   // Slice C7.3: the server independently re-decides whether to render
   // the Finalize control at all — never inferred from the client, and
@@ -220,9 +245,48 @@ export default async function AssessmentWorkspacePage({
           </div>
         </details>
       ) : null}
-      {searchParams.saved === "1" ? (
+      {!finalized ? (
+        <section className="mt-4 rounded-md border border-slate-200 bg-white p-4" aria-labelledby="review-h">
+          <h2 id="review-h" className="text-sm font-semibold text-slate-900">Review &amp; submission</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            {review.state.answered} of {review.state.total} applicable questions answered · {review.state.validated} validated by Primus
+            {submitted ? ` · submitted ${review.state.submittedAt!.toLocaleDateString("en-GB")}` : ""}
+          </p>
+          {review.isClient ? (
+            submitted ? (
+              <p className="mt-2 text-sm text-slate-700">You have submitted these answers. They are locked while Primus reviews them; Primus can return them to you if changes are needed.</p>
+            ) : !review.canContribute ? (
+              <p className="mt-2 text-sm text-slate-700">Your role can read this assessment but not change it.</p>
+            ) : review.canSubmit ? (
+              <form action={submitAssessmentAction} className="mt-3 flex flex-wrap items-center gap-3">
+                <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                <input type="hidden" name="back" value={basePath} />
+                <Button type="submit" size="sm" disabled={review.state.answered < review.state.total}>Submit for review</Button>
+                {review.state.answered < review.state.total ? <span className="text-xs text-slate-500">Answer all {review.state.total} applicable questions to submit. Once submitted, answers are locked.</span> : <span className="text-xs text-slate-500">Once submitted, answers are locked unless Primus returns them.</span>}
+              </form>
+            ) : <p className="mt-2 text-sm text-slate-700">Someone with submit permission (for example your Client Administrator or Privacy Officer) will submit this when it is ready.</p>
+          ) : review.canReview ? (
+            <div className="mt-3 flex flex-wrap items-end gap-4">
+              <form action={validateAnswersAction}>
+                <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                <input type="hidden" name="back" value={basePath} />
+                <Button type="submit" size="sm">Validate all answered</Button>
+              </form>
+              {submitted ? (
+                <form action={returnAssessmentAction} className="flex flex-wrap items-end gap-2">
+                  <input type="hidden" name="assessmentId" value={params.assessmentId} />
+                  <input type="hidden" name="back" value={basePath} />
+                  <label className="block text-xs font-medium text-slate-700">Note to the client (optional)<input name="note" maxLength={300} className={INPUT_CLASS} /></label>
+                  <Button type="submit" size="sm" variant="secondary">Return for changes</Button>
+                </form>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+      {searchParams.saved ? (
         <p role="status" className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
-          Saved.
+          {searchParams.saved === "1" ? "Saved." : searchParams.saved}
         </p>
       ) : null}
       {searchParams.error ? (
@@ -417,8 +481,11 @@ export default async function AssessmentWorkspacePage({
                 </section>
 
                 <section className="rounded-md border border-slate-200 bg-white p-4">
-                  <h3 className="text-sm font-semibold text-slate-900">Assessment Response</h3>
-                  {finalized ? (
+                  <h3 className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-900">
+                    <span>Assessment Response</span>
+                    {selected.response && review.validatedIds.has(selected.response.id) ? <Badge tone="positive">Validated by Primus</Badge> : null}
+                  </h3>
+                  {readOnly ? (
                     <div className="mt-2 text-sm text-slate-700">
                       <p>
                         <span className="font-medium">Rating:</span>{" "}
@@ -509,7 +576,7 @@ export default async function AssessmentWorkspacePage({
                     </ul>
                   )}
 
-                  {!finalized ? (
+                  {!readOnly ? (
                     <form action={createControlTestAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
                       <input type="hidden" name="organisationId" value={params.organisationId} />
                       <input type="hidden" name="engagementId" value={params.engagementId} />
@@ -650,7 +717,7 @@ export default async function AssessmentWorkspacePage({
                     </ul>
                   )}
 
-                  {!finalized ? (
+                  {!readOnly ? (
                     linkTargetOptions.length === 0 ? (
                       <p className="mt-4 border-t border-slate-100 pt-4 text-sm text-slate-500">
                         Record a response or control test for this control before attaching evidence.

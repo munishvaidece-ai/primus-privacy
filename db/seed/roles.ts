@@ -110,6 +110,15 @@ const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "ai.release", description: "Additionally decide AI suggestions held at a sign-off gate (reject critical evidence, release critical findings, issue the final report, send breach notices)." },
   { key: "ai.configure", description: "Switch the AI on for an engagement; set its autopilot level, thresholds and gates; pause or resume it; manage connectors." },
   { key: "ai.agent", description: "Held only by the AI Analyst role: write AI suggestions, jobs and events for an engagement." },
+  { key: "finding.release", description: "Release a draft finding to the client organisation (until then it is visible to the Primus team only)." },
+  { key: "assessment.review", description: "Validate a client's answers, and return a submitted assessment to the client for changes." },
+  { key: "discovery.approve", description: "Approve, return or reopen the client's discovery questionnaire." },
+  { key: "report.release", description: "Release a report to the client organisation as an immutable, published copy." },
+  { key: "audit.view", description: "Read the audit trail of an engagement." },
+  { key: "client.submit", description: "Client side: submit the discovery questionnaire and the assessment to Primus." },
+  { key: "rights.view", description: "Client side: see the data principal rights requests log." },
+  { key: "rights.manage", description: "Client side: log a data principal rights request and move it along." },
+  { key: "client.contribute", description: "Client side: fill in the discovery questionnaire and answer assessment questions (read-only roles lack it)." },
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -139,10 +148,22 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "ai.supervise",
     "ai.release",
     "ai.configure",
+    "finding.release",
+    "assessment.review",
+    "discovery.approve",
+    "report.release",
+    "audit.view",
   ],
-  "Consultant": ["validation.perform", "risk.manage", "finding.manage", "evidence.review", "ai.supervise"],
+  "Consultant": ["validation.perform", "risk.manage", "finding.manage", "evidence.review", "ai.supervise", "assessment.review", "audit.view"],
   "AI Analyst": ["risk.manage", "finding.manage", "evidence.review", "ai.agent"],
-  "Client Administrator": ["membership.manage", "user.manage"],
+  "Client Administrator": ["membership.manage", "user.manage", "client.submit", "client.contribute", "rights.view", "rights.manage"],
+  "Privacy Officer": ["client.submit", "client.contribute", "rights.view", "rights.manage"],
+  "Business Owner": ["client.contribute"],
+  "IT/CISO": ["client.contribute"],
+  "Procurement": ["client.contribute"],
+  "CXO / Executive Viewer": ["rights.view"],
+  "Legal": ["client.contribute", "rights.view", "rights.manage"],
+  "Auditor": ["audit.view"],
 };
 
 async function main() {

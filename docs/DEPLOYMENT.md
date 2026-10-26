@@ -76,7 +76,20 @@ npm run ai:worker                      # worker (set WORKER_HEALTH_PORT for GET 
 5. Add a **Folder scan** connector on a mounted test folder (if enabled) and press *Test connection* then *Scan now*.
 6. Press **Pause everything**: the status shows *AI is paused*; **Resume**.
 
+## 7a. Smoke check for the workspace and client portal (about 10 minutes)
+
+1. Sign in as a Primus user: you land on **Dashboard**. Open Organisations, Engagements, Tasks, Notifications, Audit trail.
+2. Create a task and a milestone on an engagement; mark the task done.
+3. Open **Discovery** for an engagement whose client has started it; **Findings** shows draft findings (hidden from the client) with a Release button.
+4. Sign in as a client user (invited from the organisation page): you land on **Overview**. Confirm the client cannot see draft findings, the Primus-only activity, or the Audit trail, and that the working report link on the engagement page gives "not found".
+5. As the client: fill and submit the Discovery questionnaire; answer assessment questions and **Submit for review** (answers lock). As Primus: **Validate all answered** or **Return for changes**.
+6. As Primus: **Release report to client** on the engagement page; as the client, download it from **Reports**.
+
+The platform sends **no email**. Notifications are in the app only (bell and Notifications page). Client invitations still need your own delivery of the invitation link (see §3).
+
 ## 8. Tested / not tested
+
+Workspace and client portal (migrations 0046–0048): `tests/workspace` (80 tests, 18 of which render every workspace and portal screen and submit their forms) covers released-only findings, assessment submit/lock/validate/return, read-only roles, discovery, tasks, clarifications, evidence requests, notifications, report release, data-principal request log, audit trail and portfolio figures against real PostgreSQL. The screens were type-checked and linted; they were rendered and driven form-by-form in tests, but not yet in a real browser session with Supabase sign-in.
 
 Tested automatically (`TZ=UTC npm run test:db` plus `npx vitest run tests/ai tests/connectors`, against a real PostgreSQL): routing and the three autopilot levels; the four sign-off gates; pause/resume; the AI's inability to approve its own work; audit attribution; idempotency (no duplicate suggestions); offline engine rules; citation verification and masking; the Anthropic and OpenAI-compatible wire formats **against local mock servers only**; text extraction (text, HTML, Word, Excel, PDF); connectors against real folders, a real database and a local test website; encryption and secret isolation; the four operations flows and report issuance; the screens (rendered and driven through their forms); migrations from an empty database; the bootstrap script.
 
@@ -88,6 +101,6 @@ The Primus Privacy microsite (overview, platform, workflows, AI layer, configura
 
 - A visitor who is not signed in and opens `/` is sent to `/site/index.html` (the microsite). `/site` also works.
 - Every "Sign in" / "Login / Registration" button on the microsite goes to `/login`, the real sign-in of the platform. The old simulated login page was removed.
-- Signed-in users who open `/` go straight to `/organisations`. Any protected page opened without a session goes to `/login`.
+- Signed-in users who open `/` go to `/dashboard` (Primus team) or `/portal` (client users). Any protected page opened without a session goes to `/login`.
 - The demo portal and AI Operations Centre pages on the microsite are demonstrations with fictional data held in the browser only; they are labelled as such and do not touch the platform database.
 - To serve the microsite on a separate marketing domain, copy `public/site/` to that host and point its Sign in links at the platform's `/login` URL.
