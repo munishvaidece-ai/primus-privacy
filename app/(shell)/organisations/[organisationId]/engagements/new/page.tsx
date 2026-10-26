@@ -82,7 +82,7 @@ export default async function NewEngagementPage({
             minLength={2}
             maxLength={200}
             autoComplete="off"
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
           />
         </div>
 
@@ -95,7 +95,7 @@ export default async function NewEngagementPage({
             name="engagementType"
             required
             defaultValue="readiness"
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
           >
             {ENGAGEMENT_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -114,7 +114,7 @@ export default async function NewEngagementPage({
               id="periodStart"
               name="periodStart"
               type="date"
-              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
             />
           </div>
           <div>
@@ -125,7 +125,7 @@ export default async function NewEngagementPage({
               id="periodEnd"
               name="periodEnd"
               type="date"
-              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
             />
           </div>
         </div>
@@ -138,7 +138,7 @@ export default async function NewEngagementPage({
             id="controlLibraryVersionId"
             name="controlLibraryVersionId"
             defaultValue=""
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
           >
             <option value="">Not yet pinned</option>
             {controlLibraryVersions.map((v) => (

@@ -37,7 +37,7 @@ export default async function MethodologyPage() {
         practice, versioned independently of any one client.
       </p>
 
-      <ul className="mt-6 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+      <ul className="mt-6 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
         <li>
           <Link href="/methodology/control-library" className="block px-4 py-3 hover:bg-slate-50">
             <span className="text-sm font-medium text-slate-900">Control Library</span>

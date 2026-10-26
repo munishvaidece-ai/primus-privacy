@@ -14,7 +14,7 @@ import {
 } from "../actions";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 const DECISION_LABEL: Record<string, string> = { undecided: "Undecided", applicable: "Applicable", not_applicable: "Not Applicable" };
 
@@ -114,7 +114,7 @@ export default async function ScopeDetailPage({
           Which regulatory obligations apply to this engagement, narratively — feeds the engagement report; does not
           by itself change which controls are assessed.
         </p>
-        <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+        <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
           {scope.determinations.length === 0 ? (
             <li className="px-6 py-6 text-center text-sm text-slate-500">No determinations recorded yet.</li>
           ) : (
@@ -134,7 +134,7 @@ export default async function ScopeDetailPage({
         </ul>
 
         {isDraft && canPropose && regulatoryReferenceOptions.length > 0 ? (
-          <form action={createApplicabilityDeterminationAction} className="mt-3 space-y-3 rounded-md border border-slate-200 bg-white p-4">
+          <form action={createApplicabilityDeterminationAction} className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white shadow-card p-4">
             <input type="hidden" name="organisationId" value={params.organisationId} />
             <input type="hidden" name="engagementId" value={params.engagementId} />
             <input type="hidden" name="engagementScopeId" value={scope.id} />
@@ -169,7 +169,7 @@ export default async function ScopeDetailPage({
         <p className="mt-1 text-xs text-slate-500">
           The operational scope — what a new Assessment for this engagement will actually include as applicable.
         </p>
-        <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+        <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
           {scope.controlRows.map((row) => (
             <li key={row.id} className="px-4 py-3">
               <div className="flex items-center justify-between gap-4">

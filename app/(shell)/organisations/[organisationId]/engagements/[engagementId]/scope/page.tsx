@@ -69,7 +69,7 @@ export default async function ScopeIndexPage({
           </form>
         </div>
       ) : (
-        <ul className="mt-6 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+        <ul className="mt-6 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
           {scopes.map((s, i) => (
             <li key={s.id}>
               <Link

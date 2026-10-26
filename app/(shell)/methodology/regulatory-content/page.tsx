@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { createRegulatoryReferenceAction, createRequirementAction } from "./actions";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 /**
  * Regulatory References and Requirements (instructions §1) — unlike the
@@ -68,7 +68,7 @@ export default async function RegulatoryContentPage({
         {references.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">None yet.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
             {references.map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-4 px-4 py-3">
                 <div className="min-w-0">
@@ -82,7 +82,7 @@ export default async function RegulatoryContentPage({
         )}
 
         {canManage ? (
-          <form action={createRegulatoryReferenceAction} className="mt-4 space-y-2 rounded-md border border-slate-200 bg-white p-4">
+          <form action={createRegulatoryReferenceAction} className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-white shadow-card p-4">
             <p className="text-xs font-medium text-slate-700">Add regulatory reference</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div>
@@ -124,7 +124,7 @@ export default async function RegulatoryContentPage({
         {requirementRows.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">None yet.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
             {requirementRows.map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-4 px-4 py-3">
                 <div className="min-w-0">
@@ -141,7 +141,7 @@ export default async function RegulatoryContentPage({
           references.length === 0 ? (
             <p className="mt-4 text-sm text-slate-500">Add a regulatory reference above before creating a requirement.</p>
           ) : (
-            <form action={createRequirementAction} className="mt-4 space-y-2 rounded-md border border-slate-200 bg-white p-4">
+            <form action={createRequirementAction} className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-white shadow-card p-4">
               <p className="text-xs font-medium text-slate-700">Add requirement</p>
               <div>
                 <label htmlFor="primaryRegulatoryReferenceId" className="block text-xs font-medium text-slate-700">

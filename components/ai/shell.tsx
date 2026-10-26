@@ -72,6 +72,6 @@ export function Flash({ saved, error }: { saved?: string; error?: string }) {
   );
 }
 
-export const INPUT = "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+export const INPUT = "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 export const LABEL = "block text-xs font-medium text-slate-700";
-export const CARD = "rounded-md border border-slate-200 bg-white p-4";
+export const CARD = "rounded-xl border border-slate-200 bg-white shadow-card p-4";

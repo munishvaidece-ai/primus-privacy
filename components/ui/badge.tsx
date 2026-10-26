@@ -7,10 +7,10 @@ import { cn } from "@/lib/utils";
 // §24 / PRODUCT_UX_BLUEPRINT.md §19: "status indicators must never be
 // colour-only."
 const toneClasses: Record<"neutral" | "positive" | "warning" | "critical", string> = {
-  neutral: "bg-slate-100 text-slate-700",
-  positive: "bg-emerald-100 text-emerald-800",
-  warning: "bg-amber-100 text-amber-800",
-  critical: "bg-red-100 text-red-800",
+  neutral: "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200",
+  positive: "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200",
+  warning: "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200",
+  critical: "bg-red-50 text-red-800 ring-1 ring-inset ring-red-200",
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {

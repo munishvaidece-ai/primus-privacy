@@ -14,7 +14,7 @@ import { getViewer } from "@/lib/workspace/common";
 import { updateOrganisationProfileAction } from "@/app/(shell)/workspace-actions";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 export default async function OrganisationDetailPage({
   params,
@@ -104,7 +104,7 @@ export default async function OrganisationDetailPage({
         <Badge tone={statusTone(organisation.status)}>{organisation.status}</Badge>
       </div>
 
-      <section className="mt-6 rounded-md border border-slate-200 bg-white p-4" aria-labelledby="profile-h">
+      <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-card p-4" aria-labelledby="profile-h">
         <h2 id="profile-h" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Profile</h2>
         {isClient ? (
           <p className="mt-2 text-sm text-slate-700">Industry: {profile.industry ?? "not recorded"} · Headquarters: {profile.hqLocation ?? "not recorded"}</p>
@@ -153,7 +153,7 @@ export default async function OrganisationDetailPage({
             No engagements yet for this organisation.
           </div>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
             {organisation.engagements.map((engagement) => (
               <li key={engagement.id}>
                 <Link
@@ -179,7 +179,7 @@ export default async function OrganisationDetailPage({
             No organisation members yet.
           </div>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
             {organisation.members.map((member) => (
               <li key={member.userId} className="flex items-center justify-between px-4 py-3">
                 <span className="text-sm text-slate-900">{member.email}</span>

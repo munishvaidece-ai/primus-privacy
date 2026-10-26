@@ -22,30 +22,53 @@ npm run dev
 Then open **http://localhost:3000**.
 
 * `npm run local:db` starts the database in Docker.
-* `npm run local:setup` prepares everything: it creates your `.env` settings file, builds the tables, creates "Primus Partners" with its roles, and adds a fictional demo client with a team and sample data. You can run it again safely; it will not duplicate anything.
+* `npm run local:setup` prepares everything: it creates your `.env` settings file, builds the tables, creates "Primus Partners" with its roles, and adds three fictional client organisations with a team and sample data. You can run it again safely; it will not duplicate anything.
 * `npm run dev` starts the app. Leave that window open while you test; press Ctrl+C to stop.
 
 The next day, you only need `npm run local:db` (if Docker was restarted) and `npm run dev`.
 
-## Signing in
+## Signing in: two doors
 
-The sign-in page lists everyone. The big button signs you in as **Demo Administrator**, who can do everything on the demo engagement. To see what other people see, **Log out** and pick someone else:
+Open http://localhost:3000 and click **Sign in**. You choose a door:
 
-| Person | What they are | Use them to check |
+* **Primus team workspace**: what the consulting team sees. One big button signs you in as the **Demo Administrator**, who can do everything. Or pick another team member to see what their role can and cannot do.
+* **Client organisation portal**: what a client sees. Pick one of three organisations, then a person in it.
+
+To switch, press **Log out** (top right) and choose again. No password is asked anywhere.
+
+**Primus team**
+
+| Person | Role | Use them to check |
 |---|---|---|
-| Demo Administrator, Priya Nair | Engagement Manager (can release findings and reports, approve discovery, validate answers) | the whole Primus side |
-| Arjun Mehta | Consultant (cannot release) | what a consultant cannot do |
-| Meera Iyer | Auditor | read-only view and the audit trail |
-| Asha Verma | Client Administrator | the full client portal; can answer and submit |
-| Rohan Gupta | Privacy Officer | same, from another client person |
-| Kabir Shah | CXO / Executive Viewer | read-only: cannot answer or change anything |
-| Neha Joshi | Business Owner | an engagement-level client user |
+| Demo Administrator | Platform Administrator, Engagement Manager on every engagement | the whole Primus side |
+| Priya Nair | Practice Partner, Engagement Manager (Meridian, Vitalis) | partner view of the portfolio |
+| Arjun Mehta | Consultant (all engagements) | what a consultant cannot do (release) |
+| Meera Iyer | Auditor (Meridian) | read-only view and the audit trail |
+
+**Three fictional client organisations, each at a different stage**
+
+| Organisation | Stage | People |
+|---|---|---|
+| Meridian Finserve Ltd (NBFC, Mumbai) | Results delivered: assessment validated, 4 findings released, report v1 released, remediation in progress | Asha Verma (Client Administrator), Rohan Gupta (Privacy Officer), Kabir Shah (CXO, read-only), Neha Joshi (Business Owner) |
+| Vitalis Care Network Pvt Ltd (hospital group, Bengaluru) | Client is mid-assessment (14 of 25 answered), 3 evidence requests open, 2 draft findings not yet released | Dr Ananya Rao (Client Administrator), Vikram Sethi (Privacy Officer), Pooja Menon (CXO, read-only) |
+| Bazaarly Commerce Pvt Ltd (e-commerce, Gurugram) | Just started: discovery in progress, tasks assigned | Sameer Khanna (Client Administrator), Ishita Bose (Privacy Officer) |
+
+Everything is invented for demonstration: names, numbers, findings, risks and requests.
+
+## A suggested leadership demo (about 10 minutes)
+
+1. **Primus door**, Demo Administrator: show the *Dashboard* (three clients at three phases), open *Organisations*, then Meridian's engagement (delivery status, release findings, release report).
+2. **Client door**, Meridian, Asha Verma: *Overview*, *Findings* (only released ones), *Risks* heat map, *Remediation*, *Reports* (download the PDF), *Rights requests*.
+3. **Client door**, Vitalis, Vikram Sethi: open *Assessment*, answer a question, see the progress move. Open *Evidence centre*.
+4. Back on the **Primus door**, open Vitalis: the 2 draft findings exist but the client cannot see them until released. Release one, then sign in as Dr Ananya Rao to show it has appeared.
+5. **Client door**, Bazaarly, Sameer Khanna: the guided *Discovery* questionnaire, which saves as you type.
+6. Sign in as **Kabir Shah** (CXO): everything is read-only.
 
 ## A good test to run first
 
-1. As **Asha Verma**: open *Discovery* and type in a few answers (they save by themselves); open *Assessment* and answer the questions. **Submit for review** is enabled only when all are answered. Submit; the answers lock.
-2. As the **Demo Administrator**: open the assessment, press **Validate all answered**. Open *Findings*: the "Breach response plan untested" draft is invisible to the client; **Release** it. On the engagement page press **Release report to client**.
-3. As **Asha** again: *Findings* now shows it, *Reports* has a PDF to download, *Notifications* show what happened.
+1. As **Sameer Khanna** (Bazaarly) or **Vikram Sethi** (Vitalis): finish the discovery steps or the assessment questions (they save by themselves). **Submit for review** is enabled only when all questions are answered. Submit; the answers lock.
+2. As the **Demo Administrator**: open that engagement's assessment, press **Validate all answered**. Open *Findings*: the draft findings (for example at Vitalis) are invisible to the client; **Release** one. On the engagement page press **Release report to client**.
+3. As that client person again: *Findings* now shows it, *Reports* has a PDF to download, *Notifications* show what happened.
 4. As **Kabir Shah**: confirm every answer form is read-only.
 5. Try the other screens: tasks and milestones, clarifications, evidence requests (ask on the engagement page, answer as the client), Data Principal requests, the audit trail.
 
@@ -57,7 +80,7 @@ The AI Operations Centre needs the background worker to do its work. In a second
 
 ## Starting again from scratch
 
-To wipe the local database and start clean: `docker compose -f docker-compose.local.yml down -v`, then `npm run local:db` and `npm run local:setup` again.
+**If you ran an earlier version of this demo, do this once**, because the demo data changed (three organisations instead of one). To wipe the local database and start clean: `docker compose -f docker-compose.local.yml down -v`, then `npm run local:db` and `npm run local:setup` again.
 
 ## Handing over to devops
 

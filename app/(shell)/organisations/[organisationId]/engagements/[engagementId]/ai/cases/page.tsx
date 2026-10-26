@@ -108,7 +108,7 @@ export default async function CasesPage({
       <section className="mt-8" aria-labelledby="all">
         <h2 id="all" className="text-sm font-semibold uppercase tracking-wide text-slate-500">All cases</h2>
         {data.cases.length === 0 ? <div className="mt-3 rounded-md border border-dashed border-slate-300 px-6 py-8 text-center text-sm text-slate-500">No cases yet.</div> : (
-          <div className="mt-3 overflow-x-auto rounded-md border border-slate-200 bg-white">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead><tr className="text-left text-xs font-medium uppercase tracking-wide text-slate-500"><th scope="col" className="px-3 py-2">Case</th><th scope="col" className="px-3 py-2">Type</th><th scope="col" className="px-3 py-2">Status</th><th scope="col" className="px-3 py-2">Severity</th><th scope="col" className="px-3 py-2">Due</th></tr></thead>
               <tbody className="divide-y divide-slate-100">

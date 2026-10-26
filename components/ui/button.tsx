@@ -10,12 +10,12 @@ import { cn } from "@/lib/utils";
 // disabled-state styling — the accessibility baseline instructions §24
 // asks for.
 const buttonVariants = cva(
-  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center rounded-lg font-display text-sm font-semibold transition focus-visible:outline-none hover:-translate-y-px disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        primary: "bg-slate-900 text-white hover:bg-slate-700",
-        secondary: "bg-white text-slate-900 border border-slate-300 hover:bg-slate-100",
+        primary: "bg-brand text-white shadow-sm hover:bg-brand-dark",
+        secondary: "bg-white text-slate-900 border border-slate-200 hover:border-copper hover:text-copper",
         ghost: "text-slate-700 hover:bg-slate-100",
         destructive: "bg-red-600 text-white hover:bg-red-700",
       },

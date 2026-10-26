@@ -41,7 +41,7 @@ export default async function AssessmentsListPage({
         <h1 className="text-xl font-semibold text-slate-900">Assessments</h1>
         <Link
           href={newAssessmentPath}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+          className="rounded-lg bg-brand font-display font-semibold px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark"
         >
           Create Assessment
         </Link>
@@ -55,7 +55,7 @@ export default async function AssessmentsListPage({
           </Link>
         </div>
       ) : (
-        <ul className="mt-6 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+        <ul className="mt-6 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
           {assessmentList.map((a) => {
             const pct = a.progress.total > 0 ? Math.round((a.progress.completed / a.progress.total) * 100) : 0;
             return (

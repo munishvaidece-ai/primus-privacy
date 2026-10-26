@@ -15,7 +15,7 @@ const CONTROL_TYPES: Array<{ value: string; label: string }> = [
 ];
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 export default async function ControlDetailPage({
   params,
@@ -149,7 +149,7 @@ export default async function ControlDetailPage({
         {control.requirements.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">Not associated with any requirement yet.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
             {control.requirements.map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-4 px-4 py-3">
                 <span className="text-sm text-slate-900">{r.title}</span>

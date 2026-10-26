@@ -60,7 +60,7 @@ export default async function PortalOverview({ searchParams }: { searchParams: {
 
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Recent activity</h2>
       {data.activity.length === 0 ? <Empty>No activity yet.</Empty> : (
-        <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
+        <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-card">
           {data.activity.map((a) => <li key={a.id} className="flex flex-wrap justify-between gap-2 px-4 py-2 text-sm"><span>{a.summary}</span><span className="text-xs text-slate-500">{fmtDateTime(a.occurredAt)}</span></li>)}
         </ul>
       )}

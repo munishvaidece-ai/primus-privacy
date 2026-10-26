@@ -111,7 +111,7 @@ export async function engagementMetrics(db: RequestDb, opts: { engagementId?: st
         select x.id, x.status, x.submitted_at from assessments x where x.engagement_id = e.id order by x.created_at desc, x.id desc limit 1
       ) a on true
       left join lateral (
-        select count(*) filter (where r.effectiveness_rating <> 'not_applicable') as total,
+        select count(*) filter (where coalesce(r.effectiveness_rating::text, 'not_assessed') <> 'not_applicable') as total,
                count(*) filter (where r.effectiveness_rating not in ('not_applicable','not_assessed')) as answered,
                count(*) filter (where r.effectiveness_rating <> 'not_applicable' and r.validated_at is not null) as validated
           from assessment_controls ac
@@ -368,7 +368,7 @@ export async function listAllAssessments(db: RequestDb): Promise<CrossAssessment
            a.engagement_id, e.name as engagement_name, a.organisation_id, o.name as organisation_name
       from assessments a join engagements e on e.id = a.engagement_id join organisations o on o.id = a.organisation_id
       left join lateral (
-        select count(*) filter (where r.effectiveness_rating <> 'not_applicable') as total,
+        select count(*) filter (where coalesce(r.effectiveness_rating::text, 'not_assessed') <> 'not_applicable') as total,
                count(*) filter (where r.effectiveness_rating not in ('not_applicable','not_assessed')) as answered,
                count(*) filter (where r.effectiveness_rating <> 'not_applicable' and r.validated_at is not null) as validated
           from assessment_controls ac left join assessment_responses r on r.assessment_control_id = ac.id where ac.assessment_id = a.id

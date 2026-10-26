@@ -84,7 +84,7 @@ export default async function EvidenceReviewPage({ searchParams }: { searchParam
       {closed.length > 0 ? (
         <>
           <h2 className="mb-3 mt-10 text-sm font-semibold uppercase tracking-wide text-slate-500">Recently closed requests</h2>
-          <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white text-sm">
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-card text-sm">
             {closed.map((r) => <li key={r.id} className="flex flex-wrap justify-between gap-2 px-4 py-2"><span>{r.reference} · {r.title} <span className="text-slate-500">({r.organisationName})</span></span><Badge tone={r.status === "fulfilled" ? "positive" : "neutral"}>{r.status}</Badge></li>)}
           </ul>
         </>

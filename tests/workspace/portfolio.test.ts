@@ -57,6 +57,11 @@ describe("portfolio lists respect who is asking", () => {
     expect(m!.phase).toBe("Assessment");
     for (const key of ["breach", "policy", "training", "retention"] as const) {
       await withRequestDb(f.clientAdminId, (db) => updateAssessmentResponse(db, f.clientAdminId, { assessmentControlId: f.assessmentControlIds[key]!, effectivenessRating: "implemented", decisionRationale: null }));
+      if (key === "breach") {
+        // half-answered: the total must still be every question, not only the answered ones
+        const [half] = await withRequestDb(f.emId, (db) => engagementMetrics(db, { engagementId: f.engagementId }));
+        expect(half).toMatchObject({ questionsTotal: 4, questionsAnswered: 1 });
+      }
     }
     [m] = await withRequestDb(f.emId, (db) => engagementMetrics(db, { engagementId: f.engagementId }));
     expect(m).toMatchObject({ questionsTotal: 4, questionsAnswered: 4 });

@@ -19,7 +19,7 @@ export default async function NotificationsPage({ searchParams }: { searchParams
       />
       <Flash saved={searchParams.saved} error={searchParams.error} />
       {data.length === 0 ? <Empty>You have no notifications.</Empty> : (
-        <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
+        <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-card">
           {data.map((n) => (
             <li key={n.id} className={`flex flex-wrap items-start justify-between gap-3 px-4 py-3 ${n.readAt ? "" : "bg-blue-50/50"}`}>
               <div className="min-w-0">

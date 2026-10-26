@@ -26,7 +26,7 @@ export default async function OrganisationsPage({ searchParams }: { searchParams
       <PageHeader
         title="Organisations"
         subtitle="Client organisations you have access to."
-        actions={data.canCreate ? <Link href="/organisations/new" className="inline-flex h-9 items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white transition-colors hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">Create Organisation</Link> : null}
+        actions={data.canCreate ? <Link href="/organisations/new" className="inline-flex h-9 items-center justify-center rounded-lg bg-brand font-display font-semibold px-4 text-sm font-medium text-white transition-colors hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">Create Organisation</Link> : null}
       />
       <FilterBar reset="/organisations">
         <FilterText name="q" label="Search name or location" value={searchParams.q} />

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { publishControlLibraryVersionAction, cloneControlLibraryVersionAction } from "./actions";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 /**
  * The Control Library Version detail page (instructions §4): metadata,
@@ -96,7 +96,7 @@ export default async function ControlLibraryVersionPage({
             No controls yet.
           </div>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
             {version.controlRows.map((c) => (
               <li key={c.id}>
                 <Link

@@ -35,7 +35,7 @@ import {
 } from "../actions";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 /**
  * Processing Activity detail (Slice D2, instructions §5/§9): edit the
@@ -118,7 +118,7 @@ export default async function ProcessingActivityDetailPage({
 
       <section className="mt-6">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Details</h2>
-        <form action={updateProcessingActivityAction} className="mt-3 max-w-xl space-y-4 rounded-md border border-slate-200 bg-white p-4">
+        <form action={updateProcessingActivityAction} className="mt-3 max-w-xl space-y-4 rounded-xl border border-slate-200 bg-white shadow-card p-4">
           <input type="hidden" name="organisationId" value={params.organisationId} />
           <input type="hidden" name="engagementId" value={params.engagementId} />
           <input type="hidden" name="processingActivityId" value={activity.id} />
@@ -174,7 +174,7 @@ export default async function ProcessingActivityDetailPage({
         <section className="mt-6">
           <details>
             <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-slate-500">Carry forward…</summary>
-            <div className="mt-3 max-w-xl rounded-md border border-slate-200 bg-white p-4">
+            <div className="mt-3 max-w-xl rounded-xl border border-slate-200 bg-white shadow-card p-4">
               <p className="text-sm text-slate-600">
                 Creates a new Processing Activity in the target engagement, linked back to this one, with every
                 relationship re-resolved to each master entity&rsquo;s current version.
@@ -408,7 +408,7 @@ export default async function ProcessingActivityDetailPage({
 
 function RelationshipCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-4">
+    <div className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
       <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
       <div className="mt-2">{children}</div>
     </div>

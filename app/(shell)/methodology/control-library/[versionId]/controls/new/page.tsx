@@ -14,7 +14,7 @@ const CONTROL_TYPES: Array<{ value: string; label: string }> = [
 ];
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 export default async function NewControlPage({
   params,

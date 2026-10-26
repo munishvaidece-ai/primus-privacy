@@ -54,7 +54,7 @@ export default async function RopaPage({ params }: { params: { organisationId: s
       ) : (
         <div className="mt-6 space-y-4">
           {entries.map((e) => (
-            <article key={e.id} className="rounded-md border border-slate-200 bg-white p-4">
+            <article key={e.id} className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <h2 className="text-sm font-semibold text-slate-900">{e.name}</h2>

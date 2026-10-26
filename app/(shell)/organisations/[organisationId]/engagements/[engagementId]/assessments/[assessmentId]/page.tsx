@@ -40,7 +40,7 @@ const EFFECTIVENESS_OPTIONS = [
 ] as const;
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 // The Assessment workspace (PHASE C instructions §2/§6) — the primary
 // consultant screen for this slice, superseding Slice A1's minimal
@@ -246,7 +246,7 @@ export default async function AssessmentWorkspacePage({
         </details>
       ) : null}
       {!finalized ? (
-        <section className="mt-4 rounded-md border border-slate-200 bg-white p-4" aria-labelledby="review-h">
+        <section className="mt-4 rounded-xl border border-slate-200 bg-white shadow-card p-4" aria-labelledby="review-h">
           <h2 id="review-h" className="text-sm font-semibold text-slate-900">Review &amp; submission</h2>
           <p className="mt-1 text-sm text-slate-600">
             {review.state.answered} of {review.state.total} applicable questions answered · {review.state.validated} validated by Primus
@@ -296,7 +296,7 @@ export default async function AssessmentWorkspacePage({
       ) : null}
 
       {finalized ? (
-        <section className="mt-4 rounded-md border border-slate-200 bg-white p-4">
+        <section className="mt-4 rounded-xl border border-slate-200 bg-white shadow-card p-4">
           <h3 className="text-sm font-semibold text-slate-900">Maturity</h3>
           {maturity ? (
             <div className="mt-2">
@@ -393,7 +393,7 @@ export default async function AssessmentWorkspacePage({
               </Button>
             </form>
 
-            <nav aria-label="Assessment controls" className="mt-4 max-h-[65vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
+            <nav aria-label="Assessment controls" className="mt-4 max-h-[65vh] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-card">
               {filteredRows.length === 0 ? (
                 <p className="px-3 py-4 text-sm text-slate-500">No controls match this filter.</p>
               ) : (
@@ -448,7 +448,7 @@ export default async function AssessmentWorkspacePage({
                   )}
                 </div>
 
-                <div className="rounded-md border border-slate-200 bg-white p-4">
+                <div className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
                   <div className="flex items-baseline gap-2">
                     <span className="font-mono text-xs text-slate-500">{selected.controlCode}</span>
                     <h2 className="text-base font-semibold text-slate-900">{selected.controlTitle}</h2>
@@ -459,7 +459,7 @@ export default async function AssessmentWorkspacePage({
                   ) : null}
                 </div>
 
-                <section className="rounded-md border border-slate-200 bg-white p-4">
+                <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
                   <h3 className="text-sm font-semibold text-slate-900">Mapped Requirements</h3>
                   {requirementsList.length === 0 ? (
                     <p className="mt-2 text-sm text-slate-500">No requirements mapped to this control.</p>
@@ -480,7 +480,7 @@ export default async function AssessmentWorkspacePage({
                   )}
                 </section>
 
-                <section className="rounded-md border border-slate-200 bg-white p-4">
+                <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
                   <h3 className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-900">
                     <span>Assessment Response</span>
                     {selected.response && review.validatedIds.has(selected.response.id) ? <Badge tone="positive">Validated by Primus</Badge> : null}
@@ -554,7 +554,7 @@ export default async function AssessmentWorkspacePage({
                   </dl>
                 </section>
 
-                <section className="rounded-md border border-slate-200 bg-white p-4">
+                <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
                   <h3 className="text-sm font-semibold text-slate-900">Control Tests</h3>
                   {controlTestRows.length === 0 ? (
                     <p className="mt-2 text-sm text-slate-500">No control tests recorded yet.</p>
@@ -621,7 +621,7 @@ export default async function AssessmentWorkspacePage({
                   ) : null}
                 </section>
 
-                <section className="rounded-md border border-slate-200 bg-white p-4">
+                <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
                   <h3 className="text-sm font-semibold text-slate-900">Evidence</h3>
                   {evidenceRows.length === 0 ? (
                     <p className="mt-2 text-sm text-slate-500">No evidence linked yet.</p>
@@ -776,7 +776,7 @@ export default async function AssessmentWorkspacePage({
                   ) : null}
                 </section>
 
-                <section className="rounded-md border border-slate-200 bg-white p-4">
+                <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-slate-900">Risks</h3>
                     <Link

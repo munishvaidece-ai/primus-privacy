@@ -15,7 +15,7 @@ export default async function RisksPage({ searchParams }: { searchParams: { q?: 
       <PageHeader title="Risks" subtitle="The risk register across your clients, with a heat map of likelihood against impact." />
       {data.length === 0 ? <Empty>No risks recorded yet.</Empty> : (
         <>
-          <section className="mb-6 rounded-md border border-slate-200 bg-white p-4"><HeatMap risks={rows} /></section>
+          <section className="mb-6 rounded-xl border border-slate-200 bg-white shadow-card p-4"><HeatMap risks={rows} /></section>
           <FilterBar reset="/risks">
             <FilterText name="q" label="Search" value={searchParams.q} />
             <FilterSelect name="rating" label="Inherent rating" value={searchParams.rating} options={["critical", "high", "medium", "low"].map((v) => ({ value: v, label: titleCase(v) }))} />

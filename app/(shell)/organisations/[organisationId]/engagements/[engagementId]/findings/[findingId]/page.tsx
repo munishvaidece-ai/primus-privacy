@@ -16,7 +16,7 @@ const SEVERITY_OPTIONS = ["low", "medium", "high", "critical"] as const;
 const STATUS_OPTIONS = ["open", "in_progress", "resolved", "accepted"] as const;
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"] as const;
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 // Slice C4 (PHASE C4 instructions §7): Finding detail — identity,
 // severity, status, owner, an edit form, source Risk(s), and the full
@@ -124,7 +124,7 @@ export default async function FindingDetailPage({
       ) : null}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Edit finding</h2>
           {canManageFindingResult ? (
           <form action={updateFindingAction} className="mt-2 space-y-2">
@@ -206,7 +206,7 @@ export default async function FindingDetailPage({
           </dl>
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Source traceability</h2>
           <p className="mt-1 text-xs text-slate-500">Finding → Risk → Assessment → Control → Assessment Response.</p>
           <dl className="mt-2 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
@@ -252,7 +252,7 @@ export default async function FindingDetailPage({
           </dl>
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Relevant control tests</h2>
           {controlTestRows.length === 0 ? (
             <p className="mt-2 text-sm text-slate-500">
@@ -273,7 +273,7 @@ export default async function FindingDetailPage({
           )}
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Relevant evidence</h2>
           <p className="mt-1 text-xs text-slate-500">
             Evidence linked to the source assessment response / control tests above — this finding references the same
@@ -297,7 +297,7 @@ export default async function FindingDetailPage({
             </ul>
           )}
         </section>
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-900">Remediation actions</h2>
             <Link

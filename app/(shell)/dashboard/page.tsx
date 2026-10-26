@@ -75,7 +75,7 @@ export default async function DashboardPage() {
       <section className="mt-8" aria-labelledby="act">
         <h2 id="act" className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Recent activity</h2>
         {activity.length === 0 ? <Empty>No activity yet.</Empty> : (
-          <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-card">
             {activity.map((a) => (
               <li key={a.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2 text-sm">
                 <span>{a.summary} <span className="text-slate-500">· {a.organisationName}</span></span>

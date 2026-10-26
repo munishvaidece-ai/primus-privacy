@@ -15,7 +15,7 @@ import { updateRemediationActionAction, uploadRemediationEvidenceAction, createV
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"] as const;
 const STATUS_OPTIONS = ["open", "in_progress", "evidence_submitted", "validated", "closed"] as const;
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 // Slice C5 (PHASE C5 instructions §11): RemediationAction detail —
 // identity, status, priority, owner, due date, an edit form, source
@@ -147,7 +147,7 @@ export default async function RemediationActionDetailPage({
       ) : null}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Edit remediation action</h2>
           <form action={updateRemediationActionAction} className="mt-2 space-y-2">
             <input type="hidden" name="organisationId" value={params.organisationId} />
@@ -229,7 +229,7 @@ export default async function RemediationActionDetailPage({
           </dl>
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Source traceability</h2>
           <p className="mt-1 text-xs text-slate-500">Remediation → Finding → Risk → Assessment → Control → Assessment Response.</p>
           <dl className="mt-2 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
@@ -291,7 +291,7 @@ export default async function RemediationActionDetailPage({
           </dl>
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Remediation evidence</h2>
           <p className="mt-1 text-xs text-slate-500">
             Evidence submitted directly against this remediation action — the same Evidence/EvidenceLink architecture used
@@ -338,7 +338,7 @@ export default async function RemediationActionDetailPage({
           </form>
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Relevant control tests</h2>
           {controlTestRows.length === 0 ? (
             <p className="mt-2 text-sm text-slate-500">
@@ -359,7 +359,7 @@ export default async function RemediationActionDetailPage({
           )}
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Evidence from the source assessment response</h2>
           <p className="mt-1 text-xs text-slate-500">
             The evidence the original assessment response/control test relied on — this remediation action references the
@@ -384,7 +384,7 @@ export default async function RemediationActionDetailPage({
           )}
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Validation</h2>
           <p className="mt-1 text-xs text-slate-500">
             Every validation is a permanent, immutable record — correcting an earlier decision means recording a new

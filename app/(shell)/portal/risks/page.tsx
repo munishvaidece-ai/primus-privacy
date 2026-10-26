@@ -13,7 +13,7 @@ export default async function PortalRisks({ searchParams }: { searchParams: { e?
       <PortalHeader title="Risks" subtitle="Your risk register, with likelihood against impact." engagements={portal.engagements} current={portal.current} />
       {data.length === 0 ? <Empty>No risks recorded yet.</Empty> : (
         <>
-          <section className="mb-6 rounded-md border border-slate-200 bg-white p-4"><HeatMap risks={data} /></section>
+          <section className="mb-6 rounded-xl border border-slate-200 bg-white shadow-card p-4"><HeatMap risks={data} /></section>
           <Table label="Risks" head={["Risk", "Inherent", "Residual", "Status", "Owner"]}>
             {data.map((r) => (
               <tr key={r.id}>

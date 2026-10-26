@@ -67,7 +67,7 @@ export function TasksView({ tasks, engagements, isClient, back, fixedEngagementI
       {done.length > 0 ? (
         <section aria-labelledby="done">
           <h2 id="done" className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Done</h2>
-          <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white text-sm">
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-card text-sm">
             {done.slice(0, 20).map((t) => <li key={t.id} className="flex justify-between px-4 py-2"><span className="text-slate-700">{t.title}</span><span className="text-xs text-slate-500">{titleCase(t.kind)} · {fmtDate(t.completedAt)}</span></li>)}
           </ul>
         </section>

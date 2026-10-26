@@ -66,7 +66,7 @@ export default async function QueuePage({
       <section className="mt-10" aria-labelledby="done">
         <h2 id="done" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Recently handled</h2>
         {data.recent.length === 0 ? <p className="mt-3 text-sm text-slate-500">Nothing handled yet.</p> : (
-          <div className="mt-3 overflow-x-auto rounded-md border border-slate-200 bg-white">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead><tr className="text-left text-xs font-medium uppercase tracking-wide text-slate-500"><th scope="col" className="px-3 py-2">What</th><th scope="col" className="px-3 py-2">Outcome</th><th scope="col" className="px-3 py-2">Sure</th><th scope="col" className="px-3 py-2">When</th></tr></thead>
               <tbody className="divide-y divide-slate-100">

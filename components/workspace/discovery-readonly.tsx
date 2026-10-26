@@ -34,7 +34,7 @@ const statusTone: Record<ObligationPreview["status"], "positive" | "warning" | "
 
 export function ObligationsPreview({ items }: { items: ObligationPreview[] }) {
   return (
-    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
       <table className="min-w-full divide-y divide-slate-200 text-sm" aria-label="Indicative obligations">
         <thead className="bg-slate-50"><tr>{["Reference", "Obligation", "Source", "Indicative result", "Why"].map((h) => <th key={h} scope="col" className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500">{h}</th>)}</tr></thead>
         <tbody className="divide-y divide-slate-100">

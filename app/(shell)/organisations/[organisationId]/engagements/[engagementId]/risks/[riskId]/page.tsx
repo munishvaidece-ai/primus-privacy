@@ -14,7 +14,7 @@ import { updateRiskStatusAction, createFindingAction } from "../actions";
 const STATUS_OPTIONS = ["open", "mitigating", "accepted", "closed"] as const;
 const SEVERITY_OPTIONS = ["low", "medium", "high", "critical"] as const;
 const FORM_INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 // Slice C3 (PHASE C3 instructions §8): Risk detail — identity, source
 // Assessment/Control/AssessmentResponse, scoring, status, owner, and
@@ -106,7 +106,7 @@ export default async function RiskDetailPage({
       ) : null}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <section className="rounded-md border border-slate-200 bg-white p-4">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
           <h2 className="text-sm font-semibold text-slate-900">Scoring</h2>
           <dl className="mt-2 grid grid-cols-2 gap-3 text-sm">
             <div>
@@ -159,7 +159,7 @@ export default async function RiskDetailPage({
           </p>
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
           <h2 className="text-sm font-semibold text-slate-900">Status &amp; ownership</h2>
           {canManageRiskResult ? (
           <form action={updateRiskStatusAction} className="mt-2 flex items-end gap-2">
@@ -174,7 +174,7 @@ export default async function RiskDetailPage({
                 id="status"
                 name="status"
                 defaultValue={risk.status}
-                className="mt-1 block rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+                className="mt-1 block rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
               >
                 {STATUS_OPTIONS.map((s) => (
                   <option key={s} value={s}>
@@ -208,7 +208,7 @@ export default async function RiskDetailPage({
           </dl>
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Source traceability</h2>
           <p className="mt-1 text-xs text-slate-500">Where this risk came from — the assessment context that identified it.</p>
           <dl className="mt-2 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
@@ -248,7 +248,7 @@ export default async function RiskDetailPage({
           </dl>
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Relevant control tests</h2>
           {controlTestRows.length === 0 ? (
             <p className="mt-2 text-sm text-slate-500">
@@ -269,7 +269,7 @@ export default async function RiskDetailPage({
           )}
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-900">Relevant evidence</h2>
           <p className="mt-1 text-xs text-slate-500">
             Evidence linked to the source assessment response / control tests above — this risk references the same
@@ -293,7 +293,7 @@ export default async function RiskDetailPage({
             </ul>
           )}
         </section>
-        <section className="rounded-md border border-slate-200 bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-900">Findings</h2>
             <Link

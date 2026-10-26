@@ -53,22 +53,27 @@ export interface DemoUser {
   displayName: string | null;
   side: "primus" | "client";
   roles: string[];
+  orgId: string | null;
+  orgName: string | null;
+  orgIndustry: string | null;
 }
 
 /** Everyone who can be signed in as, Primus team first. The AI agent user is never offered. */
 export async function listDemoUsers(): Promise<DemoUser[]> {
-  const r = await db().query<{ id: string; email: string; display_name: string | null; client_org_id: string | null; roles: string[] | null }>(`
+  const r = await db().query<{ id: string; email: string; display_name: string | null; client_org_id: string | null; roles: string[] | null; org_name: string | null; org_industry: string | null }>(`
     SELECT u.id, u.email, u.display_name, u.client_org_id,
            ARRAY(
              SELECT r.name FROM roles r WHERE r.id IN (
                SELECT role_id FROM tenant_memberships WHERE user_id = u.id AND status = 'active'
                UNION SELECT role_id FROM organisation_memberships WHERE user_id = u.id AND status = 'active'
                UNION SELECT role_id FROM engagement_memberships WHERE user_id = u.id AND status = 'active')
-             ORDER BY r.name) AS roles
+             ORDER BY r.name) AS roles,
+           o.name AS org_name, o.industry AS org_industry
       FROM users u
+      LEFT JOIN organisations o ON o.id = u.client_org_id
      WHERE u.email NOT LIKE 'ai-agent@%.agent.primus.invalid'
-     ORDER BY (u.client_org_id IS NOT NULL), u.created_at, u.email`);
-  return r.rows.map((x) => ({ id: x.id, email: x.email, displayName: x.display_name, side: x.client_org_id ? "client" : "primus", roles: x.roles ?? [] }));
+     ORDER BY (u.client_org_id IS NOT NULL), o.created_at, o.name, (u.client_org_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM organisation_memberships om JOIN roles r2 ON r2.id = om.role_id WHERE om.user_id = u.id AND r2.name = 'Client Administrator')), u.created_at, u.email`);
+  return r.rows.map((x) => ({ id: x.id, email: x.email, displayName: x.display_name, side: x.client_org_id ? "client" : "primus", roles: x.roles ?? [], orgId: x.client_org_id, orgName: x.org_name, orgIndustry: x.org_industry }));
 }
 
 export async function findDemoUser(id: string): Promise<{ id: string; email: string | null } | null> {

@@ -17,7 +17,7 @@ import { releaseReportAction, requestEvidenceAction } from "@/app/(shell)/worksp
 import { addEngagementMemberAction, revokeEngagementMemberAction, createEngagementInvitationAction } from "./actions";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 // Slice C7.2: the "Members" section below is the fix for the C7
 // review's own second P0 finding — before this slice, no function
@@ -166,7 +166,7 @@ export default async function EngagementDetailPage({
       ) : null}
 
       {delivery.metrics ? (
-        <section className="mt-8 rounded-md border border-slate-200 bg-white p-4" aria-labelledby="delivery-h">
+        <section className="mt-8 rounded-xl border border-slate-200 bg-white shadow-card p-4" aria-labelledby="delivery-h">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="delivery-h" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Delivery status</h2>
             <PhaseBadge phase={delivery.metrics.phase} />
@@ -337,7 +337,7 @@ export default async function EngagementDetailPage({
           </>
         ) : null}
         {delivery.releases.length > 0 ? (
-          <ul className="mt-4 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white text-sm">
+          <ul className="mt-4 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card text-sm">
             {delivery.releases.map((r) => (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
                 <span>{r.title} · v{r.version} · released {fmtDateTime(r.releasedAt)}</span>
@@ -351,7 +351,7 @@ export default async function EngagementDetailPage({
       {delivery.canRequestEvidence ? (
         <section className="mt-8">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Ask the client for evidence</h2>
-          <form action={requestEvidenceAction} className="mt-3 grid gap-3 rounded-md border border-slate-200 bg-white p-4 md:grid-cols-2">
+          <form action={requestEvidenceAction} className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white shadow-card p-4 md:grid-cols-2">
             <input type="hidden" name="engagementId" value={engagement.id} />
             <input type="hidden" name="back" value={enginePath} />
             <label className="block text-xs font-medium text-slate-700">What do you need?<input name="title" required maxLength={200} className={INPUT_CLASS} /></label>
@@ -368,7 +368,7 @@ export default async function EngagementDetailPage({
         {members.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">No members yet.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
             {members.map((m) => (
               <li key={m.id} className="flex items-center justify-between gap-4 px-4 py-3">
                 <div className="min-w-0">

@@ -31,7 +31,7 @@ import {
 } from "./actions";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
+  "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 
 /**
  * Client Master Data (Slice D2, instructions §9/§11 — PRODUCT_UX_
@@ -66,7 +66,7 @@ export default async function MasterDataCategoryPage({
           const items = await masterData.listBusinessUnits(db, user.id, organisationId);
           return (
             <>
-              <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
                 {items.length === 0 ? (
                   <li className="px-6 py-8 text-center text-sm text-slate-500">No business units yet.</li>
                 ) : (
@@ -106,7 +106,7 @@ export default async function MasterDataCategoryPage({
                   ))
                 )}
               </ul>
-              <form action={createBusinessUnitAction} className="mt-6 grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-3">
+              <form action={createBusinessUnitAction} className="mt-6 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white shadow-card p-4 sm:grid-cols-3">
                 <input type="hidden" name="organisationId" value={organisationId} />
                 <p className="sm:col-span-3 text-xs font-medium text-slate-700">Add business unit</p>
                 <input name="name" required maxLength={200} className={INPUT_CLASS} placeholder="Name" />
@@ -126,7 +126,7 @@ export default async function MasterDataCategoryPage({
           const items = await masterData.listDataPrincipalCategories(db, user.id, organisationId);
           return (
             <>
-              <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
                 {items.length === 0 ? (
                   <li className="px-6 py-8 text-center text-sm text-slate-500">No data principal categories yet.</li>
                 ) : (
@@ -166,7 +166,7 @@ export default async function MasterDataCategoryPage({
                   ))
                 )}
               </ul>
-              <form action={createDataPrincipalCategoryAction} className="mt-6 grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-4">
+              <form action={createDataPrincipalCategoryAction} className="mt-6 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white shadow-card p-4 sm:grid-cols-4">
                 <input type="hidden" name="organisationId" value={organisationId} />
                 <p className="sm:col-span-4 text-xs font-medium text-slate-700">Add data principal category</p>
                 <input name="name" required maxLength={200} className={INPUT_CLASS} placeholder="Name" />
@@ -184,7 +184,7 @@ export default async function MasterDataCategoryPage({
           const items = await masterData.listPersonalDataElements(db, user.id, organisationId);
           return (
             <>
-              <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
                 {items.length === 0 ? (
                   <li className="px-6 py-8 text-center text-sm text-slate-500">No personal data elements yet.</li>
                 ) : (
@@ -221,7 +221,7 @@ export default async function MasterDataCategoryPage({
                   ))
                 )}
               </ul>
-              <form action={createPersonalDataElementAction} className="mt-6 grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-3">
+              <form action={createPersonalDataElementAction} className="mt-6 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white shadow-card p-4 sm:grid-cols-3">
                 <input type="hidden" name="organisationId" value={organisationId} />
                 <p className="sm:col-span-3 text-xs font-medium text-slate-700">Add personal data element</p>
                 <input name="name" required maxLength={200} className={INPUT_CLASS} placeholder="Name" />
@@ -240,7 +240,7 @@ export default async function MasterDataCategoryPage({
           const items = await masterData.listPurposes(db, user.id, organisationId);
           return (
             <>
-              <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
                 {items.length === 0 ? (
                   <li className="px-6 py-8 text-center text-sm text-slate-500">No purposes yet.</li>
                 ) : (
@@ -274,7 +274,7 @@ export default async function MasterDataCategoryPage({
                   ))
                 )}
               </ul>
-              <form action={createPurposeAction} className="mt-6 grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-3">
+              <form action={createPurposeAction} className="mt-6 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white shadow-card p-4 sm:grid-cols-3">
                 <input type="hidden" name="organisationId" value={organisationId} />
                 <p className="sm:col-span-3 text-xs font-medium text-slate-700">Add purpose</p>
                 <input name="name" required maxLength={200} className={INPUT_CLASS} placeholder="Name" />
@@ -289,7 +289,7 @@ export default async function MasterDataCategoryPage({
           const items = await masterData.listSystems(db, user.id, organisationId);
           return (
             <>
-              <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
                 {items.length === 0 ? (
                   <li className="px-6 py-8 text-center text-sm text-slate-500">No systems yet.</li>
                 ) : (
@@ -326,7 +326,7 @@ export default async function MasterDataCategoryPage({
                   ))
                 )}
               </ul>
-              <form action={createSystemAction} className="mt-6 grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-4">
+              <form action={createSystemAction} className="mt-6 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white shadow-card p-4 sm:grid-cols-4">
                 <input type="hidden" name="organisationId" value={organisationId} />
                 <p className="sm:col-span-4 text-xs font-medium text-slate-700">Add system</p>
                 <input name="name" required maxLength={200} className={INPUT_CLASS} placeholder="Name" />
@@ -345,7 +345,7 @@ export default async function MasterDataCategoryPage({
           ]);
           return (
             <>
-              <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
                 {items.length === 0 ? (
                   <li className="px-6 py-8 text-center text-sm text-slate-500">No data stores yet.</li>
                 ) : (
@@ -389,7 +389,7 @@ export default async function MasterDataCategoryPage({
                   ))
                 )}
               </ul>
-              <form action={createDataStoreAction} className="mt-6 grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-5">
+              <form action={createDataStoreAction} className="mt-6 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white shadow-card p-4 sm:grid-cols-5">
                 <input type="hidden" name="organisationId" value={organisationId} />
                 <p className="sm:col-span-5 text-xs font-medium text-slate-700">Add data store</p>
                 <input name="name" required maxLength={200} className={INPUT_CLASS} placeholder="Name" />
@@ -411,7 +411,7 @@ export default async function MasterDataCategoryPage({
           const items = await masterData.listProcessors(db, user.id, organisationId);
           return (
             <>
-              <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
                 {items.length === 0 ? (
                   <li className="px-6 py-8 text-center text-sm text-slate-500">No processors yet.</li>
                 ) : (
@@ -450,7 +450,7 @@ export default async function MasterDataCategoryPage({
                   ))
                 )}
               </ul>
-              <form action={createProcessorAction} className="mt-6 grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-4">
+              <form action={createProcessorAction} className="mt-6 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white shadow-card p-4 sm:grid-cols-4">
                 <input type="hidden" name="organisationId" value={organisationId} />
                 <p className="sm:col-span-4 text-xs font-medium text-slate-700">Add processor</p>
                 <input name="name" required maxLength={200} className={INPUT_CLASS} placeholder="Name" />

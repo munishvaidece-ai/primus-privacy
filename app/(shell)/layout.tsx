@@ -6,6 +6,10 @@ import { getUserClientOrgId } from "@/lib/authorization/service";
 import { Sidebar } from "@/components/shell/sidebar";
 import { unreadCount } from "@/lib/workspace/notifications";
 import { UserMenu } from "@/components/shell/user-menu";
+import { Wordmark } from "@/components/shell/logo";
+import { users } from "@/db/schema/users";
+import { organisations } from "@/db/schema/organisations";
+import { eq } from "drizzle-orm";
 
 // The authenticated application shell (PHASE A instructions §8). Every
 // route under this route group — /organisations and everything nested
@@ -37,20 +41,30 @@ export default async function ShellLayout({ children }: { children: ReactNode })
   // decision remains whichever `canX`/`requireX` check already gates
   // that specific server-side operation, entirely unaffected by this
   // value.
-  const { isClient, unread } = await withRequestDb(user.id, async (db) => ({
-    isClient: (await getUserClientOrgId(db, user.id)) !== null,
-    unread: await unreadCount(db, user.id),
-  }));
+  const { isClient, unread, displayName, orgName } = await withRequestDb(user.id, async (db) => {
+    const [me] = await db.select({ name: users.displayName, orgId: users.clientOrgId }).from(users).where(eq(users.id, user.id)).limit(1);
+    let orgName: string | null = null;
+    if (me?.orgId) {
+      const [o] = await db.select({ name: organisations.name }).from(organisations).where(eq(organisations.id, me.orgId)).limit(1);
+      orgName = o?.name ?? null;
+    }
+    return { isClient: (me?.orgId ?? null) !== null, unread: await unreadCount(db, user.id), displayName: me?.name ?? null, orgName };
+  });
   const home = isClient ? "/portal" : "/dashboard";
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-          <Link href={home} className="text-sm font-semibold tracking-tight text-slate-900">
-            PRIMUS PRIVACY
-          </Link>
-          <UserMenu email={user.email} />
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3">
+          <div className="flex min-w-0 items-center gap-4">
+            <Link href={home} aria-label="Primus Privacy home"><Wordmark /></Link>
+            {isClient && orgName ? (
+              <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700 md:inline-block">{orgName}</span>
+            ) : (
+              <span className="hidden rounded-full bg-copper-soft px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-copper-deep md:inline-block">Consultant workspace</span>
+            )}
+          </div>
+          <UserMenu email={user.email} name={displayName} side={isClient ? "client" : "primus"} />
         </div>
       </header>
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 md:flex-row">

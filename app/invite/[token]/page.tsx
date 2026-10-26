@@ -77,7 +77,7 @@ export default async function InvitePage({
         </p>
         <Link
           href={`/login?returnTo=${encodeURIComponent(`/invite/${token}`)}`}
-          className="mt-6 inline-flex h-9 items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white transition-colors hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+          className="mt-6 inline-flex h-9 items-center justify-center rounded-lg bg-brand font-display font-semibold px-4 text-sm font-medium text-white transition-colors hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
         >
           Sign in to continue
         </Link>

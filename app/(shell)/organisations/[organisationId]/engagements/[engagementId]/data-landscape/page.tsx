@@ -58,7 +58,7 @@ export default async function DataLandscapePage({
           </Link>
           <Link
             href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/data-landscape/new`}
-            className="inline-flex h-9 items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white transition-colors hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-brand font-display font-semibold px-4 text-sm font-medium text-white transition-colors hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
           >
             Create Processing Activity
           </Link>
@@ -88,7 +88,7 @@ export default async function DataLandscapePage({
           .
         </div>
       ) : (
-        <ul className="mt-6 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+        <ul className="mt-6 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-card">
           {activities.map((pa) => (
             <li key={pa.id}>
               <Link

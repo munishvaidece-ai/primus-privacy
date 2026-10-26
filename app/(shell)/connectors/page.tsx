@@ -27,7 +27,7 @@ export default async function ConnectorCataloguePage() {
             <h2 id={`cat-${cat}`} className="text-sm font-semibold uppercase tracking-wide text-slate-500">{cat}</h2>
             <ul className="mt-3 grid gap-4 md:grid-cols-2">
               {items.map((c) => (
-                <li key={c.type} className="rounded-md border border-slate-200 bg-white p-4">
+                <li key={c.type} className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="text-base font-semibold text-slate-900">{c.name}</h3>
                     <Badge tone={c.status === "available" ? "positive" : "neutral"}>{c.native ? "Built in" : c.status === "available" ? "Available now" : "Planned"}</Badge>

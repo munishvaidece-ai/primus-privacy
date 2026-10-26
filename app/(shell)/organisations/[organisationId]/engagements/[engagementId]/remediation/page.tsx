@@ -47,7 +47,7 @@ export default async function RemediationListPage({
           No remediation actions recorded yet for this engagement.
         </div>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-md border border-slate-200 bg-white">
+        <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead>
               <tr className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">

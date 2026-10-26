@@ -5235,3 +5235,22 @@ functions each one calls are).
 **Decision:** `LOCAL_DEMO_AUTH=true` shows a person picker instead of the Supabase form. It requires a non-production build, a localhost database and no Supabase configuration, and otherwise the app errors rather than opening up. `npm run local:setup` builds a local database with the sign-in stand-in and fictional demo data.
 **Rationale:** the owner wants to test the whole product before Supabase is connected. Making it fail closed means it cannot reach production by accident; real sign-in is unchanged and is what runs when the flag is absent.
 
+
+### R-201 — The product wears the microsite's identity
+
+**Decision:** The app uses the microsite's palette (deep maroon, copper accent, warm neutrals), fonts (Sora headings, IBM Plex Sans text), logo and card style. Implemented once in `tailwind.config.js` (the existing `slate` and `blue` names are re-pointed at the brand palette) plus the shared header, sidebar and UI kit, so every screen follows without being rewritten. Fonts load from Google Fonts and fall back to the system font offline.
+**Rationale:** the owner wants the demo to look like the same premium product as the site shown to leadership.
+
+### R-202 — Two sign-in doors in demo mode
+
+**Decision:** In local demo mode, `/login` offers two doors: `/login/primus` (Primus team) and `/login/client` (client organisations, grouped by organisation). Outside demo mode both redirect to the normal sign-in form. Authorization is unchanged: the door only chooses who you become.
+**Rationale:** leadership demos need to show the consulting view and the client view separately.
+
+### R-203 — Three fictional demo organisations at different stages
+
+**Decision:** The local seed creates Meridian Finserve (results delivered, report released), Vitalis Care Network (mid-assessment, draft findings unreleased, evidence outstanding) and Bazaarly Commerce (just started). The Meridian report is produced by the product's own report release so the PDF is real. All names and numbers are invented.
+**Rationale:** one demo set that shows every phase of the programme and the released-versus-draft boundary.
+
+### R-204 — Progress totals count unanswered questions
+
+**Decision:** The portfolio query now counts every applicable question in the total, including those with no answer row yet. Found while building the demo data: a half-answered assessment showed "14 of 14, 100%". Covered by a regression test.
