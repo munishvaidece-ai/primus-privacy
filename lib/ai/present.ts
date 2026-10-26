@@ -26,6 +26,15 @@ const LABELS: Record<string, string> = {
   riskLevel: "Risk level",
   concerns: "Concerns",
   actions: "Suggested actions",
+  sectorLabel: "Sector",
+  reasons: "Why",
+  units: "Business units",
+  skipped: "Left out",
+  counts: "Counts",
+  preview: "What will be saved",
+  answers: "Answers",
+  missing: "Missing",
+  proofFile: "Proof file",
   likelihood: "Likelihood",
   impact: "Impact",
 };
@@ -50,7 +59,7 @@ function asText(v: unknown): string {
 }
 
 export function describeProposal(kind: SuggestionKind | string, proposed: Record<string, unknown>, hideTexts: string[] = []): Line[] {
-  const keys = Object.keys(proposed).filter((k) => !/(^|[a-z])Ids?$/.test(k) && k !== "kind" && k !== "by" && proposed[k] !== null && proposed[k] !== "");
+  const keys = Object.keys(proposed).filter((k) => !/(^|[a-z])Ids?$/.test(k) && !k.startsWith("_") && k !== "kind" && k !== "by" && proposed[k] !== null && proposed[k] !== "");
   keys.sort((a, b) => {
     const ia = FIRST.indexOf(a), ib = FIRST.indexOf(b);
     return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
@@ -82,6 +91,10 @@ export const JOB_LABELS: Record<string, string> = {
   ops_case: "Triaging cases",
   connector_test: "Testing a connector",
   connector_scan: "Scanning a connector",
+  intake_scope: "Reading the Scope Intake Form",
+  intake_landscape: "Reading the Data Inventory",
+  remediation_plan: "Planning remediation",
+  closure_check: "Checking remediation proof",
 };
 
 export const SOURCE_WORDS: Record<string, string> = {

@@ -21,7 +21,7 @@
     "test:risk-remediation": "tsx scripts/reset-test-db.ts && vitest run tests/risk-remediation",
     "test:maturity": "tsx scripts/reset-test-db.ts && vitest run tests/maturity",
     "test:app": "tsx scripts/reset-test-db.ts && vitest run tests/app",
-    "test:db": "tsx scripts/reset-test-db.ts && vitest run tests/rls tests/master-data tests/processing-activity tests/control-library tests/assessment-engine tests/evidence tests/risk-remediation tests/maturity tests/app tests/ai tests/connectors tests/workspace tests/regulation",
+    "test:db": "tsx scripts/reset-test-db.ts && vitest run tests/rls tests/master-data tests/processing-activity tests/control-library tests/assessment-engine tests/evidence tests/risk-remediation tests/maturity tests/app tests/ai tests/connectors tests/workspace tests/regulation tests/templates tests/live",
     "local:db": "docker compose -f docker-compose.local.yml up -d",
     "local:setup": "tsx --require ./scripts/preload-server-only.cjs scripts/local-setup.ts",
     "ai:worker": "tsx --require ./scripts/preload-server-only.cjs scripts/ai-worker.ts",

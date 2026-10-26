@@ -17,6 +17,12 @@ export const SUGGESTION_KINDS = [
   "breach_notice",
   "consent_review",
   "vendor_review",
+  "scope_sector",
+  "scope_units",
+  "landscape_load",
+  "discovery_prefill",
+  "remediation_plan",
+  "closure_check",
 ] as const;
 export type SuggestionKind = (typeof SUGGESTION_KINDS)[number];
 
@@ -31,6 +37,12 @@ export const KIND_LABELS: Record<SuggestionKind, string> = {
   breach_notice: "Breach notice",
   consent_review: "Consent review",
   vendor_review: "Vendor review",
+  scope_sector: "Sector rules",
+  scope_units: "Business units",
+  landscape_load: "Data landscape",
+  discovery_prefill: "Questionnaire answers",
+  remediation_plan: "Remediation plan",
+  closure_check: "Remediation closure",
 };
 
 export type GateKey =

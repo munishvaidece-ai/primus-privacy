@@ -1,0 +1,5 @@
+# Incident reporting steps
+
+The incident reporting steps have been updated. When an incident happens, the security team informs the compliance team. The compliance team will then decide whom to report to.
+
+The six hour reporting limit to SEBI and the exchange was discussed in the team meeting. A template for the report is being prepared.

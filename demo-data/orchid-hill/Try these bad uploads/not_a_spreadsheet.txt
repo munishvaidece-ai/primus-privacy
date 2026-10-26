@@ -1,0 +1,1 @@
+This is not an Excel file. Upload it in any phase and the platform will refuse it.

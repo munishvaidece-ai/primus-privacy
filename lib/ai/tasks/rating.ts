@@ -44,6 +44,9 @@ export function offlineRating(i: RatingInput): RatingOutput {
       ? { rating: "partially_implemented", confidence: 0.72, rationale: `A control test failed although documents exist (${basis}). The control exists on paper but did not operate as described.` }
       : { rating: "not_implemented", confidence: 0.82, rationale: `A control test failed and nothing accepted supports the control (${basis}).` };
   }
+  if (accepted.length === 0 && passes > 0 && exceptions === 0 && rejected.length === 0) {
+    return { rating: "partially_implemented", confidence: 0.6, rationale: `The control test passed, but no accepted evidence supports the control yet (${basis}). It cannot be rated implemented until the evidence is reviewed.` };
+  }
   if (accepted.length === 0) {
     return {
       rating: "not_implemented",

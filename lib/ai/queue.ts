@@ -14,6 +14,10 @@ export const JOB_KINDS = [
   "ops_case",
   "connector_test",
   "connector_scan",
+  "intake_scope",
+  "intake_landscape",
+  "remediation_plan",
+  "closure_check",
 ] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 

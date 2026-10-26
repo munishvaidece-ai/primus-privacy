@@ -1,0 +1,1 @@
+No file is uploaded in this phase. A person creates the engagement scope on the platform and the AI decides, for each of the 91 controls, whether it applies. It uses the sectors and units from Phase 1 and the processing activities from Phase 2.

@@ -66,6 +66,15 @@ Everything is invented for demonstration: names, numbers, findings, risks and re
 6. Sign in as **Kabir Shah** (CXO): everything is read-only.
 7. **Primus door**, Vitalis, *AI Operations Centre*: open **What the AI did** and **Data it reads** (see the section below).
 
+## The live end-to-end demo: Orchid Hill Securities (all seven phases)
+
+A fourth fictional firm, a stock broking company, starts **empty**. Open it on the Primus door as the Demo Administrator, then **Live Run**. Each phase shows where its documents come from, a fixed template to download (blank or filled sample), an upload box, a button that starts the AI, and what the AI produced. The right-hand log updates while the AI works. The AI worker starts by itself with `npm run dev`.
+
+* The whole set of demo files is one download at the top of the Live Run screen (`Orchid_Hill_Demo_Pack.zip`), in one folder per phase, split into "From the client" and "From Primus". It also includes deliberately bad files (wrong template, renamed headings, empty required cells, not a spreadsheet) so you can show the checks.
+* Phase 2 can also read the client's **database** (a fictional back-office PostgreSQL database that `npm run local:setup` creates on your computer). Press **Scan the database now** before **Read the data inventory**.
+* Step-by-step script with what to say: `docs/LIVE_DEMO_SCRIPT.md`.
+* To start Orchid Hill again from empty: stop the app, `docker compose -f docker-compose.local.yml down -v`, `npm run local:db`, `npm run local:setup`, `npm run dev`.
+
 ## Showing what the AI reads and did (Vitalis)
 
 Vitalis comes with the AI already switched on at **Full autopilot** and already run, on six invented uploaded documents (four from the client, two from the Primus team, one deliberately unreadable). Sign in on the Primus door as the Demo Administrator, open Vitalis, then **AI Operations Centre**:

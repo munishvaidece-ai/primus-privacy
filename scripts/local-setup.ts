@@ -70,6 +70,10 @@ async function main() {
   run(["scripts/local-demo-seed.ts"]);
   // 6. fictional uploaded documents, then the platform's own AI works on them
   run(["scripts/local-demo-ai-seed.ts"]);
+  // 7a. a fictional back-office database for the connector demo
+  run(["scripts/local-orchid-sample-db.ts"]);
+  // 7. the fictional broking firm for the live end-to-end demo (starts empty)
+  run(["scripts/local-orchid-seed.ts"]);
 
   console.log("\nAll set. Start the app with:  npm run dev   then open http://localhost:3000");
 }

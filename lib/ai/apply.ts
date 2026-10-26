@@ -10,6 +10,7 @@ import { createFinding } from "@/lib/domain/findings";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 import type { SuggestionKind } from "./types";
 import { bandRating } from "./tasks/finding";
+import { applyClosureCheck, applyDiscoveryPrefill, applyLandscape, applyRemediationPlan, applyScopeSector, applyScopeUnits } from "./apply-intake";
 
 export interface ApplyContext {
   actorUserId: string;
@@ -189,6 +190,12 @@ export async function applySuggestion(db: RequestDb, c: ApplyContext, proposed: 
       await updateCase(db, c, { status: "triaged", severity: sev as "low" | "medium" | "high" | "critical", aiAssessment: { kind: s.kind, ...proposed, by: who(c) } });
       return { table: "ops_cases", id: s.subjectId };
     }
+    case "scope_sector": return applyScopeSector(db, c, proposed);
+    case "scope_units": return applyScopeUnits(db, c, proposed);
+    case "landscape_load": return applyLandscape(db, c, proposed);
+    case "discovery_prefill": return applyDiscoveryPrefill(db, c, proposed);
+    case "remediation_plan": return applyRemediationPlan(db, c, proposed);
+    case "closure_check": return applyClosureCheck(db, c, proposed);
   }
 }
 

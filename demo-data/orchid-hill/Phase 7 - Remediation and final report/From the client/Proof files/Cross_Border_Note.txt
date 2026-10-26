@@ -1,0 +1,5 @@
+# Cross-border transfer note
+
+We looked at the analytics vendor that stores some client data outside India. The vendor has told us the servers are in Singapore. We will look at this again next quarter.
+
+No decision has been taken on whether the transfer should continue. A list of the countries is yet to be prepared.

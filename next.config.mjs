@@ -9,6 +9,9 @@ const nextConfig = {
     ];
   },
   experimental: {
+    // Lets instrumentation.ts start the AI worker with the server on demo installs.
+    instrumentationHook: true,
+    serverComponentsExternalPackages: ["pg", "pdfkit"],
     // Server Actions default to a 1MB request body limit — too small for
     // evidence file uploads. Raised to match Slice C2's own chosen MVP
     // maximum (lib/storage/evidence-storage.ts's EVIDENCE_MAX_FILE_SIZE_BYTES,

@@ -53,3 +53,4 @@ export * from "./invitations";
 export * from "./ai";
 export * from "./workspace";
 export * from "./engagement-sectors";
+export * from "./intake-files";

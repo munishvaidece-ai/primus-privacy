@@ -189,6 +189,18 @@ export default async function EngagementDetailPage({
         </section>
       ) : null}
 
+      <section className="mt-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Live Run</h2>
+          <Link href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/live`} className="text-sm font-medium text-slate-900 underline">
+            Open
+          </Link>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          Run the whole engagement end to end on real files: seven phases, a fixed template for each, the AI reading what is uploaded and handing its result to the next phase.
+        </p>
+      </section>
+
       {canUseAi ? (
         <section className="mt-8">
           <div className="flex items-center justify-between">

@@ -35,6 +35,11 @@ import { breachDrafts, breachTask, consentDraft, consentTask, rightsDraft, right
 import { aiSuggestions } from "@/db/schema";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { runConnectorJob } from "@/lib/connectors/run";
+import { markProcessed } from "@/lib/intake/store";
+import { loadClosureInputs, loadFindingsNeedingActions, loadLandscapeInput, loadScopeInput } from "./intake-context";
+import { scopeIntakeTask, scopeSectorDraft, scopeUnitsDraft } from "./tasks/scope-intake";
+import { discoveryPrefillDraft, landscapeLoadDraft, landscapeTask } from "./tasks/landscape";
+import { closureDraft, closureTask, remediationPlanDraft, remediationPlanSources, remediationPlanTask } from "./tasks/remediation";
 
 const CHUNK: Record<string, number> = { evidence_review: 5, applicability: 50, rating: 25, finding_create: 25, report_issue: 5, ops_case: 10 };
 
@@ -89,7 +94,10 @@ async function enqueueFollowUp(run: Run, kind: JobKind, ids: string[], subjectTy
 
 async function perSubject<T>(run: Run, t: Tally, ids: string[], label: string, fn: (id: string) => Promise<T | null>): Promise<T[]> {
   const out: T[] = [];
+  // Demo pace: a short pause after each item so a live audience can watch the work arrive. Zero in real use.
+  const pace = Number(process.env.AI_DEMO_PACE_MS ?? 0);
   for (const id of ids) {
+    if (pace > 0 && t.considered > 0) await new Promise((r) => setTimeout(r, pace));
     t.considered++;
     try {
       const r = await withSavepoint(run.db, "ai_subject", () => fn(id));
@@ -122,7 +130,9 @@ async function handlePlan(run: Run): Promise<Record<string, unknown>> {
 
   const evRows = await db.execute<{ id: string }>(
     // pending evidence that nobody (human or AI) has a live suggestion for
+    // only evidence that supports a control (proof attached to a remediation action is checked by the closure check instead)
     sql`SELECT e.id FROM evidence e WHERE e.engagement_id = ${e} AND e.review_status = 'pending_review'
+      AND EXISTS (SELECT 1 FROM evidence_links l WHERE l.evidence_id = e.id AND l.subject_type IN ('assessment_response','control_test'))
       AND NOT EXISTS (SELECT 1 FROM ai_suggestions s WHERE s.kind = 'evidence_review' AND s.subject_id = e.id AND s.status NOT IN ('failed','superseded'))`,
   );
   counts.evidence = await enqueueFollowUp(run, "evidence_review", evRows.rows.map((r) => r.id), "evidence");
@@ -308,6 +318,88 @@ async function handleOpsCase(run: Run): Promise<Record<string, unknown>> {
   return { ...t };
 }
 
+// ------------------------------------------------------- intake phases (1, 2, 7)
+function ev(run: Run, eventType: string, message: string, detail?: Record<string, unknown>, subject?: { type: string; id: string }) {
+  return recordEvent(run.db, {
+    tenantId: run.settings.tenantId, organisationId: run.settings.organisationId, engagementId: run.settings.engagementId,
+    jobId: run.job.id, subjectType: subject?.type ?? null, subjectId: subject?.id ?? null,
+    eventType, actorType: "ai", actorUserId: run.agentUserId, message, detail,
+  });
+}
+
+async function handleIntakeScope(run: Run): Promise<Record<string, unknown>> {
+  const t = newTally();
+  const e = run.settings.engagementId;
+  const input = await loadScopeInput(run.db, run.agentUserId, e, run.settings.organisationId);
+  if (!input) { await ev(run, "nothing_to_do", "No new Scope Intake Form is waiting to be read."); return { ...t, note: "no file" }; }
+  await ev(run, "file_read", `Opened ${input.fileName}: ${Object.keys(input.org).length} form answers, ${input.registrations.length} registrations, ${input.units.length} business units, ${input.systems.length} systems${input.supporting.length ? `, and ${input.supporting.length} supporting document${input.supporting.length === 1 ? "" : "s"}` : ""}.`, { fileId: input.fileId });
+  const r = await runTask(scopeIntakeTask, input, run.choice);
+  const o = r.output;
+  await ev(run, "analysed", o.brief);
+  const rctx = { ...run.rctx, provider: { label: r.provider, model: r.model } };
+  for (const sec of o.sectors) {
+    if (input.existingSectors.includes(sec.key)) continue;
+    t.considered++;
+    tally(t, await recordSuggestion(run.db, rctx, scopeSectorDraft(input, e, sec)));
+  }
+  for (const f of o.flags) await ev(run, "flag", `Point to raise: ${f.text} (${f.at})`);
+  if (o.units.length) { t.considered++; tally(t, await recordSuggestion(run.db, rctx, scopeUnitsDraft(input, e, o))); }
+  await markProcessed(run.db, input.fileId, run.job.id);
+  return { ...t, file: input.fileName, sectors: o.sectors.length, units: o.units.length, flags: o.flags.length };
+}
+
+async function handleIntakeLandscape(run: Run): Promise<Record<string, unknown>> {
+  const t = newTally();
+  const e = run.settings.engagementId;
+  const input = await loadLandscapeInput(run.db, e);
+  if (!input) { await ev(run, "nothing_to_do", "No new Data Inventory is waiting to be read."); return { ...t, note: "no file" }; }
+  await ev(run, "file_read", `Opened ${input.fileName}: ${input.activities.length} processing activities, ${input.stores.length} systems, ${input.vendors.length} vendors, ${input.practices.filter((p) => p.answer.trim()).length} practice answers${input.scope ? ", and used the Scope Intake Form from phase 1" : ""}.`, { fileId: input.fileId });
+  const r = await runTask(landscapeTask, input, run.choice);
+  await ev(run, "analysed", r.output.brief);
+  const rctx = { ...run.rctx, provider: { label: r.provider, model: r.model } };
+  for (const x of r.output.issues) await ev(run, "flag", `Point to raise: ${x.text} (${x.at})`);
+  t.considered++;
+  tally(t, await recordSuggestion(run.db, rctx, landscapeLoadDraft(input, e, r.output)));
+  const pre = discoveryPrefillDraft(input, e, r.output);
+  if (pre) { t.considered++; tally(t, await recordSuggestion(run.db, rctx, pre)); }
+  await markProcessed(run.db, input.fileId, run.job.id);
+  return { ...t, file: input.fileName, issues: r.output.issues.length };
+}
+
+async function handleRemediationPlan(run: Run): Promise<Record<string, unknown>> {
+  const t = newTally();
+  const list = await loadFindingsNeedingActions(run.db, run.settings.engagementId, run.cfg.maxInputChars);
+  if (list.length === 0) { await ev(run, "nothing_to_do", "Every released finding already has a remediation action."); return { ...t, note: "nothing" }; }
+  await ev(run, "file_read", `Found ${list.length} released finding${list.length === 1 ? "" : "s"} with no remediation action.`);
+  const people = await actorMap(run.db, run.settings.engagementId, list.map((x) => x.by));
+  await perSubject(run, t, list.map((x) => x.input.findingId), "Remediation plan", async (id) => {
+    const item = list.find((x) => x.input.findingId === id)!;
+    const r = await runTask(remediationPlanTask, item.input, run.choice);
+    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, withSources(remediationPlanDraft(item.input, r.output), remediationPlanSources(item.input, (item.by && people.get(item.by)) || null)));
+    tally(t, o);
+    return o;
+  });
+  return { ...t };
+}
+
+async function handleClosureCheck(run: Run): Promise<Record<string, unknown>> {
+  const t = newTally();
+  const pack = await loadClosureInputs(run.db, run.settings.engagementId);
+  if (!pack) { await ev(run, "nothing_to_do", "No new Remediation Closure Log is waiting to be read."); return { ...t, note: "no file" }; }
+  await ev(run, "file_read", `Opened the closure log: ${pack.inputs.length} action${pack.inputs.length === 1 ? "" : "s"} matched${pack.unmatched.length ? `, ${pack.unmatched.length} could not be matched to an action on the platform` : ""}.`, { fileId: pack.fileId });
+  for (const u of pack.unmatched) await ev(run, "flag", `Row ${u.row}: "${u.action}" does not match any remediation action on the platform, so it was not checked.`);
+  await perSubject(run, t, pack.inputs.map((x) => x.actionId), "Closure check", async (id) => {
+    const input = pack.inputs.find((x) => x.actionId === id)!;
+    await ev(run, "file_read", input.proof ? `Reading the proof "${input.proof.filename}" for "${input.actionTitle}".` : `No file named "${input.claim.proofFile}" was uploaded for "${input.actionTitle}".`);
+    const r = await runTask(closureTask, input, run.choice);
+    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, closureDraft(input, r.output));
+    tally(t, o);
+    return o;
+  });
+  await markProcessed(run.db, pack.fileId, run.job.id);
+  return { ...t, unmatched: pack.unmatched.length };
+}
+
 // -------------------------------------------------------------------- entry
 export async function runJob(job: ClaimedJob, agentUserId: string): Promise<Record<string, unknown>> {
   return withRequestDb(agentUserId, async (db) => {
@@ -327,6 +419,10 @@ export async function runJob(job: ClaimedJob, agentUserId: string): Promise<Reco
       case "finding_create": result = await handleFinding(run); break;
       case "report_issue": result = await handleReport(run); break;
       case "ops_case": result = await handleOpsCase(run); break;
+      case "intake_scope": result = await handleIntakeScope(run); break;
+      case "intake_landscape": result = await handleIntakeLandscape(run); break;
+      case "remediation_plan": result = await handleRemediationPlan(run); break;
+      case "closure_check": result = await handleClosureCheck(run); break;
       case "connector_test":
       case "connector_scan": result = await runConnectorJob(db, job, agentUserId); break;
       default: throw new Error(`Unknown job kind ${job.kind}`);
