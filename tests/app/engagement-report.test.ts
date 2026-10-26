@@ -566,7 +566,8 @@ describe("Application layer — Engagement Report (Slice R1)", () => {
   // inspected, not just asserted against programmatically. ---------------
   it("writes a real demonstration PDF to the scratchpad for manual visual inspection", async () => {
     const { writeFileSync } = await import("node:fs");
-    const outPath = "/tmp/claude-0/-home-user-primus-privacy/23021838-42c1-5e6f-9940-0a46135f42a6/scratchpad/r1-demo-engagement-report.pdf";
+    const { tmpdir } = await import("node:os");
+    const outPath = `${tmpdir()}/r1-demo-engagement-report.pdf`;
     writeFileSync(outPath, pdfBuffer);
     const onDisk = readFileSync(outPath);
     expect(onDisk.length).toBe(pdfBuffer.length);

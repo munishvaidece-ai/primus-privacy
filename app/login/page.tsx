@@ -65,6 +65,16 @@ export default function LoginPage({
             Sign in
           </Button>
         </form>
+        <p className="mt-6 text-center text-xs text-slate-500">
+          {/* Plain anchors, not next/link: the site is static HTML served from /public/site. */}
+          <a href="/site/index.html" className="underline">
+            &larr; Back to the Primus Privacy site
+          </a>
+          {" · "}
+          <a href="/site/portal.html" className="underline">
+            Demo portal
+          </a>
+        </p>
       </div>
     </div>
   );

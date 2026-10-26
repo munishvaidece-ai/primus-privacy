@@ -275,3 +275,14 @@ samples). Concretely:
 | Stale/guessable signed URLs | Short TTL, scoped to a single object, reissued per request rather than cached long-term. |
 | Secret leakage via client bundle | Service-role key never referenced outside server-only modules; a bundler check/lint rule is a Phase 2 hardening item. |
 | Session hijacking | Supabase Auth session handling defaults (HttpOnly cookies), HTTPS-only in every environment. |
+
+
+## 15. AI layer and connectors
+
+* **Identity:** the AI acts as a dedicated per-tenant user holding the engagement role "AI Analyst"; it cannot sign in. All of its writes pass row-level security and are audit-logged under its own identity. Pausing revokes its membership.
+* **Self-approval is impossible:** database triggers reject the agent approving/overriding/rejecting its own suggestions, applying gated items, approving case responses, or changing connector configuration. Gated decisions require `ai.release` (Engagement Manager).
+* **Append-only trail:** `ai_events` and `ai_report_issuances` cannot be updated or deleted; suggestion content is immutable after creation.
+* **Data minimisation:** connectors keep metadata only; text sent to an outside model is masked; the offline engine sends nothing anywhere; outside models need both a deployment switch and a per-engagement switch.
+* **Connector secrets:** AES-256-GCM with `CONNECTOR_SECRET_KEY`; table has no user grants; two SECURITY DEFINER functions only.
+* **Scanner hardening:** website scans block private/internal addresses and re-check each redirect hop; folder scans are confined to `CONNECTOR_FOLDER_ROOTS` (symlinks resolved); database scans run in a read-only transaction with timeouts.
+* **Not covered:** no malware scanning of uploads, no OCR, no web-app rate limiting, dependency vulnerabilities pre-dating this work (see docs/DEPLOYMENT.md §6).

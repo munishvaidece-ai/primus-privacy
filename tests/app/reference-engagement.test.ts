@@ -461,7 +461,8 @@ describe("Reference/Demo Engagement Dataset — end-to-end walkthrough", () => {
     expect(pdfText).not.toMatch(/data landscape/i);
     expect(pdfText).not.toMatch(/\bropa\b/i);
 
-    const outPath = "/tmp/claude-0/-home-user-primus-privacy/23021838-42c1-5e6f-9940-0a46135f42a6/scratchpad/reference-engagement-report.pdf";
+    const { tmpdir } = await import("node:os");
+    const outPath = `${tmpdir()}/reference-engagement-report.pdf`;
     writeFileSync(outPath, pdf);
   });
 });

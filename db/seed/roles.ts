@@ -17,6 +17,7 @@ const ROLES: Array<{ name: string; scope: "tenant" | "organisation" | "engagemen
   { name: "Client Administrator", scope: "organisation", description: "Manages the client organisation's own users and access on the platform." },
   { name: "Privacy Officer", scope: "organisation", description: "Primary client-side owner of the compliance programme; broadest client-side visibility." },
   { name: "CXO / Executive Viewer", scope: "organisation", description: "Read-only, summary/dashboard-level visibility for governance reporting." },
+  { name: "AI Analyst", scope: "engagement", description: "The platform's AI agent (a dedicated, non-human user). Works under the engagement's autopilot level: reads documents and records, proposes ratings, findings and decisions, and applies the ones the autopilot policy allows. Can never approve, override or reject its own suggestions, lock a scope, finalize an assessment or manage memberships." },
   { name: "Business Owner", scope: "engagement", description: "Owns specific processing activities / business units; provides input, accepts remediation ownership." },
   { name: "IT/CISO", scope: "engagement", description: "Owns systems, data stores, technical controls and technical evidence." },
   { name: "Procurement", scope: "engagement", description: "Owns processor/vendor relationships and contracts (DPAs)." },
@@ -105,6 +106,10 @@ const PERMISSIONS: Array<{ key: string; description: string }> = [
   { key: "risk.manage", description: "Create a Risk and update its status." },
   { key: "finding.manage", description: "Create and update a Finding." },
   { key: "evidence.review", description: "Review (accept/reject) Evidence, and view consultant-internal Evidence." },
+  { key: "ai.supervise", description: "See the AI queue and audit trail for an engagement; approve, override or reject ordinary AI suggestions; run the AI." },
+  { key: "ai.release", description: "Additionally decide AI suggestions held at a sign-off gate (reject critical evidence, release critical findings, issue the final report, send breach notices)." },
+  { key: "ai.configure", description: "Switch the AI on for an engagement; set its autopilot level, thresholds and gates; pause or resume it; manage connectors." },
+  { key: "ai.agent", description: "Held only by the AI Analyst role: write AI suggestions, jobs and events for an engagement." },
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -131,8 +136,12 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "risk.manage",
     "finding.manage",
     "evidence.review",
+    "ai.supervise",
+    "ai.release",
+    "ai.configure",
   ],
-  "Consultant": ["validation.perform", "risk.manage", "finding.manage", "evidence.review"],
+  "Consultant": ["validation.perform", "risk.manage", "finding.manage", "evidence.review", "ai.supervise"],
+  "AI Analyst": ["risk.manage", "finding.manage", "evidence.review", "ai.agent"],
   "Client Administrator": ["membership.manage", "user.manage"],
 };
 

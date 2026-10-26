@@ -46,3 +46,8 @@ are resolved as of Session 2 (see `DECISIONS.md` and `DATA_MODEL.md` §2/§5).
 **D-03 (data residency)** is the item to resolve before provisioning a
 real Supabase project; the remaining open items (D-04–D-06) don't block
 early schema work.
+
+
+## AI Operations Centre
+
+Deployment: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) · Using it: [`docs/USER_GUIDE.md`](./docs/USER_GUIDE.md) · Settings: `.env.example`.

@@ -1,0 +1,46 @@
+# EXAMPLE for your devops team — adapt names, secrets handling and networking.
+# It runs the web app, the AI worker and a one-shot database setup job.
+# It does NOT include a database or sign-in: PRIMUS PRIVACY uses Supabase
+# (Auth + Postgres + Storage) — hosted, or self-hosted in India if required
+# (see docs/DEPLOYMENT.md §2). Point DATABASE_URL and the Supabase values at it.
+#
+#   docker compose -f docker-compose.example.yml --env-file .env up -d --build
+x-common: &common
+  image: primus-privacy:latest
+  build: .
+  env_file: .env
+  restart: unless-stopped
+
+services:
+  migrate:
+    <<: *common
+    restart: "no"
+    command: ["npm", "run", "db:migrate:apply"]
+
+  web:
+    <<: *common
+    command: ["npm", "start"]
+    ports: ["3000:3000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    <<: *common
+    command: ["npm", "run", "ai:worker"]
+    environment:
+      WORKER_HEALTH_PORT: "8081"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8081/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # To let the folder scanner read a client share, mount it read-only, e.g.:
+    # volumes: ["/mnt/client-share:/mnt/client-share:ro"]
+    # and set CONNECTOR_FOLDER_ROOTS=/mnt/client-share in .env

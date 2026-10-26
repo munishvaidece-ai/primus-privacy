@@ -41,6 +41,14 @@ export function GlobalNav({ isClient }: { isClient: boolean }) {
           Methodology
         </Link>
       )}
+      {isClient ? null : (
+        <Link
+          href="/connectors"
+          className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+        >
+          Connectors
+        </Link>
+      )}
     </nav>
   );
 }

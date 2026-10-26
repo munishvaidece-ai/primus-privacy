@@ -5,7 +5,7 @@ import { withRequestDb } from "@/lib/db/request-client";
 import { getEngagementDetail } from "@/lib/domain/engagements";
 import { listEngagementMembers, listEligibleUsersForEngagement, listEngagementRoles } from "@/lib/domain/engagement-memberships";
 import { listInvitationRoleOptions } from "@/lib/domain/invitations";
-import { NotFoundOrForbiddenError, canManageEngagementMembership } from "@/lib/authorization/service";
+import { NotFoundOrForbiddenError, canManageEngagementMembership, hasEngagementPermission } from "@/lib/authorization/service";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { addEngagementMemberAction, revokeEngagementMemberAction, createEngagementInvitationAction } from "./actions";
@@ -48,6 +48,10 @@ export default async function EngagementDetailPage({
   // the URL claims — treat exactly like "not found," never leak which
   // organisation it actually belongs to.
   if (engagement.organisationId !== params.organisationId) notFound();
+
+  const canUseAi = await withRequestDb(user.id, async (db) =>
+    (await hasEngagementPermission(db, user.id, params.engagementId, "ai.supervise")) || (await hasEngagementPermission(db, user.id, params.engagementId, "ai.configure")),
+  );
 
   const { members, canManageMembers, eligibleUsers, engagementRoles, invitationRoles } = await withRequestDb(user.id, async (db) => {
     const memberRows = await listEngagementMembers(db, user.id, { organisationId: params.organisationId, engagementId: params.engagementId });
@@ -139,6 +143,23 @@ export default async function EngagementDetailPage({
         <p role="alert" className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
           {searchParams.inviteError}
         </p>
+      ) : null}
+
+      {canUseAi ? (
+        <section className="mt-8">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">AI Operations Centre</h2>
+            <Link
+              href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/ai`}
+              className="text-sm font-medium text-slate-900 underline"
+            >
+              Open
+            </Link>
+          </div>
+          <p className="mt-3 text-sm text-slate-600">
+            Let the AI do the routine work — reading evidence, rating controls, drafting findings and handling rights requests and breaches — while your team supervises, approves and signs off.
+          </p>
+        </section>
       ) : null}
 
       <section className="mt-8">

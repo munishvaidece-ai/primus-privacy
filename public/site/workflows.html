@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Workflows | Primus Privacy</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Fira+Sans:wght@500&display=swap">
+<style>
+/* Layout: sticky nav, split hero with layered stack card, then alternating full-width bands, same rhythm as the Invest IQ page */
+:root{
+  --bg:#ffffff; --bg2:#fdf4f2; --surface:#ffffff; --ink:#2a0706; --ink2:#755e5d; --line:#f9e2dd;
+  --brand:#5c1a16; --brand-ink:#ffffff; --copper:#a3652e; --copper2:#b87a3d; --copper-soft:#f8ecdf;
+  --good:#0f8a63; --warn:#b7791f; --crit:#b42318;
+  --f-display:'Sora',ui-sans-serif,system-ui,sans-serif;
+  --f-body:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+  --logo:#5c1013;
+  --f-mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  --shadow:0 18px 40px -18px rgba(79,17,25,.35);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1a0807; --bg2:#230d0b; --surface:#2a110f; --ink:#fbeeea; --ink2:#c9aaa5; --line:#42201c;
+  --brand:#e7b887; --brand-ink:#2a0a0e; --logo:#f3d9c7; --copper:#d9a064; --copper2:#e7b887; --copper-soft:#3a2418;
+  --good:#3ccf9a; --warn:#e3b04b; --crit:#f2766b; --shadow:0 18px 40px -18px rgba(0,0,0,.7); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1a0807; --bg2:#230d0b; --surface:#2a110f; --ink:#fbeeea; --ink2:#c9aaa5; --line:#42201c;
+  --brand:#e7b887; --brand-ink:#2a0a0e; --logo:#f3d9c7; --copper:#d9a064; --copper2:#e7b887; --copper-soft:#3a2418;
+  --good:#3ccf9a; --warn:#e3b04b; --crit:#f2766b; --shadow:0 18px 40px -18px rgba(0,0,0,.7); color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--surface)}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance;letter-spacing:-.025em;line-height:1.08}
+p{margin:0}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--copper);outline-offset:3px;border-radius:6px}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+section{padding-block:clamp(56px,8vw,104px)}
+.eyebrow{font-family:var(--f-body);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--copper)}
+.sec-head{max-width:760px;display:grid;gap:14px;margin-bottom:44px}
+.sec-head h2{font-size:clamp(26px,3vw,32px);font-weight:700;color:var(--ink)}
+.sec-head p{color:var(--ink2);font-size:16px;line-height:1.6}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:8px;padding:11px 18px;font-weight:600;font-size:14px;text-decoration:none;border:1.5px solid transparent;cursor:pointer;font-family:var(--f-display);transition:transform .15s,background .15s}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary{background:var(--brand);color:var(--brand-ink)}
+.btn-ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn-ghost:hover{border-color:var(--copper)}
+
+/* header */
+header.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:var(--surface);border-bottom:1px solid var(--line)}
+.nav-in{display:flex;align-items:center;justify-content:space-between;gap:16px;height:66px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--logo)}
+.logo svg{width:38px;height:38px;flex:none}
+.lt{font-family:'Fira Sans',var(--f-display),sans-serif;font-weight:500;font-size:17px;line-height:.98;letter-spacing:.01em;display:grid}
+.lt .tm{font-size:.5em;vertical-align:super}
+.nav-links{display:flex;gap:4px}
+.nav-links a{padding:8px 16px;border-radius:8px;font-weight:500;color:#3a0c0a;text-decoration:none;font-size:14px;font-family:var(--f-display)}
+.nav-links a:hover,.nav-links a.on{background:var(--bg2);color:var(--ink)}
+:root[data-theme="dark"] .nav-links a{color:var(--ink)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .nav-links a{color:var(--ink)}}
+.nav-right{display:flex;gap:10px;align-items:center}
+.theme-btn{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;display:grid;place-items:center}
+@media(max-width:860px){.nav-links{display:none}}
+
+/* hero */
+.hero{background:linear-gradient(180deg,#fdf2f0 0%,rgba(253,242,240,.6) 50%,#ffffff 100%);position:relative;overflow:hidden;padding-block:clamp(48px,7vw,88px)}
+:root[data-theme="dark"] .hero{background:linear-gradient(180deg,#2a100e 0%,#1f0b0a 50%,#1a0807 100%)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero{background:linear-gradient(180deg,#2a100e 0%,#1f0b0a 50%,#1a0807 100%)}}
+.hero::before{content:"";position:absolute;inset:0;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:44px 44px;opacity:.35;pointer-events:none}
+.hero-grid{position:relative;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:48px;align-items:center}
+@media(max-width:940px){.hero-grid{grid-template-columns:minmax(0,1fr)}}
+.hero h1{font-size:clamp(34px,4.6vw,48px);font-weight:700;margin:18px 0 22px}
+.hero h1 em{font-style:normal;color:var(--copper)}
+.hero .lead{font-size:16px;line-height:1.65;color:var(--ink2);max-width:600px}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+.stack{display:grid;gap:0;justify-items:stretch}
+.stack .card{border-radius:12px;padding:20px 22px;box-shadow:var(--shadow)}
+.stack .top{background:linear-gradient(to bottom right,#b87a3d,#8a5325);color:#fff}
+.stack .top .k{font-size:11px;letter-spacing:.14em;font-weight:700;opacity:.85}
+.stack .top h3{font-size:19px;font-weight:700;margin:2px 0 6px;letter-spacing:-.01em}
+.stack .top p{font-size:14px;opacity:.92;line-height:1.5}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.pill{font-size:12px;font-weight:600;padding:4px 11px;border-radius:99px;background:rgba(255,255,255,.22);color:#fff}
+.stack .link{width:2px;height:26px;background:var(--copper2);margin:0 auto;opacity:.6}
+.stack .mid{background:var(--surface);border:1px solid var(--line)}
+.stack .mid .k{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--ink2)}
+.stack .mid h3{font-size:17px;font-weight:700;margin:2px 0 12px;letter-spacing:-.01em}
+.dots{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink2);border-top:1px solid var(--line);padding-top:12px}
+.dots span::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--good);margin-right:7px}
+.reach{margin-top:18px}
+.reach .k{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--ink2)}
+.reach-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.reach-row span{background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:6px 14px;font-weight:600;font-size:14px}
+
+/* stats */
+.stats{background:var(--surface);border-block:1px solid var(--line);padding-block:34px}
+.stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
+@media(max-width:760px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat b{display:block;font-family:var(--f-display);font-size:clamp(32px,4vw,40px);font-weight:700;color:var(--brand);line-height:1}
+.stat span{display:block;margin-top:6px;color:var(--ink2);font-size:14px}
+
+/* real screen */
+.screen-grid{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:44px;align-items:center}
+@media(max-width:940px){.screen-grid{grid-template-columns:minmax(0,1fr)}}
+.screen-copy h2{font-size:clamp(26px,3vw,32px);font-weight:700;margin:12px 0 16px}
+.screen-copy p{color:var(--ink2)}
+.ticks{list-style:none;padding:0;margin:22px 0 26px;display:grid;gap:12px}
+.ticks li{display:flex;gap:11px;color:var(--ink2);font-size:15.5px}
+.ticks li::before{content:"";flex:none;width:18px;height:18px;margin-top:3px;border-radius:50%;background:var(--copper-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M5 9.4l2.6 2.6L13 6.6' fill='none' stroke='%23a5692f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/18px no-repeat}
+.frame{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.frame-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--line);font-family:var(--f-mono);font-size:12px;color:var(--ink2)}
+.frame-bar i{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block}
+.frame-bar span{margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.demo-tag{margin-left:auto;font-family:var(--f-body);font-size:11px;font-weight:700;background:var(--copper-soft);color:var(--copper);padding:2px 9px;border-radius:99px}
+.cc{padding:20px;display:grid;gap:16px}
+.cc h4{font-family:var(--f-display);font-size:20px;margin:0;letter-spacing:-.01em}
+.cc .sub{font-size:12px;color:var(--ink2);margin-top:-8px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media(max-width:560px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+.kpi small{display:block;font-size:11px;color:var(--ink2);line-height:1.25}
+.kpi b{font-family:var(--f-display);font-size:24px;line-height:1.2}
+.kpi.w b{color:var(--warn)}.kpi.c b{color:var(--crit)}
+.cc-cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px}
+@media(max-width:700px){.cc-cols{grid-template-columns:minmax(0,1fr)}}
+.panel{border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0}
+.panel h5{margin:0 0 8px;font-size:13px;font-weight:700}
+.org{display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:4px 10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.org:first-of-type{border-top:0}
+.org b{font-weight:600}.org small{color:var(--ink2)}
+.org .st{justify-self:end;font-size:11px;font-weight:600;color:var(--ink2);text-align:right}
+.bar{grid-column:1/-1;height:6px;background:var(--bg2);border-radius:9px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--brand);border-radius:9px}
+.acts{margin:0;padding:0;list-style:none;display:grid;gap:7px;font-size:12.5px;color:var(--ink2)}
+.acts li{display:flex;gap:9px}.acts li span{flex:none;font-family:var(--f-mono);color:var(--copper)}
+
+/* who */
+.who-bg{background:var(--bg2)}
+.cards4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}
+@media(max-width:980px){.cards4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.cards4{grid-template-columns:minmax(0,1fr)}}
+.who{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:24px;display:grid;gap:10px;align-content:start}
+.who .ico{width:44px;height:44px;border-radius:12px;background:var(--copper-soft);display:grid;place-items:center;color:var(--copper)}
+.who h3{font-size:20px;font-weight:700}
+.who p{color:var(--ink2);font-size:15px}
+
+/* impact */
+.impact{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+@media(max-width:900px){.impact{grid-template-columns:minmax(0,1fr)}}
+.ibox{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:28px}
+.ibox .tag{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.ibox h3{font-size:28px;font-weight:700;margin:8px 0 6px}
+.ibox>p{color:var(--ink2);font-size:15px;margin-bottom:22px}
+.hbar{display:grid;grid-template-columns:minmax(110px,170px) minmax(0,1fr) 30px;gap:12px;align-items:center;font-size:14px;margin-bottom:12px}
+.hbar .track{height:10px;background:var(--bg2);border-radius:9px;overflow:hidden}
+.hbar .track i{display:block;height:100%;border-radius:9px;background:var(--brand)}
+.hbar b{text-align:right;font-variant-numeric:tabular-nums}
+@media(max-width:480px){.hbar{grid-template-columns:minmax(0,1fr) 30px}.hbar .track{grid-column:1/-1;order:3}}
+.spd{display:grid;gap:14px}
+.spd-row{display:grid;gap:6px;font-size:14px}
+.spd-row .l{display:flex;justify-content:space-between;gap:12px}
+.spd-row .l b{font-family:var(--f-mono);font-weight:500;font-size:13px;white-space:nowrap}
+.dual{position:relative;height:10px;background:var(--bg2);border-radius:9px}
+.dual i{position:absolute;left:0;top:0;bottom:0;border-radius:9px}
+.dual .before{background:var(--line)}.dual .after{background:var(--copper)}
+.legend{display:flex;gap:18px;font-size:12.5px;color:var(--ink2);margin-top:4px}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px}
+.legend .a::before{background:var(--line)}.legend .b::before{background:var(--copper)}
+
+/* walkthrough */
+.walk{background:var(--bg2)}
+.walk-box{background:var(--surface);color:var(--ink);border-radius:12px;border:1px solid var(--line);padding:28px;display:grid;gap:24px;box-shadow:var(--shadow)}
+.walk-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.walk-top .k{font-size:12px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.walk-top h3{font-size:24px;font-weight:700}
+.pause{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:99px;padding:7px 16px;font-weight:600;font-size:13px;cursor:pointer;font-family:var(--f-body)}
+.steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+@media(max-width:900px){.steps{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.step{text-align:left;border:1.5px solid var(--line);background:var(--bg);border-radius:10px;padding:14px;cursor:pointer;display:grid;gap:4px;color:var(--ink);font-family:var(--f-body);position:relative;overflow:hidden}
+.step small{font-size:11px;color:var(--ink2);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.step strong{font-size:14px;line-height:1.3}
+.step span{font-size:12px;color:var(--copper);font-weight:600}
+.step.on{border-color:var(--copper);background:var(--copper-soft)}
+.step.on::after{content:"";position:absolute;left:0;bottom:0;height:3px;background:var(--copper);width:var(--p,0%)}
+.detail{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:28px;border-top:1px solid var(--line);padding-top:24px}
+@media(max-width:800px){.detail{grid-template-columns:minmax(0,1fr)}}
+.detail .k{font-size:12px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.detail p{margin-top:8px;font-size:17px;color:var(--ink)}
+.meta{display:grid;gap:12px;align-content:start}
+.meta div{border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+.meta small{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);font-weight:700}
+.meta b{font-size:17px;font-family:var(--f-display)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips span{font-size:12.5px;font-weight:600;padding:5px 12px;border-radius:99px;background:var(--copper-soft);color:var(--copper)}
+
+/* blocks */
+.blocks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}
+@media(max-width:1020px){.blocks{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.blocks{grid-template-columns:minmax(0,1fr)}}
+.block{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:26px;display:grid;gap:12px;align-content:start}
+.block .n{font-family:var(--f-mono);font-size:13px;color:var(--copper)}
+.block .k{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--ink2)}
+.block h3{font-size:23px;font-weight:700}
+.block>p{color:var(--ink2);font-size:14.5px}
+.block ul{list-style:none;padding:0;margin:6px 0 0;display:grid;gap:8px;font-size:14px;border-top:1px solid var(--line);padding-top:14px}
+.block li{display:flex;gap:9px}
+.block li::before{content:"";flex:none;width:6px;height:6px;margin-top:9px;border-radius:50%;background:var(--copper)}
+
+/* why */
+.why-bg{background:var(--bg2)}
+.why{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 44px}
+@media(max-width:760px){.why{grid-template-columns:minmax(0,1fr)}}
+.why div{border-top:2px solid var(--copper);padding-top:16px}
+.why h3{font-size:21px;font-weight:700;margin-bottom:6px;letter-spacing:-.01em}
+.why p{color:var(--ink2);font-size:15.5px}
+
+/* configurator */
+.cfg{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:28px}
+@media(max-width:900px){.cfg{grid-template-columns:minmax(0,1fr)}}
+.cfg-panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:26px;display:grid;gap:22px;align-content:start}
+.cfg-panel label.t{font-size:12px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--ink2);display:block;margin-bottom:10px}
+.seg{display:flex;flex-wrap:wrap;gap:8px}
+.seg button{font-family:var(--f-body);font-size:14px;font-weight:600;padding:9px 16px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.cfg-out h3{font-size:22px;font-weight:700;margin-bottom:4px}
+.cfg-out .sum{color:var(--ink2);font-size:14.5px;margin-bottom:16px}
+.dom{display:grid;gap:8px}
+.dom div{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:14.5px;background:var(--bg)}
+.dom div.off{opacity:.45}
+.lvl{font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:99px;white-space:nowrap}
+.lvl.core{background:var(--bg2);color:var(--ink2)}
+.lvl.hi{background:var(--copper-soft);color:var(--copper)}
+.lvl.sdf{background:var(--brand);color:var(--brand-ink)}
+.lvl.na{background:transparent;color:var(--ink2);border:1px dashed var(--line)}
+.note{font-size:12.5px;color:var(--ink2);margin-top:14px}
+.path{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:44px}
+@media(max-width:900px){.path{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.path{grid-template-columns:minmax(0,1fr)}}
+.path div{border-left:2px solid var(--copper);padding:2px 0 2px 16px}
+.path b{display:block;font-family:var(--f-display);font-size:19px;margin-bottom:4px}
+.path span{font-size:14.5px;color:var(--ink2)}
+.path small{font-family:var(--f-mono);color:var(--copper);font-size:12px}
+
+/* cta + footer */
+.cta{background:linear-gradient(to bottom right,#3a0c0a 0%,#4a1210 50%,#8a5325 100%);color:#ffffff;border-radius:12px;padding:clamp(30px,5vw,56px);display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:32px;align-items:center}
+@media(max-width:860px){.cta{grid-template-columns:minmax(0,1fr)}}
+.cta h2{font-size:clamp(26px,3.4vw,34px);font-weight:700}
+.cta p{opacity:.85;margin-top:12px}
+.portals{display:grid;gap:12px}
+.portal{background:#ffffff;color:#2a0706;border-radius:12px;padding:16px 18px;text-decoration:none;display:flex;justify-content:space-between;align-items:center;gap:14px}
+.portal small{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#a3652e;font-weight:700}
+.portal b{font-family:var(--f-display);font-size:18px}
+.portal span.ar{font-size:20px;color:#a3652e}
+.portal:hover{transform:translateY(-1px)}
+.cta-note{font-size:12.5px;opacity:.75;margin-top:4px}
+footer{padding-block:40px;border-top:1px solid var(--line);color:var(--ink2);font-size:13.5px}
+.foot{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* ===== multi-page additions ===== */
+.logo{gap:10px}
+.logo svg{width:38px;height:38px;flex:none}
+.prod{margin-left:6px;padding-left:14px;border-left:1.5px solid var(--line);font-family:var(--f-display);font-weight:600;font-size:18px;color:var(--copper);letter-spacing:-.01em;line-height:1;white-space:nowrap}
+.prod sup{font-size:.5em}
+.lt sup{font-size:.55em;margin-left:1px}
+.logo-tag{display:block;font-family:var(--f-display);font-size:11px;font-weight:400;color:var(--ink2);margin-top:4px}
+.logo-tag b{font-weight:600;color:var(--ink)}
+@media(max-width:860px){
+  .nav-in{flex-wrap:wrap;height:auto;padding-block:10px;row-gap:6px}
+  .nav-links{display:flex;order:3;width:100%;overflow-x:auto;gap:2px}
+  .nav-links a{white-space:nowrap}
+}
+@media(max-width:520px){.prod{display:none}}
+.band-sec{padding-top:0}
+.band{background:linear-gradient(to bottom right,#3a0c0a 0%,#4a1210 50%,#8a5325 100%);color:#fff;border-radius:12px;padding:clamp(32px,5vw,60px);display:grid;gap:14px;justify-items:start}
+.band h2{font-size:clamp(26px,3.2vw,34px);font-weight:700;max-width:620px}
+.band p{opacity:.85;max-width:620px}
+.band .row{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
+.band .btn-primary{background:#fff;color:#3a0c0a}
+.band .btn-ghost{background:transparent;color:#fff;border-color:rgba(255,255,255,.5)}
+.page-hero{padding-block:clamp(40px,6vw,76px)}
+.chipset{display:flex;flex-wrap:wrap;gap:8px}
+.chipset span{font-size:13px;font-weight:600;padding:6px 14px;border-radius:99px;border:1px solid var(--line);background:var(--surface)}
+
+/* platform: layer stack */
+.lstack{display:grid;gap:14px;justify-items:end;padding-right:12px}
+.lcard{width:min(350px,100%);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);display:flex;gap:14px;align-items:flex-start}
+.lcard:nth-child(1){transform:rotate(-2.5deg) translateX(-34px)}
+.lcard:nth-child(2){transform:rotate(1.8deg) translateX(8px)}
+.lcard:nth-child(3){transform:rotate(-1.6deg) translateX(-22px)}
+.lcard:nth-child(4){transform:rotate(2.2deg) translateX(6px)}
+@media(max-width:940px){.lstack{justify-items:center;padding-right:0}.lcard:nth-child(n){transform:none}}
+.lcard .ic{flex:none;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,#b87a3d,#8a5325)}
+.lcard small{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--ink2)}
+.lcard b{display:block;font-family:var(--f-display);font-size:17px;line-height:1.2}
+.lcard span.d{display:block;font-size:13px;color:var(--ink2);margin-top:3px;line-height:1.45}
+.layer{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:28px;padding-block:26px;border-top:1px solid var(--line);align-items:start}
+.layer:first-of-type{border-top:0}
+@media(max-width:800px){.layer{grid-template-columns:minmax(0,1fr)}}
+.layer .k{font-size:12px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.layer h3{font-size:26px;font-weight:700;margin:6px 0 6px}
+.layer p{color:var(--ink2)}
+.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
+@media(max-width:1000px){.flow{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.flow{grid-template-columns:minmax(0,1fr)}}
+.fstep{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:grid;gap:6px;align-content:start;position:relative}
+.fstep small{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.fstep h4{font-family:var(--f-display);font-size:18px;font-weight:600;margin:0}
+.fstep p{font-size:14px;color:var(--ink2)}
+.fstep:not(:last-child)::after{content:"→";position:absolute;right:-12px;top:50%;color:var(--copper);font-size:18px;z-index:2}
+@media(max-width:1000px){.fstep::after{display:none}}
+
+/* configurator page */
+.pipe{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:22px;display:grid;gap:16px}
+.pipe .k{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--ink2);text-align:center}
+.orbit{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.orbit div{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--bg);font-size:13px}
+.orbit b{display:block;font-family:var(--f-display);font-size:14px;margin-bottom:2px}
+.orbit .live{border-color:var(--copper);background:var(--copper-soft)}
+.dotk{display:flex;gap:18px;justify-content:center;font-size:12px;color:var(--ink2)}
+.dotk span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;background:var(--brand)}
+.dotk span+span::before{background:var(--copper2)}
+.next{background:var(--bg2);border-radius:10px;padding:14px 16px}
+.next b{font-family:var(--f-display);font-size:16px}
+.next p{font-size:13.5px;color:var(--ink2);margin-top:4px}
+.cfgmock{border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.cfgmock-h{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center;padding:16px 22px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.cfgmock-h b{font-family:var(--f-display);font-size:16px}
+.cfgmock-h small{color:var(--ink2);font-size:13px}
+.pct{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600}
+.pct .meter{width:120px}
+.cfg-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}
+@media(max-width:760px){.cfg-groups{grid-template-columns:minmax(0,1fr)}}
+.grp{padding:20px 22px;border-bottom:1px solid var(--line)}
+.grp:nth-child(odd){border-right:1px solid var(--line)}
+@media(max-width:760px){.grp:nth-child(odd){border-right:0}}
+.grp h4{font-family:var(--f-display);font-size:14px;font-weight:600;margin:0 0 10px}
+.kv{display:flex;justify-content:space-between;gap:14px;font-size:14px;padding:6px 0;border-top:1px dashed var(--line)}
+.kv:first-of-type{border-top:0}
+.kv span:first-child{color:var(--ink2)}
+.kv span:last-child{font-weight:600;text-align:right}
+.cfgmock-f{display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;align-items:center;padding:16px 22px}
+.cfgmock-f p{font-size:13px;color:var(--ink2)}
+.toast{margin-top:14px;font-size:14px;background:var(--copper-soft);color:var(--copper);padding:10px 14px;border-radius:8px;font-weight:600}
+.meter{height:8px;border-radius:9px;background:var(--bg2);overflow:hidden}
+.meter i{display:block;height:100%;border-radius:9px;background:var(--brand)}
+.changes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 40px}
+@media(max-width:760px){.changes{grid-template-columns:minmax(0,1fr)}}
+.stages4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+@media(max-width:900px){.stages4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.stages4{grid-template-columns:minmax(0,1fr)}}
+.st4{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:22px;display:grid;gap:6px;align-content:start}
+.st4 small{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.st4 h4{font-family:var(--f-display);font-size:19px;margin:0}
+.st4 p{font-size:14.5px;color:var(--ink2)}
+.portal-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+@media(max-width:760px){.portal-two{grid-template-columns:minmax(0,1fr)}}
+.ptile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:26px;display:grid;gap:10px;align-content:start;text-decoration:none}
+.ptile:hover{border-color:var(--copper)}
+.ptile .k{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.ptile h3{font-size:22px;font-weight:700}
+.ptile p{color:var(--ink2);font-size:15px}
+.ptile .go{font-family:var(--f-display);font-weight:600;font-size:14px;color:var(--brand)}
+:root[data-theme="dark"] .ptile .go{color:var(--copper2)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .ptile .go{color:var(--copper2)}}
+footer .logo-tag{margin-top:2px}
+.ai-mock{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:26px;box-shadow:var(--shadow);display:grid;gap:10px}
+.ai-mock .k{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.ai-mock .big{font-family:var(--f-display);font-size:clamp(30px,4vw,40px);color:var(--brand);line-height:1.1}
+.ai-mock .big b{font-weight:700}
+.ai-mock p{color:var(--ink2);font-size:14.5px}
+.ai-mini{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:6px}
+.ai-mini div{background:var(--bg2);border-radius:8px;padding:10px 12px;display:grid;gap:2px}
+.ai-mini b{font-family:var(--f-display);font-size:22px;color:var(--brand)}
+.ai-mini span{font-size:12px;color:var(--ink2);line-height:1.35}
+.ai-mock small{color:var(--ink2);font-size:12px}
+.ai-vs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.ai-col{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:26px;display:grid;gap:12px;align-content:start}
+.ai-col.on{border-color:var(--brand);box-shadow:var(--shadow)}
+.ai-col h3{font-size:21px;font-weight:700}
+.ai-col ul{margin:0;padding:0;list-style:none;display:grid;gap:10px;color:var(--ink2);font-size:15px}
+.ai-col li{display:flex;gap:10px}
+.ai-col li::before{content:"";flex:none;width:7px;height:7px;margin-top:9px;border-radius:50%;background:var(--line)}
+.ai-col.on li::before{background:var(--copper)}
+.ai-tbl{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}
+.ai-tbl th,.ai-tbl td{text-align:left;vertical-align:top;padding:14px 16px;border-bottom:1px solid var(--line)}
+.ai-tbl thead th{font-family:var(--f-display);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--copper);background:var(--bg2)}
+.ai-tbl tbody tr:last-child td,.ai-tbl tbody tr:last-child th{border-bottom:0}
+.ai-tbl th[scope=row]{font-family:var(--f-display);font-size:14px;font-weight:600;width:170px;color:var(--ink)}
+.ai-tbl th[scope=row] i{font-style:normal;font-family:var(--f-mono);color:var(--copper);display:block;font-size:12px;margin-bottom:2px}
+.ai-tbl td{line-height:1.55;color:var(--ink)}
+.ai-tbl td.g{color:var(--ink2);width:190px}
+.ai-lv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.ai-l{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:24px;display:grid;gap:8px;align-content:start}
+.ai-l b{width:34px;height:34px;border-radius:50%;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;font-family:var(--f-display)}
+.ai-l h3{font-size:19px;font-weight:700}
+.ai-l p{color:var(--ink2);font-size:14.5px}
+.ai-l span{margin-top:6px;border-top:1px solid var(--line);padding-top:10px;font-size:12.5px;font-weight:600;color:var(--copper)}
+.ai-route{margin-top:28px;background:var(--bg2);border-radius:12px;padding:24px;display:grid;gap:14px}
+.ai-route h3{font-size:19px;font-weight:700}
+.ai-grid2{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ai-grid2 div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:4px}
+.ai-grid2 div.hot{border-color:var(--brand)}
+.ai-grid2 b{font-family:var(--f-display);font-size:14px}
+.ai-grid2 span{font-size:13px;color:var(--ink2)}
+.ai-why{grid-template-columns:repeat(3,minmax(0,1fr))}
+.ai-note{background:var(--copper-soft);border-radius:12px;padding:24px 28px;display:grid;gap:8px;max-width:860px}
+.ai-note h3{font-size:19px;font-weight:700}
+.ai-note p{color:var(--ink);font-size:15px}
+.ai-teaser{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:clamp(22px,3vw,34px);display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);gap:28px;align-items:center}
+.ai-teaser h2{font-size:clamp(24px,3vw,32px);font-weight:700;margin:8px 0 10px}
+.ai-teaser p{color:var(--ink2)}
+.ai-teaser .row{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
+.ai-teaser ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.ai-teaser li{background:var(--bg2);border-radius:8px;padding:10px 14px;font-size:14px;display:flex;gap:10px}
+.ai-teaser li b{color:var(--brand);font-family:var(--f-display)}
+@media(max-width:1000px){.ai-vs,.ai-lv{grid-template-columns:minmax(0,1fr)}.ai-grid2{grid-template-columns:repeat(2,minmax(0,1fr))}.ai-why{grid-template-columns:repeat(2,minmax(0,1fr))}.ai-teaser{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.ai-why,.ai-grid2{grid-template-columns:minmax(0,1fr)}.ai-mini{grid-template-columns:minmax(0,1fr)}}
+.wf-read{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:26px;box-shadow:var(--shadow);display:grid;gap:16px}
+.wf-read .k{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--copper)}
+.wf-lv{display:flex;gap:14px;align-items:flex-start}
+.wf-lv>b{flex:none;width:32px;height:32px;border-radius:50%;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;font-family:var(--f-display);font-size:14px}
+.wf-lv h3{font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.wf-lv p{color:var(--ink2);font-size:14px}
+.wf-four{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;border-top:1px solid var(--line);padding-top:16px}
+.wf-four div{background:var(--bg2);border-radius:8px;padding:10px 12px;display:grid;gap:2px}
+.wf-four b{font-family:var(--f-display);font-size:14px;color:var(--brand)}
+.wf-four span{font-size:12.5px;color:var(--ink2)}
+.wf-tog{display:flex;flex-wrap:wrap;gap:8px}
+.wf-tog button{font-family:var(--f-display);font-size:14px;font-weight:600;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);border-radius:99px;padding:10px 18px;cursor:pointer;display:inline-flex;gap:10px;align-items:center}
+.wf-tog button small{font-family:var(--f-body);font-weight:500;color:var(--ink2);font-size:12.5px}
+.wf-tog button[aria-pressed="true"]{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.wf-tog button[aria-pressed="true"] small{color:inherit;opacity:.8}
+.wf-flow{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(var(--n,7),minmax(0,1fr));gap:18px}
+.wf-flow li{position:relative;display:flex}
+.wf-card{all:unset;box-sizing:border-box;cursor:pointer;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 14px;display:grid;gap:8px;align-content:start;transition:transform .15s,border-color .15s,box-shadow .15s}
+.wf-card:hover{transform:translateY(-2px);border-color:var(--copper);box-shadow:var(--shadow)}
+.wf-card:focus-visible{outline:2px solid var(--copper);outline-offset:3px}
+.wf-card .no{width:30px;height:30px;border-radius:50%;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;font-family:var(--f-display);font-size:14px;font-weight:700}
+.wf-card h4{margin:0;font-family:var(--f-display);font-size:15px;font-weight:600;line-height:1.25;letter-spacing:-.01em;color:var(--ink)}
+.wf-card p{margin:0;font-size:13px;line-height:1.5;color:var(--ink2)}
+.wf-card .out{margin-top:4px;border-top:1px solid var(--line);padding-top:8px;font-size:12px;color:var(--copper);font-weight:600;line-height:1.4}
+.wf-flow li::after{content:"";position:absolute;top:30px;right:-15px;width:12px;height:12px;border-top:2px solid var(--copper);border-right:2px solid var(--copper);transform:rotate(45deg);z-index:1}
+.wf-flow li:last-child::after{display:none}
+.wf-hint{margin-top:16px;color:var(--ink2);font-size:13.5px}
+.wf-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.wf-lanes{border-collapse:collapse;width:100%;min-width:640px;table-layout:fixed;font-size:13px}
+.wf-lanes th,.wf-lanes td{padding:12px 8px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
+.wf-lanes thead th{font-family:var(--f-display);font-size:12px;font-weight:600;color:var(--ink2);line-height:1.3;vertical-align:bottom}
+.wf-lanes thead th b{display:block;color:var(--brand);font-size:15px;margin-bottom:2px}
+.wf-lanes tbody tr:last-child th,.wf-lanes tbody tr:last-child td{border-bottom:0}
+.wf-lanes th.rl{text-align:left;width:190px;padding-left:16px}
+.wf-lanes th.rl b{display:block;font-family:var(--f-display);font-size:14px;color:var(--ink)}
+.wf-lanes th.rl span{font-weight:400;font-size:12px;color:var(--ink2)}
+.wf-dot{display:inline-block;width:14px;height:14px;border-radius:50%;background:var(--brand)}
+.wf-dot.off{background:transparent;border:1.5px solid var(--line)}
+.wf-pills{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:22px}
+.wf-pills button{flex:none;font-family:var(--f-display);font-size:13.5px;font-weight:600;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);border-radius:99px;padding:8px 14px 8px 8px;cursor:pointer;display:inline-flex;gap:9px;align-items:center;white-space:nowrap}
+.wf-pills button i{font-style:normal;width:24px;height:24px;border-radius:50%;background:var(--copper-soft);color:var(--copper);display:grid;place-items:center;font-size:12px}
+.wf-pills button[aria-pressed="true"]{border-color:var(--brand);background:var(--bg2)}
+.wf-pills button[aria-pressed="true"] i{background:var(--brand);color:var(--brand-ink)}
+.wf-panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:clamp(20px,3vw,32px);display:grid;gap:26px}
+.wf-ph{display:flex;gap:18px;align-items:flex-start}
+.wf-ph>b{flex:none;width:48px;height:48px;border-radius:12px;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;font-family:var(--f-display);font-size:22px}
+.wf-ph h3{font-size:clamp(22px,2.6vw,28px);font-weight:700}
+.wf-ph p{color:var(--ink2);font-size:16px;margin-top:4px}
+.wf-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.wf-meta span{font-size:12.5px;font-weight:600;padding:4px 11px;border-radius:99px;background:var(--copper-soft);color:var(--copper)}
+.wf-meta span.who{background:transparent;border:1px solid var(--line);color:var(--ink2)}
+.wf-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.wf-4 div{background:var(--bg2);border-radius:10px;padding:16px;border-top:3px solid var(--copper);display:grid;gap:6px;align-content:start}
+.wf-4 small,.wf-sd small{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--copper);text-transform:uppercase}
+.wf-4 em,.wf-sd em{font-style:normal;font-size:12.5px;color:var(--ink2)}
+.wf-4 p,.wf-sd p{font-size:14.5px;line-height:1.55;color:var(--ink)}
+.wf-sub{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline;border-top:1px solid var(--line);padding-top:22px}
+.wf-sub h4{margin:0;font-family:var(--f-display);font-size:18px;font-weight:600;letter-spacing:-.01em}
+.wf-sub span{font-size:13px;color:var(--ink2)}
+.wf-steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(var(--m,4),minmax(0,1fr));gap:16px}
+.wf-steps li{position:relative;display:flex}
+.wf-steps li::after{content:"";position:absolute;top:26px;right:-13px;width:9px;height:9px;border-top:2px solid var(--copper);border-right:2px solid var(--copper);transform:rotate(45deg)}
+.wf-steps li:last-child::after{display:none}
+.wf-st{all:unset;box-sizing:border-box;cursor:pointer;width:100%;border:1.5px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:6px;align-content:start;background:var(--surface)}
+.wf-st:hover{border-color:var(--copper)}
+.wf-st:focus-visible{outline:2px solid var(--copper);outline-offset:3px}
+.wf-st[aria-pressed="true"]{border-color:var(--brand);background:var(--bg2)}
+.wf-st i{font-style:normal;font-family:var(--f-mono);font-size:12px;color:var(--copper)}
+.wf-st b{font-family:var(--f-display);font-size:14px;font-weight:600;line-height:1.3;color:var(--ink)}
+.wf-st span{font-size:12px;color:var(--ink2)}
+.wf-loop{font-size:13.5px;color:var(--copper);font-weight:600;display:flex;gap:8px;align-items:center}
+.wf-sd{background:var(--bg2);border-radius:12px;padding:clamp(16px,2.5vw,24px);display:grid;gap:16px}
+.wf-sd h5{margin:0;font-family:var(--f-display);font-size:18px;font-weight:600;letter-spacing:-.01em}
+.wf-sd .g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.wf-sd .g div{display:grid;gap:4px;align-content:start;border-top:2px solid var(--copper);padding-top:10px}
+.wf-nav{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:22px}
+.wf-nav button[disabled]{opacity:.4;cursor:default;transform:none}
+@media(max-width:1100px){.wf-flow{grid-template-columns:repeat(2,minmax(0,1fr))}.wf-flow li::after{display:none}.wf-4,.wf-sd .g{grid-template-columns:repeat(2,minmax(0,1fr))}.wf-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.wf-steps li::after{display:none}}
+@media(max-width:620px){.wf-flow{grid-template-columns:minmax(0,1fr);gap:26px}.wf-flow li::after{display:block;top:auto;bottom:-19px;right:auto;left:30px;transform:rotate(135deg)}.wf-flow li:last-child::after{display:none}.wf-4,.wf-sd .g,.wf-steps{grid-template-columns:minmax(0,1fr)}.wf-four{grid-template-columns:minmax(0,1fr)}.wf-ph{flex-direction:column;gap:12px}}
+.wf-ai{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.wf-ai div{border:1.5px solid var(--copper);border-radius:10px;padding:16px;display:grid;gap:6px;align-content:start}.wf-ai div:first-child{background:var(--copper-soft)}.wf-ai small{font-size:11px;letter-spacing:.14em;font-weight:700;color:var(--copper);text-transform:uppercase}.wf-ai p{font-size:14.5px;line-height:1.55}.wf-ai span{font-size:12.5px;font-weight:600;color:var(--copper)}@media(max-width:700px){.wf-ai{grid-template-columns:minmax(0,1fr)}}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--bg)}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style></head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<linearGradient id="pmg" gradientUnits="userSpaceOnUse" x1="29" y1="444" x2="446" y2="29"><stop offset="0" stop-color="#b27a42"/><stop offset=".55" stop-color="#8a4a2a"/><stop offset="1" stop-color="#5a0f13"/></linearGradient>
+<symbol id="pmark" viewBox="18 18 439 439"><path d="M29,29 H446 V444 H175 V161.5 H294 A73.75,73.75 0 0 1 294,309 H229 V254 H245 A72.75,72.75 0 0 0 245,108.5 H122.5 V390.5 H29 Z" fill="none" stroke="url(#pmg)" stroke-width="16" stroke-linejoin="miter"/></symbol>
+</defs></svg><header class="nav"><div class="wrap nav-in">
+<a class="logo" href="index.html" aria-label="Primus Partners, Privacy home"><svg aria-hidden="true"><use href="#pmark"/></svg><span class="lt"><span>PRIMUS</span><span>PARTNERS<sup>®</sup></span></span><span class="prod">Privacy<sup>™</sup></span></a>
+<nav class="nav-links" aria-label="Sections"><a href="index.html">Overview</a><a href="platform.html">Platform</a><a href="workflows.html" class="on">Workflows</a><a href="ai-layer.html">AI layer</a><a href="live-skeleton.html">Live skeleton</a><a href="configurator.html">Configurator</a></nav>
+<div class="nav-right"><button class="theme-btn" id="themeBtn" type="button" aria-label="Switch colour theme" title="Switch colour theme"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+<a class="btn btn-ghost" href="/login">Sign in</a><a class="btn btn-primary" href="portal.html">Open demo</a></div></div></header><main>
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow">WORKFLOWS</div>
+      <h1>What happens first, what comes next, and <em>why each step exists</em></h1>
+      <p class="lead">A plain-language map of how Primus Privacy runs. Start with the whole journey on one screen, open any phase to see its purpose, method, use and result, then go one level further into the individual steps.</p>
+      <ul class="ticks">
+        <li>Seven phases for an assessment, four flows for the day-to-day work after it.</li>
+        <li>Every phase and every step answers the same four questions, in the same order.</li>
+        <li>Written for leadership. No tool knowledge needed.</li>
+      </ul>
+      <div class="hero-cta"><a class="btn btn-primary" href="#big">See the big picture</a><a class="btn btn-ghost" href="#explore">Jump to the details</a></div>
+    </div>
+    <div class="wf-read">
+      <div class="k">HOW TO READ THIS PAGE</div>
+      <div class="wf-lv"><b>1</b><div><h3>The whole process</h3><p>All phases in order, and who is involved in each.</p></div></div>
+      <div class="wf-lv"><b>2</b><div><h3>One phase at a time</h3><p>Its purpose, method, use and result.</p></div></div>
+      <div class="wf-lv"><b>3</b><div><h3>Each step inside it</h3><p>The same four questions, one level down.</p></div></div>
+      <div class="wf-four">
+        <div><b>Purpose</b><span>Why we do it</span></div>
+        <div><b>Method</b><span>How it is done</span></div>
+        <div><b>Use</b><span>Where it is used next</span></div>
+        <div><b>Result</b><span>What you get</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="who-bg" id="big">
+  <div class="wrap">
+    <div class="wf-tog" role="group" aria-label="Choose a process" id="tog"></div>
+    <div class="sec-head" style="margin-top:28px"><div class="eyebrow">LEVEL 1 · THE WHOLE PROCESS</div><h2 id="l1t"></h2><p id="l1p"></p></div>
+    <ol class="wf-flow" id="flow"></ol>
+    <p class="wf-hint">Select any box to open that phase below.</p>
+    <div class="sec-head" style="margin:44px 0 18px"><h3 style="font-size:22px">Who is involved, phase by phase</h3></div>
+    <div class="wf-scroll"><table class="wf-lanes" id="lanes"></table></div>
+  </div>
+</section>
+
+<section id="explore">
+  <div class="wrap">
+    <div class="sec-head"><div class="eyebrow">LEVEL 2 AND 3 · PHASE AND STEP DETAIL</div><h2>Open a phase, then open a step</h2><p>Choose a phase to see why it exists and how it works. Choose a step inside it to see the same four answers for that step alone.</p></div>
+    <div class="wf-pills" id="pills" role="group" aria-label="Phases"></div>
+    <div class="wf-panel" id="panel" aria-live="polite"></div>
+    <div class="wf-nav"><button class="btn btn-ghost" type="button" id="prev">← Previous phase</button><button class="btn btn-primary" type="button" id="next">Next phase →</button></div>
+  </div>
+</section>
+
+<section class="band-sec" style="padding-top:clamp(40px,6vw,80px)"><div class="wrap"><div class="band"><h2>See these steps running on real screens</h2><p>The demo uses a fictional organisation, so every phase above can be followed on working screens, from the dashboard to the reviewer desk.</p><div class="row"><a class="btn btn-primary" href="live-skeleton.html">Walk through the skeleton</a><a class="btn btn-ghost" href="portal.html">Open demo</a></div></div></div></section>
+</main>
+<footer><div class="wrap foot">
+<div><a class="logo" href="index.html" aria-label="Primus Partners"><svg aria-hidden="true"><use href="#pmark"/></svg><span class="lt"><span>PRIMUS</span><span>PARTNERS<sup>®</sup></span></span></a><span class="logo-tag">Solutions for <b>Tomorrow</b></span></div>
+<div>Primus Privacy is a Primus Partners platform. Demo data is fictional.</div></div></footer>
+<script>(function(){var r=document.documentElement,b=document.getElementById('themeBtn');if(!b)return;b.addEventListener('click',function(){var c=r.getAttribute('data-theme');if(!c)c=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';r.setAttribute('data-theme',c==='dark'?'light':'dark');});})();var WF={
+journey:{
+ key:"journey",tab:"The assessment journey",count:"7 phases",
+ title:"One engagement, seven phases",
+ intro:"From the first conversation to the final report. Each phase finishes before the next one starts, and everything is recorded in one shared file.",
+ lanes:[["Advisor","Primus team","Runs the work and reviews it"],["Organisation","Your team","Answers, uploads and fixes"],["Leadership","Sponsor and board","Approves and watches"],["Platform","The system","Routes, reminds and records"]],
+ phases:[
+ {name:"Engagement set up",one:"We open one shared file for your organisation.",out:"A live engagement with named owners",portal:"Scope",
+  purpose:"Make sure everyone starts from the same facts: who the organisation is, who is involved and what we have agreed to do.",
+  method:"Create the organisation record, name the people involved, agree scope and dates, then open the engagement record in the workspace.",
+  use:"This one record becomes the file that every later document, decision and approval is attached to.",
+  result:"A live engagement with named owners, an agreed scope note and a dashboard both sides can see.",
+  steps:[
+   {t:"Create the organisation record",who:["Advisor"],p:"Have one correct profile of the organisation.",m:"Enter legal name, sector, size and whether it is a Data Fiduciary or a Significant Data Fiduciary.",u:"Decides which sector framework and rules are loaded later.",r:"Organisation profile saved."},
+   {t:"Name the people",who:["Advisor","Organisation"],p:"Make sure every task has an owner.",m:"Add the privacy officer, department owners, reviewers and the leadership sponsor, each with a role.",u:"Questions and actions are assigned to these names.",r:"Stakeholder list with roles."},
+   {t:"Agree scope and dates",who:["Advisor","Leadership"],p:"Avoid surprises later.",m:"Confirm business units, systems, locations and milestone dates in a short scope note.",u:"Becomes the milestone plan shown on the dashboard.",r:"Signed-off scope note and dates."},
+   {t:"Open the engagement record",who:["Platform","Advisor"],p:"Create the single file all work hangs on.",m:"Generate an engagement ID, attach the scope and invite the organisation's users to the portal.",u:"Every later step, file and decision is stored against this record.",r:"Engagement live; organisation can log in."}
+  ]},
+ {name:"Discovery",one:"We find out what personal data you hold and where it goes.",out:"An approved picture of your data",portal:"Discover",
+  purpose:"You cannot protect or assess what you have not mapped. Discovery builds the picture of data, systems, vendors and data flows.",
+  method:"Collect existing policies and registers, answer a guided questionnaire, hold short workshops with business teams, then review and approve.",
+  use:"It decides which obligations could apply (next phase) and which questions are worth asking.",
+  result:"An approved discovery record: types of data, purposes, systems, vendors, cross-border flows and any children's data.",
+  steps:[
+   {t:"Share what you already have",who:["Organisation"],p:"Do not start from zero.",m:"Upload existing policies, notices, data registers and vendor contracts to the engagement.",u:"Advisors read these before any workshop.",r:"Document set attached to the engagement."},
+   {t:"Answer the discovery questions",who:["Organisation"],p:"Capture how personal data is collected, used and shared.",m:"Fill a guided form in the portal, grouped by team, in plain language.",u:"Feeds the data map.",r:"Completed discovery answers."},
+   {t:"Hold short workshops",who:["Advisor","Organisation"],p:"Fill gaps and test what is written against what happens.",m:"Run focused sessions with HR, marketing, IT and operations.",u:"Corrects answers that look right on paper but not in practice.",r:"Workshop notes and updated answers."},
+   {t:"Review and approve discovery",who:["Advisor","Organisation"],p:"Lock a trusted starting point.",m:"The advisor checks completeness; the organisation's privacy officer confirms.",u:"It is the baseline for deciding applicability.",r:"Discovery approved and dated."}
+  ]},
+ {name:"Applicability",one:"We decide, with reasons, which rules apply to you.",out:"A signed-off list of what applies and why",portal:"Discover",
+  purpose:"Assess only what applies, and miss nothing that does. This is decided before a single assessment question is asked.",
+  method:"Match the discovery facts against the sector framework and the law's triggers, such as children's data, scale, cross-border transfers and vendors. Write a reason for every decision and have it approved.",
+  use:"It builds the assessment: only the applicable domains and questions are generated.",
+  result:"An applicability matrix where each obligation is marked applies, does not apply or needs review, with a written reason and an approver.",
+  steps:[
+   {t:"Load the sector framework",who:["Platform"],p:"Start from a sector-specific baseline.",m:"The configurator loads the framework for the organisation's sector and type.",u:"Gives the long list of obligations to test.",r:"Draft list of obligations."},
+   {t:"Test each trigger",who:["Advisor"],p:"Be exact about what is switched on.",m:"Check discovery facts against each trigger: children's data, scale, cross-border, vendors, profiling.",u:"Shows which obligations are real for this organisation.",r:"A proposed decision for each obligation."},
+   {t:"Write the reason",who:["Advisor"],p:"Make every decision defensible.",m:"Record a one-line reason beside each decision.",u:"Evidence if a regulator or auditor asks why something was left out.",r:"Reasons recorded."},
+   {t:"Approve and freeze",who:["Advisor","Leadership"],p:"Create accountability.",m:"A senior reviewer signs off; the organisation's sponsor confirms. Later changes need a new version.",u:"Unlocks assessment generation.",r:"Approved applicability matrix."}
+  ]},
+ {name:"Assessment",one:"Your teams answer questions and upload proof.",out:"A submitted assessment with evidence",portal:"Assess",
+  purpose:"Measure where you stand against each applicable obligation using facts and evidence, not opinions.",
+  method:"The platform builds the assessment from the approved scope, each question is assigned to an owner, owners answer in the portal and attach evidence, with reminders and due dates.",
+  use:"The evidence submitted here is the raw material for validation.",
+  result:"A submitted assessment: answers and evidence for every domain in scope.",
+  steps:[
+   {t:"Generate the assessment",who:["Platform"],p:"Ask the right questions and no extras.",m:"Build from the approved applicability matrix and the question bank.",u:"Gives each domain its own question set.",r:"Assessment ready, domain by domain."},
+   {t:"Assign owners and due dates",who:["Organisation"],p:"Make sure nothing sits unowned.",m:"The privacy officer assigns each section to a team member and sets dates.",u:"Drives reminders and the progress bar.",r:"Every question has an owner and a date."},
+   {t:"Answer the questions",who:["Organisation"],p:"Give an honest account of today's position.",m:"Choose an answer and add a short comment in the portal.",u:"Forms the basis for spotting gaps.",r:"Answers recorded, progress shown."},
+   {t:"Attach evidence",who:["Organisation"],p:"Prove the answer.",m:"Upload screenshots, policies, logs or contracts against the question.",u:"Reviewers examine these in the next phase.",r:"Evidence linked to each answer."},
+   {t:"Submit",who:["Organisation"],p:"Make a formal handover.",m:"The privacy officer checks progress is complete and submits. Answers are locked.",u:"Starts the review.",r:"Assessment submitted."}
+  ]},
+ {name:"Evidence validation",one:"Our reviewers check every piece of proof.",out:"Every item accepted, clarified or rejected, with a reason",portal:"Validate",
+  purpose:"Make sure answers are true, current and sufficient. Validate first, judge second.",
+  method:"A reviewer opens each evidence item next to its question and chooses accept, ask for clarification or reject, always with a reason. The organisation responds and the item is reviewed again until it is settled.",
+  use:"Only validated evidence can be used to conclude that something is a gap. Every decision is logged.",
+  result:"Each item has a final status and reason. Items that remain unresolved go forward as findings.",
+  loop:"Steps 2 to 4 repeat for an item until it is settled.",
+  steps:[
+   {t:"Route to the reviewer",who:["Platform"],p:"Put the right items in front of the right person.",m:"Items are routed by domain into a reviewer queue.",u:"Avoids bottlenecks.",r:"Reviewer desk with a priority queue."},
+   {t:"Inspect the item",who:["Advisor"],p:"Check the proof supports the answer.",m:"Read the evidence beside the question; check date, scope and completeness.",u:"Makes sure proof is real and recent.",r:"Reviewer is ready to decide."},
+   {t:"Accept, clarify or reject",who:["Advisor"],p:"Reach a clear decision.",m:"Pick one of the three options and write the reason. A reason is required.",u:"Accept closes the item, clarify sends it back, reject records a gap.",r:"Decision and reason logged."},
+   {t:"Clarify loop",who:["Organisation","Advisor"],p:"Fix small issues quickly without restarting.",m:"The organisation gets a note, replies or uploads fresh evidence within the clarification window.",u:"Gives a fair chance before anything is called a gap.",r:"Item resolved or confirmed as a gap."},
+   {t:"Close validation",who:["Advisor"],p:"Confirm the review is consistent and complete.",m:"A senior reviewer spot-checks and confirms every item has a final status.",u:"Releases the work to the findings phase.",r:"Validation complete."}
+  ]},
+ {name:"Findings released",one:"Gaps become clear findings, ranked by severity.",out:"A ranked list of findings with fixes proposed",portal:"Release",
+  purpose:"Turn validated evidence into a short, clear and ranked list of problems the organisation can act on.",
+  method:"For each gap, write the finding in plain words, link it to its evidence and obligation, rate severity (critical, high, medium or low), propose an action with an owner and a due date, then have it approved and released.",
+  use:"It forms the risk register and the remediation plan, and lets leadership see the biggest issues first.",
+  result:"Findings visible in the organisation portal, for example: consent withdrawal is not as easy as giving consent (critical).",
+  steps:[
+   {t:"Draft the finding",who:["Advisor"],p:"State the gap in plain words.",m:"Describe what is wrong, why it matters and which obligation it relates to.",u:"Becomes the headline leadership reads.",r:"Draft finding linked to its evidence."},
+   {t:"Rate the severity",who:["Advisor"],p:"Put first things first.",m:"Score by likelihood, impact on people and scale, using the four-level model.",u:"Orders the list and sets the fix deadline.",r:"Severity assigned."},
+   {t:"Propose the fix",who:["Advisor","Organisation"],p:"Make sure every problem arrives with a way out.",m:"Agree an action, an owner and a due date based on the severity tier.",u:"Becomes the remediation plan.",r:"Action plan attached to the finding."},
+   {t:"Approve and release",who:["Advisor","Platform"],p:"Add a quality gate before the organisation sees it.",m:"A senior reviewer checks wording and severity, then releases; the organisation is notified.",u:"The organisation can now act.",r:"Findings released and visible."}
+  ]},
+ {name:"Remediation and final report",one:"You fix, we verify, leadership gets the report.",out:"Verified fixes and one final report",portal:"Remediate",
+  purpose:"Close the gaps, prove they are closed, and give leadership one clear report.",
+  method:"Owners work their actions and upload proof, reviewers validate closure, overdue items escalate, and the final report is generated from the same record.",
+  use:"The report supports board review and regulator readiness. The same record carries on into day-to-day operations.",
+  result:"Closed findings with validated proof, a clear overdue and escalation view, and a final report with a full audit trail.",
+  steps:[
+   {t:"Work the action",who:["Organisation"],p:"Actually fix the problem.",m:"The owner carries out the action and uploads proof that it is done.",u:"Progress shows on the dashboard.",r:"Action marked done, with proof."},
+   {t:"Validate the closure",who:["Advisor"],p:"Confirm the fix is real.",m:"Compare the proof with the original finding. Close it, or reopen it with a reason.",u:"Only validated closures count.",r:"Finding closed or reopened."},
+   {t:"Escalate delays",who:["Platform","Leadership"],p:"Make sure nothing gets stuck.",m:"Overdue actions escalate through three levels, ending with leadership.",u:"Leadership sees what needs a decision.",r:"Escalation notes and new dates."},
+   {t:"Track on the leadership view",who:["Leadership"],p:"Give leaders a live picture.",m:"The command centre shows open critical findings, overdue actions and overall progress.",u:"Supports regular review meetings.",r:"A clear picture without chasing."},
+   {t:"Generate the final report",who:["Advisor","Leadership"],p:"Deliver one report, with nothing re-typed.",m:"Build the report from the records, review it and issue it.",u:"Board paper and regulator-ready file.",r:"Final report and full audit trail."}
+  ]}
+ ]
+},
+ops:{
+ key:"ops",tab:"Day-to-day operations",count:"4 flows",
+ title:"Four flows that run between assessments",
+ intro:"Once the assessment is done, privacy work does not stop. These four flows run all year and use the same record.",
+ lanes:[["Individual","Data principal","The person whose data it is"],["Organisation","Your team","Handles the request"],["Leadership","DPO and board","Is told and decides"],["Platform","The system","Tracks deadlines and logs"]],
+ phases:[
+ {name:"Data principal requests",one:"A person asks about their data. We answer on time.",out:"A closed request with proof of the reply",portal:"Rights",
+  purpose:"Honour the rights people have over their own data, such as access, correction, erasure and grievance, within the time allowed.",
+  method:"Receive the request, confirm who is asking, find the data across systems, act, reply and log everything.",
+  use:"Shows a regulator and the person that requests are handled consistently.",
+  result:"A closed request with a dated reply and a log of who did what.",
+  steps:[
+   {t:"Receive the request",who:["Individual","Platform"],p:"Make asking easy and never lose a request.",m:"The person uses the notice link or form; the platform opens a case and starts a deadline clock.",u:"The clock drives reminders.",r:"Case opened with a due date."},
+   {t:"Confirm identity",who:["Organisation"],p:"Make sure data goes only to the right person.",m:"Check the requester against what is already on record, asking for the minimum extra proof.",u:"Prevents data going to the wrong person.",r:"Identity confirmed or request returned."},
+   {t:"Find the data",who:["Organisation","Platform"],p:"Locate every place the person's data sits.",m:"Use the data inventory to list the systems and vendors that hold it, and ask each owner.",u:"Makes the reply complete.",r:"List of data and holders."},
+   {t:"Act on the request",who:["Organisation"],p:"Do what the person asked, or say clearly why not.",m:"Provide a copy, correct it, or erase it, and tell vendors to do the same.",u:"Fulfils the right.",r:"Request fulfilled or refusal explained."},
+   {t:"Reply and log",who:["Organisation","Platform"],p:"Close the loop and keep proof.",m:"Send the reply, save a copy and close the case.",u:"Audit trail and trend reporting.",r:"Closed case with dated reply."}
+  ]},
+ {name:"Breach response",one:"Something goes wrong. We act in the right order.",out:"A contained incident and the right people informed",portal:"Breach",
+  purpose:"Limit harm quickly and meet the duty to inform the Board and affected people when personal data is breached.",
+  method:"Detect and report, contain, assess impact, notify as required, then fix the root cause and learn.",
+  use:"A tested plan avoids confusion in the first hours, when most mistakes happen.",
+  result:"A contained incident, the right people informed on time and a record of lessons learned.",
+  steps:[
+   {t:"Detect and report",who:["Organisation","Platform"],p:"Hear about it early.",m:"Anyone can raise an incident; alerts from security tools also open one.",u:"Starts the response clock.",r:"Incident logged with time."},
+   {t:"Contain",who:["Organisation"],p:"Stop it getting worse.",m:"Isolate affected systems, revoke access, change credentials.",u:"Limits the number of people affected.",r:"Breach contained."},
+   {t:"Assess impact",who:["Organisation","Leadership"],p:"Know what was exposed and who is affected.",m:"Identify data types, number of people and likely harm, using the data inventory.",u:"Decides who must be told and how urgently.",r:"Impact assessment."},
+   {t:"Notify",who:["Leadership","Organisation"],p:"Meet the legal duty to inform.",m:"Inform the Board and affected people as the rules require, with a clear plain-language message.",u:"Keeps trust and avoids penalties.",r:"Notices sent and recorded."},
+   {t:"Fix and learn",who:["Organisation","Leadership"],p:"Make sure it does not happen again.",m:"Find the root cause, create actions and track them like any other finding.",u:"Feeds the remediation plan.",r:"Closed incident with lessons recorded."}
+  ]},
+ {name:"Consent and notices",one:"People are told clearly and can say yes or no.",out:"Consent that can be proven and withdrawn easily",portal:"Consent",
+  purpose:"Make sure people understand what they agree to, and that saying no or changing their mind is as easy as saying yes.",
+  method:"Write a plain notice, ask for specific consent, record it, honour withdrawal and review regularly.",
+  use:"Consent records are the proof that data was used with permission.",
+  result:"A notice people can understand and a record of consent for each person and purpose.",
+  steps:[
+   {t:"Write the notice",who:["Organisation"],p:"Say what is collected and why, in plain words.",m:"Draft from the applicable purposes, in the languages your customers use.",u:"It is the base for consent.",r:"Approved notice."},
+   {t:"Ask for consent",who:["Individual"],p:"Get a clear, specific, free choice.",m:"Show the notice at the point of collection with separate choices, no pre-ticked boxes.",u:"Only the data needed is collected.",r:"Choice made."},
+   {t:"Record it",who:["Platform"],p:"Be able to prove it later.",m:"Store who, what, when and which version of the notice was shown.",u:"Evidence for audits and complaints.",r:"Consent record."},
+   {t:"Allow withdrawal",who:["Individual","Platform"],p:"Make saying no as easy as saying yes.",m:"One-step withdrawal; the platform stops processing and tells vendors.",u:"Meets the withdrawal requirement.",r:"Consent withdrawn and honoured."},
+   {t:"Review regularly",who:["Organisation","Leadership"],p:"Keep notices true as the business changes.",m:"Check notices and consent flows against current practice every cycle.",u:"Catches drift early.",r:"Notices current."}
+  ]},
+ {name:"Vendor review",one:"We check the companies that handle your data.",out:"A risk-rated vendor list with checked contracts",portal:"Vendors",
+  purpose:"Your responsibility does not end when data goes to a vendor. Check that they protect it as you promised.",
+  method:"List every vendor, rate their risk, check contract and safeguards, monitor, and confirm deletion on exit.",
+  use:"Helps leadership see which vendors need attention first.",
+  result:"A risk-rated vendor list with contract status and open actions.",
+  steps:[
+   {t:"List every vendor",who:["Organisation","Platform"],p:"Know who touches your data.",m:"Build the list from the data inventory and procurement records.",u:"No vendor is missed.",r:"Complete vendor register."},
+   {t:"Rate the risk",who:["Organisation"],p:"Focus effort where harm could be greatest.",m:"Score by type and volume of data, location and sensitivity.",u:"Sets how deep each check goes.",r:"Low, medium or high risk tier."},
+   {t:"Check contract and safeguards",who:["Organisation","Advisor"],p:"Make sure promises are written down and real.",m:"Review the agreement, security evidence and sub-vendors.",u:"Reveals gaps before an incident does.",r:"Contract status and gaps."},
+   {t:"Monitor",who:["Platform","Organisation"],p:"Keep the check alive.",m:"Schedule reviews by tier and flag expiries.",u:"Keeps the register current.",r:"Review calendar."},
+   {t:"Exit cleanly",who:["Organisation"],p:"Make sure data does not stay behind.",m:"Ask for deletion or return of data and keep written confirmation.",u:"Closes the loop.",r:"Vendor offboarded, with proof."}
+  ]}
+ ]
+}
+};
+var AIX={
+journey:[
+ {n:"Engagement set up",ai:"Reads the engagement letter and client documents, creates the organisation record, stakeholder list and scope note, and opens the engagement.",sup:"Confirms the scope note.",gate:"None"},
+ {n:"Discovery",ai:"Scans connected systems for personal data, classifies it, reads policies, registers and contracts, fills in the discovery questionnaire and drafts the data map.",sup:"Looks at low-confidence classifications and unusual data flows.",gate:"None"},
+ {n:"Applicability",ai:"Tests every obligation against the discovery facts and decides each one, with a written reason.",sup:"Looks at decisions the AI is unsure about.",gate:"Optional sign-off to freeze the scope"},
+ {n:"Assessment",ai:"Builds the assessment, assigns owners, pre-fills answers from documents, matches evidence to questions and chases late owners.",sup:"Sees only contradictory or unanswered items.",gate:"None"},
+ {n:"Evidence validation",ai:"Reads every evidence item against its question, checks date, scope and completeness, then accepts, asks for clarification or rejects with a cited reason. Runs the clarify loop itself.",sup:"Decides the low-confidence items and a random sample of the accepted ones.",gate:"Rejections on critical controls"},
+ {n:"Findings released",ai:"Drafts each finding, scores severity, groups duplicates and proposes an action, owner and due date.",sup:"Reviews severity changes and critical findings.",gate:"Release of critical findings"},
+ {n:"Remediation and final report",ai:"Tracks actions, checks the proof uploaded, closes or reopens findings, escalates delays, then writes the report and the leadership briefing.",sup:"Handles disputes and reopened items.",gate:"Issuing the final report"}
+],
+ops:[
+ {n:"Data principal requests",ai:"Checks identity against records, finds the person's data across systems, drafts and sends the reply, and closes the case.",sup:"Handles refusals and identity doubts.",gate:"Refusals"},
+ {n:"Breach response",ai:"Opens the incident from alerts, proposes containment steps, estimates impact and drafts the notices.",sup:"Approves the scope and the notices.",gate:"Notices to the Board and affected people"},
+ {n:"Consent and notices",ai:"Compares notices with actual practice, watches consent logs for gaps, honours withdrawals automatically and flags drift.",sup:"Reviews drift alerts.",gate:"None"},
+ {n:"Vendor review",ai:"Builds the vendor list from records, reads contracts for key clauses, scores risk, schedules reviews and asks for deletion proof on exit.",sup:"Decides on high-risk vendors.",gate:"High-risk vendor approval"}
+]
+};
+(function(){
+var $=function(i){return document.getElementById(i)};
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+var keys=['journey','ops'],S={ds:'journey',i:0,s:0};
+function D(){return WF[S.ds]}
+function whoOf(ph){var o={};ph.steps.forEach(function(s){s.who.forEach(function(w){o[w]=1})});return o}
+function renderTog(){
+  $('tog').innerHTML=keys.map(function(k){var d=WF[k];return '<button type="button" data-k="'+k+'" aria-pressed="'+(k===S.ds)+'">'+esc(d.tab)+' <small>'+esc(d.count)+'</small></button>'}).join('');
+  [].forEach.call($('tog').querySelectorAll('button'),function(b){b.onclick=function(){S.ds=b.dataset.k;S.i=0;S.s=0;renderAll()}});
+}
+function renderOverview(){
+  var d=D();$('l1t').textContent=d.title;$('l1p').textContent=d.intro;
+  $('flow').style.setProperty('--n',d.phases.length);
+  $('flow').innerHTML=d.phases.map(function(p,i){return '<li><button type="button" class="wf-card" data-i="'+i+'" aria-label="Open phase '+(i+1)+': '+esc(p.name)+'"><span class="no">'+(i+1)+'</span><h4>'+esc(p.name)+'</h4><p>'+esc(p.one)+'</p><span class="out">'+esc(p.out)+'</span></button></li>'}).join('');
+  [].forEach.call($('flow').querySelectorAll('button'),function(b){b.onclick=function(){S.i=+b.dataset.i;S.s=0;renderExplorer();$('explore').scrollIntoView({behavior:'smooth',block:'start'})}});
+  var who=d.phases.map(whoOf);
+  var head='<thead><tr><th class="rl"></th>'+d.phases.map(function(p,i){return '<th scope="col"><b>'+(i+1)+'</b>'+esc(p.name)+'</th>'}).join('')+'</tr></thead>';
+  var body='<tbody>'+d.lanes.map(function(l){return '<tr><th scope="row" class="rl"><b>'+esc(l[0])+'</b><span>'+esc(l[1])+' · '+esc(l[2])+'</span></th>'+who.map(function(w,i){var on=!!w[l[0]];return '<td><span class="wf-dot'+(on?'':' off')+'" role="img" aria-label="'+esc(l[0])+(on?' is involved':' is not involved')+' in phase '+(i+1)+'"></span></td>'}).join('')+'</tr>'}).join('')+'</tbody>';
+  $('lanes').innerHTML=head+body;
+}
+function box(l,sub,t){return '<div><small>'+l+'</small><em>'+sub+'</em><p>'+esc(t)+'</p></div>'}
+function renderExplorer(){
+  var d=D(),p=d.phases[S.i],st=p.steps[S.s],w=whoOf(p);
+  $('pills').innerHTML=d.phases.map(function(x,i){return '<button type="button" data-i="'+i+'" aria-pressed="'+(i===S.i)+'"><i>'+(i+1)+'</i>'+esc(x.name)+'</button>'}).join('');
+  [].forEach.call($('pills').querySelectorAll('button'),function(b){b.onclick=function(){S.i=+b.dataset.i;S.s=0;renderExplorer()}});
+  var chips='<span>'+(S.ds==='journey'?'Shown in the portal as: ':'Portal module: ')+esc(p.portal)+'</span>'+d.lanes.filter(function(l){return w[l[0]]}).map(function(l){return '<span class="who">'+esc(l[0])+'</span>'}).join('');
+  var h='<div class="wf-ph"><b>'+(S.i+1)+'</b><div><h3>'+esc(p.name)+'</h3><p>'+esc(p.one)+'</p><div class="wf-meta">'+chips+'</div></div></div>';
+  h+='<div class="wf-4">'+box('Purpose','Why we do it',p.purpose)+box('Method','How it is done',p.method)+box('Use','Where it is used next',p.use)+box('Result','What you get',p.result)+'</div>';
+  var A=AIX[S.ds][S.i];h+='<div class="wf-ai"><div><small>AI does</small><p>'+esc(A.ai)+'</p></div><div><small>Supervisor does</small><p>'+esc(A.sup)+'</p><span>Sign-off gate: '+esc(A.gate)+'</span></div></div>';
+  h+='<div class="wf-sub"><h4>Inside this phase: '+p.steps.length+' steps</h4><span>Select a step to see its own purpose, method, use and result.</span></div>';
+  h+='<ol class="wf-steps" style="--m:'+p.steps.length+'">'+p.steps.map(function(s,i){return '<li><button type="button" class="wf-st" data-s="'+i+'" aria-pressed="'+(i===S.s)+'"><i>STEP '+(i+1)+'</i><b>'+esc(s.t)+'</b><span>'+esc(s.who.join(' + '))+'</span></button></li>'}).join('')+'</ol>';
+  if(p.loop)h+='<div class="wf-loop">↺ '+esc(p.loop)+'</div>';
+  h+='<div class="wf-sd" id="sd"></div>';
+  $('panel').innerHTML=h;
+  [].forEach.call($('panel').querySelectorAll('.wf-st'),function(b){b.onclick=function(){S.s=+b.dataset.s;[].forEach.call($('panel').querySelectorAll('.wf-st'),function(x){x.setAttribute('aria-pressed',String(x===b))});renderStep()}});
+  renderStep();
+  $('prev').disabled=S.i===0;$('next').disabled=S.i===d.phases.length-1;
+}
+function renderStep(){
+  var p=D().phases[S.i],st=p.steps[S.s];
+  $('sd').innerHTML='<h5>Step '+(S.s+1)+' of '+p.steps.length+': '+esc(st.t)+'</h5><div class="wf-meta" style="margin-top:0">'+st.who.map(function(x){return '<span class="who">'+esc(x)+'</span>'}).join('')+'</div><div class="g">'+box('Purpose','Why',st.p)+box('Method','How',st.m)+box('Use','Where it goes next',st.u)+box('Result','What you get',st.r)+'</div>';
+}
+function renderAll(){renderTog();renderOverview();renderExplorer()}
+$('prev').onclick=function(){if(S.i>0){S.i--;S.s=0;renderExplorer();$('explore').scrollIntoView({behavior:'smooth'})}};
+$('next').onclick=function(){if(S.i<D().phases.length-1){S.i++;S.s=0;renderExplorer();$('explore').scrollIntoView({behavior:'smooth'})}};
+renderAll();
+})();
+</script></body></html>

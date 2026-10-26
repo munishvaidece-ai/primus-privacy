@@ -5144,3 +5144,46 @@ themselves are not unit-tested directly, matching this repository's own
 established convention (no `*Action` Server Action with a `redirect()`
 call is tested directly anywhere in this codebase — only the domain
 functions each one calls are).
+
+
+---
+
+## AI layer (added with the AI Operations Centre)
+
+### R-182 — The AI is a dedicated per-tenant user with an engagement role, not a bypass
+
+**Decision:** Each tenant has one AI agent user (`ai-agent@<tenant>.agent.primus.invalid`, provisioned by `scripts/provision-ai-agent.ts`). Switching AI on for an engagement gives that user an engagement membership with the new role **AI Analyst** (`risk.manage`, `finding.manage`, `evidence.review`, `ai.agent`); switching off or **pausing revokes it**. All AI work runs through `withRequestDb(agentId)` and the existing domain functions.
+**Rationale:** the AI's reach is then exactly what row-level security allows for that role, it appears in `audit_log` as itself, and pause is a hard stop rather than a flag the code must remember to check.
+
+### R-183 — Autopilot is a policy; every AI output is a stored suggestion
+
+**Decision:** Every AI output is first stored in `ai_suggestions` (proposal, rationale, citations, confidence, risk tier, routing reason). Routing (`lib/ai/routing.ts`, pure and unit-tested): a sign-off gate (if enabled) → queue; the task wanting a person → queue; Level 1 → queue; Level 2 → auto only for low/medium tier at ≥ 0.90; Level 3 → auto at ≥ 0.75 (critical tier ≥ 0.90). Auto-applied suggestions are applied in a savepoint; failure leaves the suggestion `failed` with the error.
+**Rationale:** implements ARCHITECTURE §8's suggest / accept / modify / reject principle for every autonomy level; humans can always see why something was or was not applied.
+
+### R-184 — The four sign-off gates and the AI's limits are enforced in the database
+
+**Decision:** Triggers reject: the agent approving/overriding/rejecting a suggestion; auto-applying a gated suggestion; deciding a gated suggestion without `ai.release` (Engagement Manager only); editing a suggestion's proposed content; editing or deleting `ai_events`; the agent approving a case response; approving a breach response without `ai.release`; the agent changing connector configuration. Gates default **on** and are switchable per engagement.
+
+### R-185 — Control risk tier is derived from wording
+
+**Decision:** The control library has no criticality field and published libraries are immutable, so `lib/ai/tier.ts` derives a tier (critical/high/medium/low) from keywords in the control's code/title/description, and the user guide says so. **Replaceable** by a per-control override later without changing callers.
+
+### R-186 — Metadata only; masking before any model; offline engine by default
+
+**Decision:** Connectors store names, locations, personal-data *categories* and counts — never values. Text sent to an outside model is masked (`lib/ai/mask.ts`). The default engine is a rules engine that sends nothing anywhere; an outside model needs the deployment switch **and** the engagement switch. The data region is declared by configuration and shown on screen.
+
+### R-187 — Citations are verified; unverifiable output goes to a person
+
+**Decision:** Every quoted sentence is checked against the extracted document text; an unverifiable quote caps confidence at 0.6 and routes the item to a person. Invalid model output gets one repair retry, then the job fails loudly (never guessed). Identical inputs do not create duplicate suggestions (`input_hash`).
+
+### R-188 — Connectors: honest catalogue, encrypted secrets
+
+**Decision:** `lib/connectors/catalog.ts` lists every connector with a truthful status: *available* (built and tested: document upload, folder scan, PostgreSQL scan, website scan) or *planned* (cannot be configured). Secrets are AES-256-GCM encrypted with `CONNECTOR_SECRET_KEY`, stored in a table with no user grants, and reachable only through two SECURITY DEFINER functions (write: `ai.configure`; read: `ai.agent`). A scan that cannot complete is recorded as a failed *run*, not retried as a failed job.
+
+### R-189 — Operations cases and DPDP timelines
+
+**Decision:** `ops_cases` holds rights requests, breaches, consent and vendor reviews. Timelines are constants in `lib/ai/tasks/ops.ts`: rights responses 90 days; breach detailed report 72 hours (initial notice to the Board without delay), from the DPDP Rules 2025 as reported in practice commentary. **To be verified by the practice against the official text.** An approved response is frozen. The platform records approval; it does not send email or notices.
+
+### R-190 — Migrations are recorded; worker is a separate process
+
+**Decision:** `scripts/apply-migrations.ts` records each applied file (with checksum) in `schema_migrations`, runs each in a transaction, and refuses edited or unrecorded-but-populated databases (`--baseline` for existing ones). The AI worker is a separate Node process sharing the web app's code and image, claiming jobs with `FOR UPDATE SKIP LOCKED`.

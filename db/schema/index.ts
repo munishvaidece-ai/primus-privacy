@@ -50,3 +50,4 @@ export * from "./maturity-scores";
 export * from "./engagement-scopes";
 export * from "./applicability-determinations";
 export * from "./invitations";
+export * from "./ai";

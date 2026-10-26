@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Lets tests render .tsx screens (Next.js compiles JSX itself; vitest needs telling).
+  esbuild: { jsx: "automatic" },
   // Mirrors tsconfig.json's own `@/*` -> repo-root path alias (PHASE A's
   // `lib/`/`db/` imports use it) — Vitest/Vite don't read tsconfig
   // `paths` automatically, so it's declared here too rather than pulling

@@ -312,3 +312,8 @@ are:
   identity+version pattern) rather than by duplicating the client's entire
   data landscape into a fresh copy every engagement — the cheaper
   mechanism that still preserves history.
+
+
+## 9. AI layer (implemented)
+
+Components: **web app** (screens under `/organisations/.../engagements/.../ai`), **AI worker** (`scripts/ai-worker.ts` → `lib/ai/worker.ts`), **Postgres** (`ai_*` tables, `ops_cases`), optional **outside model**. Flow: an event (upload, case opened, "Run now", the 15-minute plan) → `plan` job finds work → per-subject jobs (`evidence_review`, `applicability`, `rating`, `finding_create`, `report_issue`, `ops_case`, `connector_test|scan`) → each task produces a **suggestion** (proposal + rationale + verified citations + confidence + tier) → **routing** decides apply-now or queue (autopilot level, thresholds, sign-off gates) → applied through the same domain functions a person uses → recorded in `ai_events`. Design decisions: DECISIONS.md R-182 … R-190. Operating guide: docs/DEPLOYMENT.md; users: docs/USER_GUIDE.md.

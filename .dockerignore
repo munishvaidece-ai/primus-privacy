@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.env
+.env.*
+!.env.example
+.local-storage
+tsconfig.tsbuildinfo
+tests
+*.md
+!README.md

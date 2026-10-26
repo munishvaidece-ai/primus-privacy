@@ -9068,3 +9068,11 @@ pending explicit go-ahead from the product owner, is:
 
 No further work should proceed without confirmation from the product
 owner.
+
+
+---
+
+## AI Operations Centre release
+
+Added: AI layer (migrations 0040–0045), AI worker, offline rules engine + optional outside-model providers, routing with three autopilot levels and four sign-off gates, pause, suggestion queue with approve/change/reject, audit trail, operations cases (rights, breach, consent, vendor), report issuance, connector framework (document upload, folder scan, PostgreSQL scan, website scan; 19 more listed as planned), screens, migration tracking, bootstrap script, Dockerfile and compose example, docs (DEPLOYMENT, USER_GUIDE).
+Tests: `tests/ai` (unit, autopilot, cases, ui) and `tests/connectors`. Not verified: live language-model APIs, a live Supabase project, the Docker build, large volumes. See docs/DEPLOYMENT.md §8.
