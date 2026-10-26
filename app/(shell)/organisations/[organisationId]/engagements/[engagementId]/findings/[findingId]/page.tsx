@@ -1,3 +1,4 @@
+import { regulationNote } from "@/lib/regulation/note";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
@@ -93,6 +94,8 @@ export default async function FindingDetailPage({
           return [tests, ev] as const;
         })
       : ([[], []] as const);
+
+  const regulation = primaryControl ? regulationNote(primaryControl.code) : null;
 
   const remediationRows = await withRequestDb(user.id, (db) => listRemediationActionsForFinding(db, finding.id));
 
@@ -247,6 +250,15 @@ export default async function FindingDetailPage({
               <div>
                 <dt className="text-xs font-medium text-slate-600">Assessment response</dt>
                 <dd className="text-slate-900">{risk.sourceAssessmentResponse.effectivenessRating}</dd>
+              </div>
+            ) : null}
+            {regulation ? (
+              <div>
+                <dt className="text-xs font-medium text-slate-600">Regulation behind this control</dt>
+                <dd className="text-slate-900">
+                  {regulation.lines.map((l, i) => <p key={i}>{l}</p>)}
+                  {regulation.ceiling ? <p className="mt-1 text-xs text-slate-500">{regulation.ceiling}</p> : null}
+                </dd>
               </div>
             ) : null}
           </dl>

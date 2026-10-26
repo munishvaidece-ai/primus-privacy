@@ -52,3 +52,4 @@ export * from "./applicability-determinations";
 export * from "./invitations";
 export * from "./ai";
 export * from "./workspace";
+export * from "./engagement-sectors";

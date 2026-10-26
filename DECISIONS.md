@@ -5275,3 +5275,18 @@ functions each one calls are).
 
 **Decision:** The local seed adds one active maturity scoring method (ratings: implemented 5, partially implemented 3, not implemented 1; five level names), six domains covering all 25 starter controls, and per-engagement weights (20/20/15/20/15/10). Meridian's scope decisions are recorded as applicable (one not applicable), then its maturity is computed by `computeAndFinalizeMaturityAssessment`, so the result is the product's own, not inserted. Scores are whole numbers because the product rounds half-up. Vitalis and Bazaarly have weights so maturity can be computed once their assessments are finalized.
 **Rationale:** leadership asked how scoring works; the maturity panel needed a method to show. Domains, weights and level names are demonstration choices, not a published Primus standard.
+
+### R-209 — Regulation map: DPDP (Part A) and sector rules (Part B), kept in code
+
+**Decision:** The DPDP sections, Rules (with their three commencement dates), the penalty Schedule and the sector catalogue live in `lib/regulation` as plain data. Thirteen sets: stock broking (deepest, 12 controls), banking and NBFC, insurance, healthcare, telecom, e-commerce, OTT and gaming, aviation, AI and analytics, education, MSME, government, and a cross-sector set (CERT-In, TRAI). Every instrument is marked "checked against a source" or "check before use". Penalty figures are shown as ceilings set by the Schedule, never as a prediction.
+**Rationale:** leadership asked for sections, penalties and a two-part sector view. Code keeps it reviewable and testable; sector rules change often, so the screens say plainly that this is indicative reference content, not legal advice.
+
+### R-210 — Sector controls share the library; the engagement's sector choice decides which apply
+
+**Decision:** The starter library now holds 25 DPDP controls and 66 sector controls (code prefix per sector), with the DPDP Rules and sector instruments as regulatory references. A new table `engagement_sectors` (migration 0050) records the sectors chosen for an engagement: anyone with engagement access may read it, only Primus staff may change it, and every change is audited. The applicability job treats a sector control as applicable only when its sector is chosen; if no sector is chosen it leaves the control out and asks a person. That decision follows a human choice, so it is recorded as low risk and does not flood the review queue.
+**Rationale:** one library keeps the versioning and assessment machinery unchanged. The three older demo firms stay DPDP-only.
+
+### R-211 — Findings show the regulation behind a control
+
+**Decision:** A finding shows the DPDP sections and Rules (or the sector instrument) behind its source control. For DPDP controls it also shows the penalty ceiling, labelled as a maximum set by the Act and not a prediction.
+**Rationale:** a consultant needs to say what a gap means without implying a fine.

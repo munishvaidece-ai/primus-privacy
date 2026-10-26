@@ -90,6 +90,7 @@ function groupsFor(isClient: boolean, unread: number): Group[] {
       title: "Governance",
       items: [
         { href: "/audit", label: "Audit trail", icon: "audit" },
+        { href: "/regulations", label: "Regulations", icon: "scale" },
         { href: "/methodology", label: "Methodology", icon: "book" },
         { href: "/connectors", label: "Connectors", icon: "plug" },
       ],

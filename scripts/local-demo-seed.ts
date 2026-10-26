@@ -9,6 +9,7 @@
 // Every name, number and finding below is invented for demonstration. Safe to run
 // again (it does nothing if the demo firms already exist). Not for production:
 // it is only ever run by `npm run local:setup`.
+import { sectorOfControl } from "../lib/regulation";
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
@@ -99,8 +100,9 @@ async function main() {
     // the library: publish the starter so assessments can be built from it
     const lib = (await c.query<{ id: string }>("SELECT id FROM control_library_versions WHERE tenant_id = $1 AND version_label LIKE 'DPDP starter%' LIMIT 1", [tenantId])).rows[0];
     if (!lib) throw new Error("The starter control library is missing (bootstrap --starter-library).");
-    await c.query("UPDATE control_library_versions SET status = 'published', version_label = 'DPDP starter (demo copy)' WHERE id = $1 AND status <> 'published'", [lib.id]);
-    const controls = (await c.query<{ id: string; code: string; title: string }>("SELECT id, code, title FROM controls WHERE control_library_version_id = $1 ORDER BY code", [lib.id])).rows;
+    await c.query("UPDATE control_library_versions SET status = 'published', version_label = 'DPDP starter + sector rules (demo copy)' WHERE id = $1 AND status <> 'published'", [lib.id]);
+    // the three older demo firms are DPDP-only; the sector controls are used by the broking demo firm
+    const controls = (await c.query<{ id: string; code: string; title: string }>("SELECT id, code, title FROM controls WHERE control_library_version_id = $1 ORDER BY code", [lib.id])).rows.filter((k) => sectorOfControl(k.code) === null);
     const riskModel = (await c.query<{ id: string }>("SELECT id FROM risk_scoring_models WHERE tenant_id = $1 LIMIT 1", [tenantId])).rows[0]!.id;
     const band = (n: number) => (n >= 16 ? "critical" : n >= 10 ? "high" : n >= 5 ? "medium" : "low");
 

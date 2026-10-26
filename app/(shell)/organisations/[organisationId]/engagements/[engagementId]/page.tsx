@@ -208,6 +208,21 @@ export default async function EngagementDetailPage({
 
       <section className="mt-8">
         <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Regulations</h2>
+          <Link
+            href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/regulations`}
+            className="text-sm font-medium text-slate-900 underline"
+          >
+            View Regulations
+          </Link>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          The DPDP Act, Rules and penalties, plus the sector rules for this client&rsquo;s sectors.
+        </p>
+      </section>
+
+      <section className="mt-8">
+        <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Applicability &amp; Scope</h2>
           <Link
             href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/scope`}

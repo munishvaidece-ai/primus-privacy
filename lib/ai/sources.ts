@@ -2,6 +2,7 @@
 // read, who supplied it, which feature put it in front of the AI, and why it
 // was chosen. Pure functions over the same inputs the AI task received, so the
 // trail can never describe something other than what the AI actually saw.
+import { sectorOfControl } from "../regulation";
 import { maskPii } from "./mask";
 import { who, SIDE_WORDS, type Actor } from "./provenance";
 import { textStems, topicTerms } from "./text";
@@ -122,7 +123,8 @@ export function applicabilitySources(i: ApplicabilityInput): Source[] {
   const p = i.profile;
   const names = (p.contributors ?? []).map((c) => who(c));
   const sides = new Set((p.contributors ?? []).map((c) => c.side));
-  return [
+  const sectorRule = sectorOfControl(i.control.code);
+  const out: Source[] = [
     controlSource(i.control, "This is the control whose applicability is being decided."),
     {
       type: "record",
@@ -134,6 +136,18 @@ export function applicabilitySources(i: ApplicabilityInput): Source[] {
       detail: `${p.activities} processing activit${p.activities === 1 ? "y" : "ies"}${p.principalCategories.length ? ` · people: ${p.principalCategories.join(", ")}` : ""}${p.dataElements.length ? ` · data: ${p.dataElements.join(", ")}` : ""} · outside processors: ${p.hasProcessors ? "yes" : "none recorded"} · transfers outside India hinted: ${p.crossBorderHints ? "yes" : "no"} · children's data hinted: ${p.childrenHints ? "yes" : "no"}`,
     },
   ];
+  if (sectorRule !== null && sectorRule !== "all") out.push(
+    {
+      type: "record",
+      label: "Sectors chosen for this engagement (Regulations page)",
+      origin: (p.sectorChosenBy ?? []).length ? `Chosen by ${(p.sectorChosenBy ?? []).map((c) => who(c)).join("; ")}` : "Regulations page of this engagement",
+      providedBy: (p.sectorChosenBy ?? []).length === 1 && p.sectorChosenBy?.[0] ? { name: p.sectorChosenBy[0].name, side: p.sectorChosenBy[0].side } : { name: null, side: "primus" },
+      channel: "Regulations (sector selection)",
+      why: "Sector rules (Part B) apply only for the sectors chosen here. DPDP (Part A) applies to everyone.",
+      detail: (p.sectors ?? []).length ? `Sectors: ${(p.sectors ?? []).join(", ")}` : "No sector chosen yet",
+    },
+  );
+  return out;
 }
 
 // ----------------------------------------------------------------- finding

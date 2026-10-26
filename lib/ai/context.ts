@@ -32,6 +32,7 @@ import { controlTier } from "./tier";
 import { actorMap, evidenceProvenance } from "./provenance";
 import type { EvidenceReviewInput } from "./tasks/evidence-review";
 import type { ApplicabilityInput, LandscapeProfile } from "./tasks/applicability";
+import type { SectorKey } from "../regulation";
 import type { RatingInput } from "./tasks/rating";
 import type { FindingInput } from "./tasks/finding";
 import type { ReportInput } from "./tasks/report";
@@ -140,6 +141,9 @@ export async function loadLandscapeProfile(db: RequestDb, engagementId: string):
   const who = await db.execute<{ created_by: string | null }>(sql`
     SELECT DISTINCT created_by FROM processing_activities WHERE engagement_id = ${engagementId} AND lifecycle_status <> 'retired'`);
   const contributorMap = await actorMap(db, engagementId, who.rows.map((w) => w.created_by));
+  const sec = await db.execute<{ sector_key: string; created_by: string | null }>(sql`
+    SELECT sector_key, created_by FROM engagement_sectors WHERE engagement_id = ${engagementId}`);
+  const sectorActors = await actorMap(db, engagementId, sec.rows.map((x) => x.created_by));
   const hay = `${act.rows[0]?.names ?? ""} ${cats.rows.map((c) => c.name.toLowerCase()).join(" ")}`;
   return {
     activities: Number(act.rows[0]?.n ?? 0),
@@ -149,6 +153,8 @@ export async function loadLandscapeProfile(db: RequestDb, engagementId: string):
     crossBorderHints: /overseas|abroad|outside india|cross[- ]border|international|offshore|\bus\b|\busa\b|\beu\b|europe/.test(hay),
     childrenHints: /child|minor|student|school|under 18|kids|teen/.test(hay),
     contributors: [...contributorMap.values()],
+    sectors: sec.rows.map((x) => x.sector_key as SectorKey),
+    sectorChosenBy: [...sectorActors.values()],
   };
 }
 

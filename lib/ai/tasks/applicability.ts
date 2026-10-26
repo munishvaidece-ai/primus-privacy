@@ -7,6 +7,7 @@ import type { Actor } from "../provenance";
 import type { TaskDef } from "../engine";
 import type { RiskTier, SuggestionDraft } from "../types";
 import { inputHash } from "../text";
+import { sectorOfControl, sectorByKey, type SectorKey } from "../../regulation";
 
 export interface LandscapeProfile {
   activities: number;
@@ -17,6 +18,10 @@ export interface LandscapeProfile {
   childrenHints: boolean;
   /** Who entered the data-landscape records (for the evidence trail only). */
   contributors?: Actor[];
+  /** Sectors the people on the engagement chose (Regulations page). Undefined or empty = none chosen yet. */
+  sectors?: SectorKey[];
+  /** Who chose the sectors, for the evidence trail. */
+  sectorChosenBy?: Actor[];
 }
 
 export interface ApplicabilityInput {
@@ -30,6 +35,8 @@ export const applicabilityOutput = z.object({
   confidence: z.number().min(0).max(1),
   rationale: z.string().min(5).max(1500),
   needsHuman: z.string().optional(),
+  /** "sector" when the decision follows the sectors people chose, not a judgement about the client's data. */
+  basis: z.enum(["landscape", "sector"]).optional(),
 });
 export type ApplicabilityOutput = z.infer<typeof applicabilityOutput>;
 
@@ -38,6 +45,35 @@ const has = (text: string, ...words: string[]) => words.some((w) => text.include
 export function offlineApplicability(i: ApplicabilityInput): ApplicabilityOutput {
   const text = `${i.control.title} ${i.control.description ?? ""}`.toLowerCase();
   const p = i.profile;
+  const controlSector = sectorOfControl(i.control.code);
+  if (controlSector !== null && controlSector !== "all") {
+    const label = sectorByKey(controlSector)?.label ?? controlSector;
+    const chosen = p.sectors ?? [];
+    if (chosen.includes(controlSector)) {
+      return {
+        decision: "applicable",
+        confidence: 0.95,
+        basis: "sector",
+        rationale: `This is a ${label} rule. The engagement's sectors include ${label}, so it applies on top of the DPDP controls.`,
+      };
+    }
+    if (chosen.length === 0) {
+      return {
+        decision: "not_applicable",
+        confidence: 0.6,
+        basis: "sector",
+        rationale: `This is a ${label} rule, but no sector has been chosen for this engagement yet. Left out until a person picks the client's sector(s) on the Regulations page.`,
+        needsHuman: "no sector has been chosen for this engagement, so the AI cannot tell whether sector rules apply",
+      };
+    }
+    const names = chosen.map((k) => sectorByKey(k)?.label ?? k).join(", ");
+    return {
+      decision: "not_applicable",
+      confidence: 0.95,
+      basis: "sector",
+      rationale: `This is a ${label} rule. The engagement's sectors are ${names}, which do not include ${label}, so the rule is out of scope. It follows the sector choice made by the team, not a view on the client's data.`,
+    };
+  }
   if (p.activities === 0) {
     return {
       decision: "applicable",
@@ -90,10 +126,11 @@ export const applicabilityTask: TaskDef<ApplicabilityInput, ApplicabilityOutput>
   system:
     "You decide whether a DPDP (India) compliance control applies to a client, using only the client's data-landscape summary. " +
     "DPDP obligations apply to every Data Fiduciary by default: mark a control not_applicable ONLY if the summary gives positive evidence that its subject matter does not occur, and say what that evidence is. " +
+    "Controls whose code starts with a sector prefix (BRK, BNK, INS, HLT, TEL, ECM, OTT, AVI, AIA, EDU, MSM, GVT) apply only if that sector was chosen for the engagement. " +
     "Fields: decision (applicable | not_applicable), confidence (0..1), rationale, needsHuman (optional string: set when only a person can decide).",
   prompt(i) {
     const p = i.profile;
-    return `CONTROL ${i.control.code}: ${i.control.title}\n${i.control.description ?? ""}\n\nCLIENT DATA LANDSCAPE SUMMARY:\n- processing activities recorded: ${p.activities}\n- data principal categories: ${p.principalCategories.join(", ") || "none"}\n- personal data elements: ${p.dataElements.slice(0, 40).join(", ") || "none"}\n- processors recorded: ${p.hasProcessors ? "yes" : "no"}\n- children's data indicated: ${p.childrenHints ? "yes" : "no"}\n- overseas transfers indicated: ${p.crossBorderHints ? "yes" : "no"}`;
+    return `CONTROL ${i.control.code}: ${i.control.title}\n${i.control.description ?? ""}\n\nCLIENT DATA LANDSCAPE SUMMARY:\n- processing activities recorded: ${p.activities}\n- data principal categories: ${p.principalCategories.join(", ") || "none"}\n- personal data elements: ${p.dataElements.slice(0, 40).join(", ") || "none"}\n- processors recorded: ${p.hasProcessors ? "yes" : "no"}\n- children's data indicated: ${p.childrenHints ? "yes" : "no"}\n- overseas transfers indicated: ${p.crossBorderHints ? "yes" : "no"}\n- sectors chosen for the engagement: ${(p.sectors ?? []).join(", ") || "none yet"}`;
   },
 };
 
@@ -110,7 +147,7 @@ export function applicabilityDraft(i: ApplicabilityInput, o: ApplicabilityOutput
     confidence: o.confidence,
     // A wrong "not applicable" removes a control from the assessment, so it
     // is treated one tier higher than the control's own.
-    tier: o.decision === "not_applicable" ? (i.control.tier === "low" ? "medium" : "high") : "low",
+    tier: o.basis === "sector" ? "low" : o.decision === "not_applicable" ? (i.control.tier === "low" ? "medium" : "high") : "low",
     needsHuman: o.needsHuman,
     inputHash: inputHash({ k: "applicability", s: i.engagementScopeControlId, p: i.profile }),
   };

@@ -21,7 +21,8 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { createClient } from "@supabase/supabase-js";
-import { STARTER_CONTROLS, STARTER_REFERENCES } from "../db/seed/starter-library";
+import { STARTER_CONTROLS, STARTER_REFERENCES, RULE_REFERENCES, SECTOR_REFERENCES, SECTOR_STARTER_CONTROLS } from "../db/seed/starter-library";
+import { CONTROL_MAP } from "../lib/regulation";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -77,7 +78,7 @@ async function main() {
 
     // 5. starter library (draft)
     if (flag("starter-library")) {
-      const label = "DPDP starter (DRAFT — review before publishing)";
+      const label = "DPDP starter + sector rules (DRAFT — review before publishing)";
       const have = await pool.query("SELECT 1 FROM control_library_versions WHERE tenant_id = $1 AND version_label LIKE 'DPDP starter%'", [tenantId]);
       if (have.rowCount) console.log("✓ Starter control library already loaded.");
       else {
@@ -93,7 +94,24 @@ async function main() {
             );
             refIds.set(r.citation, row.rows[0]!.id);
           }
-          for (const k of STARTER_CONTROLS) {
+          // DPDP Rules (one reference per rule) and sector instruments
+          const ruleIds = new Map<number, string>();
+          for (const r of RULE_REFERENCES) {
+            const row = await c.query<{ id: string }>(
+              `INSERT INTO regulatory_references (tenant_id, framework_name, citation, title, version) VALUES ($1, 'Digital Personal Data Protection Rules, 2025', $2, $3, '2025') RETURNING id`,
+              [tenantId, r.citation, r.title],
+            );
+            ruleIds.set(Number(r.citation.split("r.")[1]), row.rows[0]!.id);
+          }
+          for (const r of SECTOR_REFERENCES) {
+            const row = await c.query<{ id: string }>(
+              `INSERT INTO regulatory_references (tenant_id, framework_name, citation, title, version) VALUES ($1, $2, $3, $4, 'indicative') RETURNING id`,
+              [tenantId, r.framework, r.citation, r.title],
+            );
+            refIds.set(r.citation, row.rows[0]!.id);
+          }
+          const allControls = [...STARTER_CONTROLS, ...SECTOR_STARTER_CONTROLS];
+          for (const k of allControls) {
             const ctl = await c.query<{ id: string }>(
               `INSERT INTO controls (tenant_id, control_library_version_id, code, title, control_type, description) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
               [tenantId, lib, k.code, k.title, k.type, k.description],
@@ -103,9 +121,14 @@ async function main() {
               [tenantId, refIds.get(k.ref)!, k.title, k.description],
             );
             await c.query(`INSERT INTO control_requirements (tenant_id, control_id, requirement_id) VALUES ($1,$2,$3)`, [tenantId, ctl.rows[0]!.id, req.rows[0]!.id]);
+            // link the DPDP Rules a control supports
+            for (const n of CONTROL_MAP[k.code]?.rules ?? []) {
+              const rid = ruleIds.get(n);
+              if (rid) await c.query(`INSERT INTO requirement_regulatory_references (tenant_id, requirement_id, regulatory_reference_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [tenantId, req.rows[0]!.id, rid]);
+            }
           }
           await c.query("COMMIT");
-          console.log(`✓ Starter control library loaded as a DRAFT with ${STARTER_CONTROLS.length} controls. Review it, then publish it under Methodology → Control Library.`);
+          console.log(`✓ Starter control library loaded as a DRAFT with ${STARTER_CONTROLS.length + SECTOR_STARTER_CONTROLS.length} controls (${STARTER_CONTROLS.length} DPDP, ${SECTOR_STARTER_CONTROLS.length} sector). Review it, then publish it under Methodology → Control Library.`);
         } catch (e) {
           await c.query("ROLLBACK");
           throw e;

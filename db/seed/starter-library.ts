@@ -8,6 +8,8 @@
 // Wording matters: the AI derives how cautious to be about a control from
 // its title/description (see lib/ai/tier.ts and the user guide).
 
+import { SECTORS, DPDP_RULES } from "../../lib/regulation";
+
 export interface StarterControl {
   code: string;
   title: string;
@@ -55,3 +57,38 @@ export const STARTER_CONTROLS: StarterControl[] = [
   { code: "SDF-01", title: "Data Protection Officer and independent audit (Significant Data Fiduciaries)", type: "preventive", ref: "DPDP Act 2023, s.10", description: "If designated a Significant Data Fiduciary: an India-based Data Protection Officer, an independent data auditor and periodic impact assessments." },
   { code: "SDF-02", title: "Data protection impact assessment (Significant Data Fiduciaries)", type: "detective", ref: "DPDP Act 2023, s.10", description: "If designated a Significant Data Fiduciary: periodic data protection impact assessments of high-risk processing." },
 ];
+
+
+// ---- Sector rules (Part B) and DPDP Rules, from the regulation catalogue ----
+// The sector controls sit in the same library as the DPDP controls. An
+// engagement only assesses the sector controls for the sectors it selects
+// (see lib/regulation and the engagement_sectors table). Indicative content.
+
+export const RULE_REFERENCES: Array<{ citation: string; title: string }> = DPDP_RULES.map((r) => ({
+  citation: `DPDP Rules 2025, r.${r.number}`,
+  title: r.title,
+}));
+
+export interface SectorReference {
+  citation: string;
+  title: string;
+  framework: string;
+}
+
+export const SECTOR_REFERENCES: SectorReference[] = Array.from(
+  new Map(
+    SECTORS.flatMap((s) =>
+      s.instruments.map((i) => {
+        const citation = `${i.regulator}: ${i.name}`.slice(0, 300);
+        return [citation, { citation, title: i.name.slice(0, 200), framework: s.label }] as const;
+      }),
+    ),
+  ).values(),
+);
+
+export const SECTOR_STARTER_CONTROLS: StarterControl[] = SECTORS.flatMap((s) =>
+  s.controls.map((c) => {
+    const inst = s.instruments.find((i) => i.id === c.instrument)!;
+    return { code: c.code, title: c.title, type: c.type, description: c.description, ref: `${inst.regulator}: ${inst.name}`.slice(0, 300) };
+  }),
+);

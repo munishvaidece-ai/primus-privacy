@@ -89,6 +89,17 @@ The platform does not send email. People see alerts under **Notifications** when
 
 Clients sign in to a **portal** built around one engagement: an Overview with "what to do next", the Discovery questionnaire (13 short steps, saved as they type), the Assessment, evidence requests and uploads, clarifications, released findings, remediation, risks, released reports and a log of Data Principal requests. People with read-only roles (for example CXO / Executive Viewer) can look but not change anything.
 
+## Regulations — DPDP and sector rules
+
+Open **Regulations** in the left menu for the reference, or an engagement's **Regulations** page to apply it to a client.
+
+- **Part A** is the DPDP Act and Rules: the sections the controls point to, which Rules are in force and when, the penalty Schedule, and a table mapping each DPDP control to its sections, Rules and penalty ceiling.
+- **Part B** is the sector rules. On an engagement, tick the sectors the client operates in (several are allowed, for example a broker with a lending arm). Each sector shows its laws and circulars, the extra controls it adds, how it sits with DPDP, and the documents the AI would expect to see. Stock broking is the most detailed; MSME and Government are included.
+- The AI uses the choice: a sector control applies only if its sector is ticked. If none is ticked, it asks a person.
+- Findings show the section and Rule behind the control, and the penalty ceiling for DPDP controls.
+
+This is indicative reference content, not legal advice. Items marked "check before use" have not been confirmed against a published source. Penalty figures are the maximums in the Act; the Data Protection Board decides the real amount.
+
 ## Honest limits
 
 * The built-in engine is rules and text matching, not a language model: it is careful, so expect more items in your review list than with a language model. If your devops team connects a model (hosted where the client requires), the same screens and controls apply.
