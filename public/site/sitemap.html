@@ -375,7 +375,7 @@ footer{border-top:1px solid var(--line);padding-block:36px;color:var(--ink2);fon
 .ai-teaser li b{color:var(--brand);font-family:var(--f-display)}
 @media(max-width:1000px){.ai-teaser{grid-template-columns:minmax(0,1fr)}}
 .ai-teaser h2{font-size:clamp(1.5rem,3vw,2rem)}.ai-teaser li{background:var(--bg2)}
-html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--bg)}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style></head><body>
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--bg)}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style><style>.plan{opacity:.65;font-style:italic}</style></head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
 <linearGradient id="pmg" gradientUnits="userSpaceOnUse" x1="29" y1="444" x2="446" y2="29"><stop offset="0" stop-color="#b27a42"/><stop offset=".55" stop-color="#8a4a2a"/><stop offset="1" stop-color="#5a0f13"/></linearGradient>
 <symbol id="pmark" viewBox="18 18 439 439"><path d="M29,29 H446 V444 H175 V161.5 H294 A73.75,73.75 0 0 1 294,309 H229 V254 H245 A72.75,72.75 0 0 0 245,108.5 H122.5 V390.5 H29 Z" fill="none" stroke="url(#pmg)" stroke-width="16" stroke-linejoin="miter"/></symbol>
@@ -455,15 +455,15 @@ html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset
    ['C','Sectors',[['Financial Services','portal.html#sectors'],['Healthcare','portal.html#sectors'],['Retail & E-commerce','portal.html#sectors'],['OTT & Media','portal.html#sectors'],['Aviation & Travel','portal.html#sectors'],['AI & Analytics','portal.html#sectors']]],
    ['D','Advantage Primus Privacy',[['One record, every stakeholder','portal.html#live'],['Evidence that stands up','portal.html#live'],['Remediation that closes','portal.html#live'],['Reporting without the rework','portal.html#glance'],['Obligation library','portal.html#library']]],
    ['E','About the platform',[['Overview','index.html'],['Platform architecture','platform.html'],['Workflows (step by step)','workflows.html'],['AI layer','ai-layer.html'],['Live skeleton','live-skeleton.html'],['Configurator','configurator.html']]],
-   ['F','Workspace & clients (sign in)',[['Portfolio Dashboard',W],['My Tasks',W],['Notifications',W],['Organisations',W],['Engagements',W],['Stakeholders',W]]],
-   ['G','Assessment (sign in)',[['Discovery & Scoping',W],['Assessment Centre',W],['Question Bank',W],['Evidence Review',W],['Findings & Gaps',W],['Risk Register',W],['Remediation Oversight',W]]],
-   ['H','Privacy operations (sign in)',[['Processing Activities',W],['Data Inventory',W],['Data Principal Rights',W],['Consent & Notices',W],['Data Breach Management',W],['Third-Party Risk',W],['Policies & Controls',W]]],
-   ['I','Intelligence (sign in)',[['Regulatory Library',W],['Applicability Matrix',W],['Sector Frameworks',W],['Maturity Analytics',W],['Reports & Exports',W]]],
-   ['J','Administration (sign in)',[['Framework Configuration',W],['Users & Access',W],['Audit Trail',W],['Settings',W]]]
+   ['F','Workspace & clients (platform, sign in)',[['Organisations',W],['Engagements',W],['Members & invitations',W],['Portfolio dashboard (planned)',null],['My tasks (planned)',null],['Notifications (planned)',null]]],
+   ['G','Assessment (platform, sign in)',[['Discovery & scope',W],['Assessment centre',W],['Control library',W],['Evidence review',W],['Findings',W],['Risk register',W],['Remediation & validation',W]]],
+   ['H','Privacy operations (platform, sign in)',[['Data landscape & ROPA',W],['Rights requests (AI-assisted)',W],['Breach handling (AI-assisted)',W],['Consent review (AI-assisted)',W],['Vendor review (AI-assisted)',W],['Consent & notice management (planned)',null],['Third-party risk module (planned)',null]]],
+   ['I','Intelligence (platform, sign in)',[['Regulatory content',W],['Applicability',W],['Maturity scoring',W],['Engagement report (PDF)',W],['Maturity trend dashboards (planned)',null],['Sector framework packs (planned)',null]]],
+   ['J','Administration (platform, sign in)',[['Control library authoring',W],['Users & access',W],['AI settings & autopilot level',W],['Connectors',W],['AI activity trail',W],['Platform-wide audit trail screen (planned)',null]]]
   ];
   var tot=0;G.forEach(function(g){tot+=g[2].length});
   var el=document.getElementById('sg'),sc=document.getElementById('sc');
-  el.innerHTML=G.map(function(g){return '<div class="sg"><h3><i>'+g[0]+'</i>'+g[1]+'<span>'+g[2].length+'</span></h3><ul>'+g[2].map(function(p){var ext=p[1].indexOf('http')===0;return '<li><a href="'+p[1]+'"'+(ext?' target="_blank" rel="noopener"':'')+'>'+p[0].replace(/&/g,'&amp;')+'</a></li>'}).join('')+'</ul></div>'}).join('');
+  el.innerHTML=G.map(function(g){return '<div class="sg"><h3><i>'+g[0]+'</i>'+g[1]+'<span>'+g[2].length+'</span></h3><ul>'+g[2].map(function(p){if(!p[1])return '<li><span class="plan">'+p[0].replace(/&/g,'&amp;')+'</span></li>';var ext=p[1].indexOf('http')===0;return '<li><a href="'+p[1]+'"'+(ext?' target="_blank" rel="noopener"':'')+'>'+p[0].replace(/&/g,'&amp;')+'</a></li>'}).join('')+'</ul></div>'}).join('');
   function f(){var q=document.getElementById('sf').value.toLowerCase(),n=0;
     el.querySelectorAll('.sg').forEach(function(s){var any=false;s.querySelectorAll('li').forEach(function(li){var ok=li.textContent.toLowerCase().indexOf(q)>-1;li.hidden=!ok;if(ok){any=true;n++}});s.hidden=!any});
     sc.textContent='Total: '+tot+' pages · Showing: '+n+' items'}
