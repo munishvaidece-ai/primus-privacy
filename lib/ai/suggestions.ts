@@ -102,6 +102,7 @@ export async function recordSuggestion(db: RequestDb, ctx: RecordContext, draft:
       proposed: draft.proposed,
       rationale: draft.rationale.slice(0, 3000),
       citations: draft.citations,
+      sources: draft.sources ?? [],
       confidence: draft.confidence.toFixed(3),
       riskTier: draft.tier,
       gate: decision.gate,

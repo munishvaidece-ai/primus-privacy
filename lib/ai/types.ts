@@ -72,6 +72,35 @@ export interface Citation {
   verified: boolean;
 }
 
+/**
+ * One thing the AI looked at to reach a suggestion. Stored with the suggestion
+ * so a reviewer can always see what it read, where that came from and why it
+ * was chosen.
+ */
+export interface Source {
+  type: "document" | "evidence" | "control" | "test" | "response" | "record" | "questionnaire" | "case" | "summary";
+  /** What it is, in plain words. */
+  label: string;
+  /** Where the data came from, in words (system, person, date). */
+  origin: string;
+  /** Who supplied it: the Primus team, the client organisation, or the system. */
+  providedBy?: { name: string | null; side: "primus" | "client" | "system" };
+  /** The screen or feature that fed it to the AI (e.g. "Client portal, Evidence centre upload"). */
+  channel?: string;
+  /** When it was supplied (ISO). */
+  at?: string;
+  /** Id of the underlying record, so the same item can be traced across outputs. */
+  ref?: string;
+  /** Why this was selected for this output. */
+  why: string;
+  /** Facts read from it. */
+  detail?: string;
+  /** Text actually read (personal identifiers masked), shortened. */
+  excerpt?: string;
+  /** Screen inside the product where the original can be opened. */
+  link?: string;
+}
+
 /** What a task produces, ready to be routed and stored. */
 export interface SuggestionDraft {
   kind: SuggestionKind;
@@ -82,6 +111,8 @@ export interface SuggestionDraft {
   proposed: Record<string, unknown>;
   rationale: string;
   citations: Citation[];
+  /** The evidence trail (what was read, from where, why). */
+  sources?: Source[];
   confidence: number;
   tier: RiskTier;
   /** The task itself is unsure and wants a person regardless of policy. */

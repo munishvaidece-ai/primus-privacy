@@ -10,6 +10,8 @@ export function withFlag(path: string, key: string, value: string): string {
 const TABS: Array<{ href: string; label: string }> = [
   { href: "", label: "Overview" },
   { href: "/queue", label: "Needs your review" },
+  { href: "/decisions", label: "What the AI did" },
+  { href: "/data", label: "Data it reads" },
   { href: "/cases", label: "Operations" },
   { href: "/connectors", label: "Connectors" },
   { href: "/activity", label: "Activity & audit" },
@@ -26,7 +28,7 @@ export function AiShell({
   organisationId: string;
   engagementId: string;
   engagementName: string;
-  active: "" | "/queue" | "/cases" | "/connectors" | "/activity";
+  active: "" | "/queue" | "/decisions" | "/data" | "/cases" | "/connectors" | "/activity";
   badge?: { queue?: number };
   children: ReactNode;
 }) {

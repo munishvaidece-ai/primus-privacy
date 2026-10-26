@@ -1,5 +1,6 @@
 // Finding: turns a weak rating into a risk and a finding with a remediation.
 import { z } from "zod";
+import type { Actor } from "../provenance";
 import type { TaskDef } from "../engine";
 import type { RiskTier, SuggestionDraft } from "../types";
 import { inputHash } from "../text";
@@ -12,6 +13,7 @@ export interface FindingInput {
   rating: "partially_implemented" | "not_implemented";
   ratingRationale: string | null;
   ratingConfidence: number;
+  answeredBy?: { actor: Actor; at: string | null } | null;
 }
 
 export const findingOutput = z.object({

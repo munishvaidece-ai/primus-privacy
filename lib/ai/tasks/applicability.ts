@@ -3,6 +3,7 @@
 // only marks a control "not applicable" on positive evidence from the
 // client's own data landscape — and says what that evidence was.
 import { z } from "zod";
+import type { Actor } from "../provenance";
 import type { TaskDef } from "../engine";
 import type { RiskTier, SuggestionDraft } from "../types";
 import { inputHash } from "../text";
@@ -14,6 +15,8 @@ export interface LandscapeProfile {
   hasProcessors: boolean;
   crossBorderHints: boolean;
   childrenHints: boolean;
+  /** Who entered the data-landscape records (for the evidence trail only). */
+  contributors?: Actor[];
 }
 
 export interface ApplicabilityInput {

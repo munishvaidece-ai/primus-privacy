@@ -37,6 +37,15 @@ Always on unless you switch them off for a client who has agreed otherwise. Only
 
 Each card shows what the AI proposes, its **reasoning**, and — for documents — the **exact sentence it relied on** (✓ found in the document, ⚠ could not be found: check it). You can **Approve**, **Change it** (edit the answer and say why), or **Reject** (say why). You can tick several routine items and approve them together. Your decision is applied *as you*: it appears in the main audit log under your name.
 
+## Seeing exactly what the AI read
+
+Two screens answer "what did the AI look at, and who gave it?":
+
+* **What the AI did** lists every piece of AI work, including work applied automatically. Each row has an **Evidence trail** showing: the documents and data it used; who supplied each (the Primus team or the client organisation, by name); the screen it came through (for example Client portal, Evidence centre, or Primus workspace, evidence upload); when; why it was chosen; the sentences it relied on; its reasoning; the engine used; its confidence; the autopilot level and the rule that allowed it to proceed; and a link to the record it changed.
+* **Data it reads** is the complete inventory: documents and evidence, assessment answers, the data landscape, control tests, cases and connector scans, each with who supplied it and how many AI outputs used it. It also lists what the AI does **not** read (the discovery questionnaire, clarification messages, other clients' data).
+
+The trail is written when the AI produces its output and cannot be changed later. With the built-in engine nothing is sent outside the platform; with an optional outside AI service, personal identifiers are masked first and the trail says so.
+
 ## Pause
 
 **Pause everything** (Overview) takes the AI's access away immediately. Nothing it was doing can continue. **Resume** brings it back.

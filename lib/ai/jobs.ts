@@ -25,6 +25,8 @@ import {
   loadFinalizedAssessmentsWithoutIssuance,
 } from "./context";
 import { evidenceReviewDraft, evidenceReviewTask } from "./tasks/evidence-review";
+import { applicabilitySources, caseSources, evidenceReviewSources, findingSources, ratingSources, reportSources, withSources } from "./sources";
+import { actorMap } from "./provenance";
 import { applicabilityDraft, applicabilityTask } from "./tasks/applicability";
 import { ratingDraft, ratingTask } from "./tasks/rating";
 import { findingDraft, findingTask } from "./tasks/finding";
@@ -154,7 +156,7 @@ async function handleEvidenceReview(run: Run): Promise<Record<string, unknown>> 
     const input = await loadEvidenceReviewInput(run.db, id, run.cfg.maxInputChars);
     if (!input) return null;
     const r = await runTask(evidenceReviewTask, input, run.choice);
-    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, evidenceReviewDraft(input, r.output));
+    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, withSources(evidenceReviewDraft(input, r.output), evidenceReviewSources(input)));
     tally(t, o);
     if (o.outcome === "applied") affected.push(...(await assessmentControlsForEvidence(run.db, id)));
     return o;
@@ -171,7 +173,7 @@ async function handleApplicability(run: Run): Promise<Record<string, unknown>> {
     const input = await loadApplicabilityInput(run.db, id, profile);
     if (!input) return null;
     const r = await runTask(applicabilityTask, input, run.choice);
-    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, applicabilityDraft(input, r.output));
+    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, withSources(applicabilityDraft(input, r.output), applicabilitySources(input)));
     tally(t, o);
     return o;
   });
@@ -186,7 +188,7 @@ async function handleRating(run: Run): Promise<Record<string, unknown>> {
     const input = await loadRatingInput(run.db, id);
     if (!input) return null;
     const r = await runTask(ratingTask, input, run.choice);
-    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, ratingDraft(input, r.output));
+    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, withSources(ratingDraft(input, r.output), ratingSources(input)));
     tally(t, o);
     if (o.outcome === "applied" && r.output.rating !== "implemented") weak.push(id);
     return o;
@@ -208,7 +210,7 @@ async function handleFinding(run: Run): Promise<Record<string, unknown>> {
     const input = await loadFindingInput(run.db, id, last ? Number(last.c) : 0.8);
     if (!input) return null;
     const r = await runTask(findingTask, input, run.choice);
-    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, findingDraft(input, r.output));
+    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, withSources(findingDraft(input, r.output), findingSources(input)));
     tally(t, o);
     return o;
   });
@@ -222,7 +224,7 @@ async function handleReport(run: Run): Promise<Record<string, unknown>> {
     const input = await loadReportInput(run.db, run.agentUserId, id);
     if (!input) return null;
     const r = await runTask(reportTask, input, run.choice);
-    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, reportDraft(input, r.output));
+    const o = await recordSuggestion(run.db, { ...run.rctx, provider: { label: r.provider, model: r.model } }, withSources(reportDraft(input, r.output), reportSources(input)));
     tally(t, o);
     return o;
   });
@@ -275,28 +277,31 @@ async function handleOpsCase(run: Run): Promise<Record<string, unknown>> {
     const c = await loadCase(run.db, id);
     if (!c || c.status !== "new") return null;
     const provider = (r: { provider: string; model: string }) => ({ ...run.rctx, provider: { label: r.provider, model: r.model } });
+    const loggedBy = (await actorMap(run.db, c.engagementId, [c.createdBy])).get(c.createdBy ?? "") ?? null;
+    const logged = (channelWord: string) => ({ actor: loggedBy, at: c.receivedAt.toISOString(), channelWord });
     if (c.caseType === "rights_request") {
       const d = rightsDetails.parse(c.details);
       const input = { caseId: c.id, reference: c.reference, receivedAt: c.receivedAt.toISOString(), ...d };
       const r = await runTask(rightsTask, input, run.choice);
-      tally(t, await recordSuggestion(run.db, provider(r), rightsDraft(input, r.output)));
+      tally(t, await recordSuggestion(run.db, provider(r), withSources(rightsDraft(input, r.output), caseSources("rights", c, `Request type: ${d.requestType.replace(/_/g, " ")} · identity verified: ${d.identityVerified ? "yes" : "no"} · legal retention duty: ${d.retentionObligation ? "yes" : "no"}${d.notes ? ` · notes: ${d.notes}` : ""}`, logged("Client portal, Rights requests (or Primus, Operations)")))));
     } else if (c.caseType === "breach") {
       const d = breachDetails.parse(c.details);
       const input = { caseId: c.id, reference: c.reference, ...d };
       const r = await runTask(breachTask, input, run.choice);
       const drafts = breachDrafts(input, r.output);
-      tally(t, await recordSuggestion(run.db, provider(r), drafts.assess));
-      tally(t, await recordSuggestion(run.db, provider(r), drafts.notice));
+      const bsrc = caseSources("breach", c, `Discovered ${d.discoveredAt.slice(0, 10)} · ${d.principalsAffected ?? "unknown number of"} people affected · data: ${d.categories.join(", ") || "not stated"} · encrypted: ${d.encrypted ? "yes" : "no"} · contained: ${d.contained ? "yes" : "no"}`, logged("Primus workspace, AI Operations Centre → Operations"));
+      tally(t, await recordSuggestion(run.db, provider(r), withSources(drafts.assess, bsrc)));
+      tally(t, await recordSuggestion(run.db, provider(r), withSources(drafts.notice, bsrc)));
     } else if (c.caseType === "consent_review") {
       const d = consentDetails.parse(c.details);
       const input = { caseId: c.id, reference: c.reference, ...d };
       const r = await runTask(consentTask, input, run.choice);
-      tally(t, await recordSuggestion(run.db, provider(r), consentDraft(input, r.output)));
+      tally(t, await recordSuggestion(run.db, provider(r), withSources(consentDraft(input, r.output), caseSources("consent", c, `Languages: ${d.languages.join(", ") || "not stated"} · pre-ticked: ${d.preTicked ? "yes" : "no"} · bundled with other purposes: ${d.bundled ? "yes" : "no"} · text read: ${d.consentText.slice(0, 200)}`, logged("Primus workspace, AI Operations Centre → Operations")))));
     } else if (c.caseType === "vendor_review") {
       const d = vendorDetails.parse(c.details);
       const input = { caseId: c.id, reference: c.reference, ...d };
       const r = await runTask(vendorTask, input, run.choice);
-      tally(t, await recordSuggestion(run.db, provider(r), vendorDraft(input, r.output)));
+      tally(t, await recordSuggestion(run.db, provider(r), withSources(vendorDraft(input, r.output), caseSources("vendor", c, `${d.vendorName}: ${d.services || "services not stated"} · data shared: ${d.dataCategories.join(", ") || "not stated"} · vendor's answers: DPA ${d.answers.hasDpa ? "yes" : "no"}, breach notice ${d.answers.breachNotificationHours ?? "not stated"} hours, cross-border ${d.answers.crossBorder ? "yes" : "no"}`, logged("Primus workspace, AI Operations Centre → Operations")))));
     }
     return true;
   });

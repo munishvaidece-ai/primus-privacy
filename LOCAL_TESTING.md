@@ -63,6 +63,17 @@ Everything is invented for demonstration: names, numbers, findings, risks and re
 4. Back on the **Primus door**, open Vitalis: the 2 draft findings exist but the client cannot see them until released. Release one, then sign in as Dr Ananya Rao to show it has appeared.
 5. **Client door**, Bazaarly, Sameer Khanna: the guided *Discovery* questionnaire, which saves as you type.
 6. Sign in as **Kabir Shah** (CXO): everything is read-only.
+7. **Primus door**, Vitalis, *AI Operations Centre*: open **What the AI did** and **Data it reads** (see the section below).
+
+## Showing what the AI reads and did (Vitalis)
+
+Vitalis comes with the AI already switched on at **Full autopilot** and already run, on six invented uploaded documents (four from the client, two from the Primus team, one deliberately unreadable). Sign in on the Primus door as the Demo Administrator, open Vitalis, then **AI Operations Centre**:
+
+* **What the AI did**: every piece of work, including the ones it applied by itself ("Done by the AI under autopilot"). Open the **Evidence trail** on any row to see the documents and data it read, who supplied each one (Primus team or client organisation, by name), which screen it came through, when, why the AI chose it, the sentences it relied on, its reasoning, its confidence and the rule that let it proceed. A link takes you to the record it changed.
+* **Data it reads**: the complete list of what the AI is able to read, who supplied each item, and how many AI outputs used it. It also states what the AI does not read.
+* **Needs your review**: the items the AI held back, each with the same evidence trail open.
+
+The evidence trail is recorded when the AI works and cannot be edited afterwards. Work the AI did before this feature existed shows "inputs were not recorded".
 
 ## A good test to run first
 
@@ -80,7 +91,7 @@ The AI Operations Centre needs the background worker to do its work. In a second
 
 ## Starting again from scratch
 
-**If you ran an earlier version of this demo, do this once**, because the demo data changed (three organisations instead of one). To wipe the local database and start clean: `docker compose -f docker-compose.local.yml down -v`, then `npm run local:db` and `npm run local:setup` again.
+**If you ran an earlier version of this demo, do this once**, because the demo data changed (the AI evidence trail needs a new database table column and fresh sample data). To wipe the local database and start clean: `docker compose -f docker-compose.local.yml down -v`, then `npm run local:db` and `npm run local:setup` again.
 
 ## Handing over to devops
 

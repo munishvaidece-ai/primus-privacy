@@ -29,6 +29,7 @@ import { getMaturityAssessmentForAssessment } from "@/lib/domain/maturity";
 import { extractText } from "./extract";
 import { readEvidenceObject } from "./storage-reader";
 import { controlTier } from "./tier";
+import { actorMap, evidenceProvenance } from "./provenance";
 import type { EvidenceReviewInput } from "./tasks/evidence-review";
 import type { ApplicabilityInput, LandscapeProfile } from "./tasks/applicability";
 import type { RatingInput } from "./tasks/rating";
@@ -93,8 +94,10 @@ export async function loadEvidenceReviewInput(db: RequestDb, evidenceId: string,
     JOIN controls c ON c.id = COALESCE(ac.control_id, ct.control_id)
     WHERE el.evidence_id = ${evidenceId}`);
 
+  const prov = (await evidenceProvenance(db, ev.engagementId ?? "", [ev.id])).get(ev.id);
   return {
     evidenceId: ev.id,
+    prov,
     title: ev.title,
     evidenceType: ev.type,
     filename: ev.filename,
@@ -134,6 +137,9 @@ export async function loadLandscapeProfile(db: RequestDb, engagementId: string):
     JOIN personal_data_element_versions v ON v.id = l.personal_data_element_version_id
     WHERE l.engagement_id = ${engagementId}`);
   const procs = await db.execute<{ n: string }>(sql`SELECT count(*)::text AS n FROM processing_activity_processors WHERE engagement_id = ${engagementId}`);
+  const who = await db.execute<{ created_by: string | null }>(sql`
+    SELECT DISTINCT created_by FROM processing_activities WHERE engagement_id = ${engagementId} AND lifecycle_status <> 'retired'`);
+  const contributorMap = await actorMap(db, engagementId, who.rows.map((w) => w.created_by));
   const hay = `${act.rows[0]?.names ?? ""} ${cats.rows.map((c) => c.name.toLowerCase()).join(" ")}`;
   return {
     activities: Number(act.rows[0]?.n ?? 0),
@@ -142,6 +148,7 @@ export async function loadLandscapeProfile(db: RequestDb, engagementId: string):
     hasProcessors: Number(procs.rows[0]?.n ?? 0) > 0,
     crossBorderHints: /overseas|abroad|outside india|cross[- ]border|international|offshore|\bus\b|\busa\b|\beu\b|europe/.test(hay),
     childrenHints: /child|minor|student|school|under 18|kids|teen/.test(hay),
+    contributors: [...contributorMap.values()],
   };
 }
 
@@ -173,6 +180,7 @@ export async function loadRatingInput(db: RequestDb, assessmentControlId: string
       id: assessmentControls.id,
       assessmentId: assessmentControls.assessmentId,
       controlId: assessmentControls.controlId,
+      engagementId: assessmentControls.engagementId,
       applicability: assessmentControls.applicabilityDecision,
       code: controls.code,
       title: controls.title,
@@ -186,9 +194,9 @@ export async function loadRatingInput(db: RequestDb, assessmentControlId: string
     .limit(1);
   if (!ac || ac.status !== "draft" || ac.applicability === "not_applicable") return null;
 
-  const [resp] = await db.select({ id: assessmentResponses.id, rating: assessmentResponses.effectivenessRating }).from(assessmentResponses).where(eq(assessmentResponses.assessmentControlId, ac.id)).limit(1);
+  const [resp] = await db.select({ id: assessmentResponses.id, rating: assessmentResponses.effectivenessRating, by: assessmentResponses.respondentId, at: assessmentResponses.updatedAt }).from(assessmentResponses).where(eq(assessmentResponses.assessmentControlId, ac.id)).limit(1);
   const tests = await db
-    .select({ id: controlTests.id, result: controlTests.result, methodology: controlTests.methodology })
+    .select({ id: controlTests.id, result: controlTests.result, methodology: controlTests.methodology, by: controlTests.testerId, at: controlTests.testedAt })
     .from(controlTests)
     .where(and(eq(controlTests.assessmentId, ac.assessmentId), eq(controlTests.controlId, ac.controlId)));
 
@@ -203,7 +211,11 @@ export async function loadRatingInput(db: RequestDb, assessmentControlId: string
        OR ${tests.length ? sql`el.control_test_id IN (${sql.join(tests.map((t) => sql`${t.id}`), sql`, `)})` : sql`false`}`);
 
   if (ev.rows.length === 0 && tests.length === 0) return null; // nothing to base a rating on yet
+  const provs = await evidenceProvenance(db, ac.engagementId, ev.rows.map((e) => e.id));
+  const people = await actorMap(db, ac.engagementId, [resp?.by, ...tests.map((t) => t.by)]);
   return {
+    assessmentId: ac.assessmentId,
+    answeredBy: resp?.by && people.get(resp.by) ? { actor: people.get(resp.by)!, at: resp.at ? new Date(resp.at).toISOString() : null } : null,
     assessmentControlId: ac.id,
     control: withTier(ac),
     currentRating: resp?.rating ?? null,
@@ -214,8 +226,9 @@ export async function loadRatingInput(db: RequestDb, assessmentControlId: string
       quality: e.quality_rating ?? e.ai,
       aiVerdict: null,
       validUntil: e.valid_until ? new Date(e.valid_until).toISOString() : null,
+      prov: provs.get(e.id),
     })),
-    tests: tests.map((t) => ({ result: t.result, methodology: t.methodology })),
+    tests: tests.map((t) => ({ id: t.id, result: t.result, methodology: t.methodology, by: t.by ? people.get(t.by) ?? null : null, testedAt: t.at ? new Date(t.at).toISOString() : null })),
     now: new Date().toISOString(),
   };
 }
@@ -246,6 +259,8 @@ export async function loadFindingInput(db: RequestDb, assessmentControlId: strin
       description: controls.description,
       rating: assessmentResponses.effectivenessRating,
       rationale: assessmentResponses.decisionRationale,
+      by: assessmentResponses.respondentId,
+      at: assessmentResponses.updatedAt,
       status: assessments.status,
     })
     .from(assessmentControls)
@@ -266,8 +281,10 @@ export async function loadFindingInput(db: RequestDb, assessmentControlId: strin
     .limit(1);
   if (existing.length) return null;
 
+  const people = await actorMap(db, r.engagementId, [r.by]);
   return {
     assessmentId: r.assessmentId,
+    answeredBy: r.by && people.get(r.by) ? { actor: people.get(r.by)!, at: r.at ? new Date(r.at).toISOString() : null } : null,
     assessmentControlId: r.id,
     controlId: r.controlId,
     control: withTier(r),

@@ -68,6 +68,8 @@ async function main() {
   run(["scripts/bootstrap.ts", "--tenant", "Primus Partners", "--admin-email", "admin@primus.local", "--admin-name", "Demo Administrator", "--starter-library"]);
   // 5. fictional demo data
   run(["scripts/local-demo-seed.ts"]);
+  // 6. fictional uploaded documents, then the platform's own AI works on them
+  run(["scripts/local-demo-ai-seed.ts"]);
 
   console.log("\nAll set. Start the app with:  npm run dev   then open http://localhost:3000");
 }

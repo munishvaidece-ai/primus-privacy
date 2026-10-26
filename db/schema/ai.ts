@@ -86,6 +86,8 @@ export const aiSuggestions = pgTable("ai_suggestions", {
   proposed: jsonb("proposed").notNull(),
   rationale: text("rationale").notNull(),
   citations: jsonb("citations").notNull().default([]),
+  // The evidence trail: what was read, where it came from, why it was chosen (migration 0049).
+  sources: jsonb("sources").notNull().default([]),
   confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull(),
   riskTier: aiRiskTierEnum("risk_tier").notNull(),
   gate: text("gate"),

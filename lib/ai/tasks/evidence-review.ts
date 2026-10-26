@@ -5,6 +5,7 @@ import type { SuggestionDraft, RiskTier } from "../types";
 import { maskPii } from "../mask";
 import { inputHash, normalise, sentences, textStems, topicTerms, verifyCitations } from "../text";
 import { TIER_ORDER } from "../tier";
+import type { EvidenceProv } from "../provenance";
 
 export interface EvidenceReviewInput {
   evidenceId: string;
@@ -17,6 +18,8 @@ export interface EvidenceReviewInput {
   textMethod: string;
   controls: Array<{ code: string; title: string; description: string | null; tier: RiskTier }>;
   maxChars: number;
+  /** Who supplied the document and through which feature (for the evidence trail only). */
+  prov?: EvidenceProv;
 }
 
 export const evidenceReviewOutput = z.object({

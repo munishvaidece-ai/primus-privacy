@@ -6,6 +6,7 @@ import { getQueueCounts, listSuggestions, type SuggestionRow } from "@/lib/ai/su
 import { OVERRIDABLE } from "@/lib/ai/apply";
 import { GATE_LABELS, KIND_LABELS, type GateKey, type SuggestionKind } from "@/lib/ai/types";
 import { SOURCE_WORDS, TIER_WORDS, confidenceWord, describeProposal, humanise, percent } from "@/lib/ai/present";
+import { EvidenceTrail } from "@/components/ai/evidence-trail";
 import { approveSelectedAction, decideSuggestionAction } from "./actions";
 
 const CHOICES: Record<string, string[]> = {
@@ -58,7 +59,7 @@ export default async function QueuePage({
             </form>
           ) : null}
           <ul className="mt-4 space-y-4">
-            {pending.map((s) => <SuggestionCard key={s.id} s={s} canRelease={ctx.canRelease} hidden={hidden} bulk={bulkable.length > 1 && !s.gate} />)}
+            {pending.map((s) => <SuggestionCard key={s.id} s={s} base={`/organisations/${params.organisationId}/engagements/${params.engagementId}`} canRelease={ctx.canRelease} hidden={hidden} bulk={bulkable.length > 1 && !s.gate} />)}
           </ul>
         </>
       )}
@@ -87,10 +88,9 @@ export default async function QueuePage({
   );
 }
 
-function SuggestionCard({ s, canRelease, hidden, bulk }: { s: SuggestionRow; canRelease: boolean; hidden: React.ReactNode; bulk: boolean }) {
+function SuggestionCard({ s, base, canRelease, hidden, bulk }: { s: SuggestionRow; base: string; canRelease: boolean; hidden: React.ReactNode; bulk: boolean }) {
   const kind = s.kind as SuggestionKind;
   const lines = describeProposal(kind, (s.proposed ?? {}) as Record<string, unknown>, [s.rationale, s.summary].filter(Boolean) as string[]);
-  const cites = (s.citations ?? []) as Array<{ quote: string; verified: boolean }>;
   const overridable = OVERRIDABLE[kind] ?? [];
   const proposed = (s.proposed ?? {}) as Record<string, unknown>;
   const canDecide = !s.gate || canRelease;
@@ -121,18 +121,7 @@ function SuggestionCard({ s, canRelease, hidden, bulk }: { s: SuggestionRow; can
         ))}
       </dl>
 
-      {s.rationale ? <div className="mt-3 rounded-md bg-slate-50 p-3 text-sm text-slate-700"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">The AI&rsquo;s reasoning</p><p className="mt-1 whitespace-pre-line">{s.rationale}</p></div> : null}
-
-      {cites.length ? (
-        <div className="mt-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Where it found this in the document</p>
-          <ul className="mt-1 space-y-1 text-sm">
-            {cites.map((c, i) => (
-              <li key={i} className="flex gap-2"><span aria-hidden>{c.verified ? "✓" : "⚠"}</span><span><q className="text-slate-800">{c.quote}</q>{!c.verified ? <span className="ml-2 text-xs text-amber-700">(could not be found in the document — check it)</span> : null}</span></li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <EvidenceTrail s={s} base={base} open />
 
       {canDecide ? (
         <div className="mt-4 flex flex-wrap items-start gap-3 border-t border-slate-100 pt-4">

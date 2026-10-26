@@ -5254,3 +5254,19 @@ functions each one calls are).
 ### R-204 — Progress totals count unanswered questions
 
 **Decision:** The portfolio query now counts every applicable question in the total, including those with no answer row yet. Found while building the demo data: a half-answered assessment showed "14 of 14, 100%". Covered by a regression test.
+
+
+### R-205 — AI evidence trail recorded with every suggestion
+
+**Decision:** Each AI suggestion stores a `sources` list (migration 0049): the documents and data it read, who supplied each (Primus team, client organisation or system), the screen or feature that fed it to the AI, the date, and why it was selected, plus a bounded masked excerpt for documents. The list is built from the same inputs the AI task received, so it cannot describe anything else. A database trigger makes it immutable after creation, like the proposal and citations.
+**Rationale:** leadership and clients need to see what the AI processed, especially for work applied automatically under Full autopilot.
+
+### R-206 — Names for the trail come from a narrow permission-checked function
+
+**Decision:** The AI agent cannot read the `users` table. `ai_actor_names(engagement, ids)` (security definer) returns only display name, side and an agent flag, only for people of the engagement's practice and, for client people, of that engagement's organisation, and only to someone with AI access to the engagement. The AI agent's own entries are shown as "AI agent (autopilot)".
+**Rationale:** the trail needs "who", without widening the agent's access to personal data.
+
+### R-207 — "Data it reads" inventory states the limits plainly
+
+**Decision:** A page lists everything the AI can read on an engagement and how many AI outputs used each item, and names what it does not read (discovery questionnaire, clarification messages, other clients' data). Connector scan results are listed but marked as not used inside AI decisions.
+**Rationale:** claim only what is implemented.

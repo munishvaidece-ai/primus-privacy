@@ -3,14 +3,18 @@ import { z } from "zod";
 import type { TaskDef } from "../engine";
 import type { RiskTier, SuggestionDraft } from "../types";
 import { inputHash } from "../text";
+import type { Actor, EvidenceProv } from "../provenance";
 
 export interface RatingInput {
   assessmentControlId: string;
   control: { code: string; title: string; description: string | null; tier: RiskTier };
   currentRating: string | null;
-  evidence: Array<{ id: string; title: string; reviewStatus: string; quality: string | null; aiVerdict: string | null; validUntil: string | null }>;
-  tests: Array<{ result: "pass" | "fail" | "exception_noted"; methodology: string }>;
+  evidence: Array<{ id: string; title: string; reviewStatus: string; quality: string | null; aiVerdict: string | null; validUntil: string | null; prov?: EvidenceProv }>;
+  tests: Array<{ id?: string; result: "pass" | "fail" | "exception_noted"; methodology: string; by?: Actor | null; testedAt?: string | null }>;
   now: string;
+  /** Who gave the current answer on this control (for the evidence trail only). */
+  answeredBy?: { actor: Actor; at: string | null } | null;
+  assessmentId?: string;
 }
 
 export const ratingOutput = z.object({
