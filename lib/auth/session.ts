@@ -1,6 +1,7 @@
 import "server-only";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getDemoSessionUser, isDemoAuthActive } from "@/lib/auth/demo-auth";
 
 export interface AuthenticatedUser {
   /** Supabase `auth.users.id` — identical to `public.users.id`
@@ -37,6 +38,9 @@ export interface SupabaseAuthClientLike {
 export async function getAuthenticatedUser(
   client?: SupabaseAuthClientLike,
 ): Promise<AuthenticatedUser | null> {
+  // Local demo sign-in (lib/auth/demo-auth.ts): only ever active on a
+  // developer's own computer; otherwise this is false and Supabase is used.
+  if (!client && isDemoAuthActive()) return getDemoSessionUser();
   const supabase = client ?? createSupabaseServerClient();
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return null;

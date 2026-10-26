@@ -76,6 +76,10 @@ npm run ai:worker                      # worker (set WORKER_HEALTH_PORT for GET 
 5. Add a **Folder scan** connector on a mounted test folder (if enabled) and press *Test connection* then *Scan now*.
 6. Press **Pause everything**: the status shows *AI is paused*; **Resume**.
 
+## 6a. Local trial without Supabase (before staging)
+
+`LOCAL_TESTING.md` describes trying the product on one computer with a one-click demo sign-in (`LOCAL_DEMO_AUTH=true`). It only works with `npm run dev`, a database on localhost and no Supabase configured; in any other case the app returns an error rather than enabling it. **Never set `LOCAL_DEMO_AUTH` in staging or production.** Real sign-in (Supabase) is what you configure per §3.
+
 ## 7a. Smoke check for the workspace and client portal (about 10 minutes)
 
 1. Sign in as a Primus user: you land on **Dashboard**. Open Organisations, Engagements, Tasks, Notifications, Audit trail.

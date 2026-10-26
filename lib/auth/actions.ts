@@ -4,6 +4,8 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeReturnTo } from "@/lib/auth/return-to";
+import { cookies } from "next/headers";
+import { DEMO_COOKIE, findDemoUser, isDemoAuthActive } from "@/lib/auth/demo-auth";
 
 // PHASE A instructions §3: implement login/logout only — no social
 // login, SSO, MFA, password reset UI, invitations, or account
@@ -40,6 +42,7 @@ const signInSchema = z.object({
  * attempt from the invitation flow doesn't lose the destination.
  */
 export async function signIn(formData: FormData): Promise<void> {
+  if (isDemoAuthActive()) redirect("/login");
   const returnTo = safeReturnTo(formData.get("returnTo"));
   const returnToQuery = returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : "";
 
@@ -74,7 +77,23 @@ export async function signIn(formData: FormData): Promise<void> {
  */
 export async function signOut(formData?: FormData): Promise<void> {
   const returnTo = safeReturnTo(formData?.get("returnTo"));
-  const supabase = createSupabaseServerClient();
-  await supabase.auth.signOut();
+  if (isDemoAuthActive()) {
+    cookies().delete(DEMO_COOKIE);
+  } else {
+    const supabase = createSupabaseServerClient();
+    await supabase.auth.signOut();
+  }
   redirect(returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : "/login");
+}
+
+/**
+ * Local demo sign-in: "sign in as this person", no password. Refuses unless
+ * demo sign-in is active (see lib/auth/demo-auth.ts for the safety rules).
+ */
+export async function demoSignIn(formData: FormData): Promise<void> {
+  if (!isDemoAuthActive()) redirect("/login");
+  const user = await findDemoUser(String(formData.get("userId") ?? ""));
+  if (!user) redirect(`/login?error=${encodeURIComponent("That person was not found.")}`);
+  cookies().set(DEMO_COOKIE, user.id, { httpOnly: true, sameSite: "lax", path: "/", secure: false });
+  redirect(safeReturnTo(formData.get("returnTo")) ?? "/");
 }

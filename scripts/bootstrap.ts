@@ -78,7 +78,7 @@ async function main() {
     // 5. starter library (draft)
     if (flag("starter-library")) {
       const label = "DPDP starter (DRAFT — review before publishing)";
-      const have = await pool.query("SELECT 1 FROM control_library_versions WHERE tenant_id = $1 AND version_label = $2", [tenantId, label]);
+      const have = await pool.query("SELECT 1 FROM control_library_versions WHERE tenant_id = $1 AND version_label LIKE 'DPDP starter%'", [tenantId]);
       if (have.rowCount) console.log("✓ Starter control library already loaded.");
       else {
         const c = await pool.connect();
@@ -133,7 +133,7 @@ async function main() {
         } else {
           userId = randomUUID();
           await pool.query("INSERT INTO auth.users (id, email, raw_app_meta_data, raw_user_meta_data) VALUES ($1,$2,$3::jsonb,$4::jsonb)", [userId, email, JSON.stringify({ tenant_id: tenantId }), JSON.stringify({ display_name: arg("admin-name") ?? "Administrator" })]);
-          console.log(`✓ Administrator profile ${email} created (local development: this user cannot sign in).`);
+          console.log(`✓ Administrator profile ${email} created (local development, no Supabase: sign in with the demo sign-in page, or connect Supabase for real sign-in).`);
         }
       }
       // One active tenant membership per person: Platform Administrator

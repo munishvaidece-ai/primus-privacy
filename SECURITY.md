@@ -298,3 +298,9 @@ samples). Concretely:
 * **Data-principal request log:** clients reach it only through SECURITY DEFINER functions that check `rights.view` / `rights.manage`; the log holds a summary, type, channel and dates, not the individual's identity.
 * **Audit trail screen:** requires `audit.view` on the engagement (Engagement Manager, Consultant, Auditor); clients do not have it.
 
+## 17. Local demo sign-in
+
+* `LOCAL_DEMO_AUTH=true` replaces sign-in with a person picker, for testing on one computer (`LOCAL_TESTING.md`). It is active only when **all** hold: `NODE_ENV` is not `production`, `DATABASE_URL` host is localhost/127.0.0.1/::1, and no Supabase URL is configured. If it is switched on and any condition fails, the app returns an error (it never falls back to open access). Tested in `tests/app/demo-auth.test.ts`, and checked on a production build.
+* The demo session is an unsigned cookie naming a user; it is acceptable only because of the conditions above. Row-level security still applies to every request exactly as with real sign-in: a client demo user sees only their own engagement.
+* Devops must never set `LOCAL_DEMO_AUTH`. The Docker image sets `NODE_ENV=production`, and `.dockerignore` excludes `.env` files.
+

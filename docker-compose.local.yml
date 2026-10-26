@@ -1,0 +1,15 @@
+# Local testing only: a PostgreSQL database for trying PRIMUS PRIVACY on your
+# own computer (see LOCAL_TESTING.md). Not for production.
+#   npm run local:db
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: primus_local
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - primus_local_data:/var/lib/postgresql/data
+volumes:
+  primus_local_data:

@@ -5230,3 +5230,8 @@ functions each one calls are).
 
 **Decision:** Industry and headquarters change only through a Primus tenant member (trigger-enforced). Found by tests: a client could previously change them.
 
+### R-200 — Local demo sign-in, locked to a developer's own computer
+
+**Decision:** `LOCAL_DEMO_AUTH=true` shows a person picker instead of the Supabase form. It requires a non-production build, a localhost database and no Supabase configuration, and otherwise the app errors rather than opening up. `npm run local:setup` builds a local database with the sign-in stand-in and fictional demo data.
+**Rationale:** the owner wants to test the whole product before Supabase is connected. Making it fail closed means it cannot reach production by accident; real sign-in is unchanged and is what runs when the flag is absent.
+
