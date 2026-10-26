@@ -5270,3 +5270,8 @@ functions each one calls are).
 
 **Decision:** A page lists everything the AI can read on an engagement and how many AI outputs used each item, and names what it does not read (discovery questionnaire, clarification messages, other clients' data). Connector scan results are listed but marked as not used inside AI decisions.
 **Rationale:** claim only what is implemented.
+
+### R-208 — Demo maturity method seeded; Meridian maturity computed by the product
+
+**Decision:** The local seed adds one active maturity scoring method (ratings: implemented 5, partially implemented 3, not implemented 1; five level names), six domains covering all 25 starter controls, and per-engagement weights (20/20/15/20/15/10). Meridian's scope decisions are recorded as applicable (one not applicable), then its maturity is computed by `computeAndFinalizeMaturityAssessment`, so the result is the product's own, not inserted. Scores are whole numbers because the product rounds half-up. Vitalis and Bazaarly have weights so maturity can be computed once their assessments are finalized.
+**Rationale:** leadership asked how scoring works; the maturity panel needed a method to show. Domains, weights and level names are demonstration choices, not a published Primus standard.

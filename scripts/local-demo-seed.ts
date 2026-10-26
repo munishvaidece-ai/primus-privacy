@@ -225,6 +225,14 @@ async function main() {
       // 25 controls: roughly 11 implemented, 8 partial, 5 not implemented, 1 not applicable
       const mix: Rating[] = ["implemented", "partially_implemented", "implemented", "not_implemented", "implemented", "partially_implemented", "implemented", "implemented", "not_implemented", "partially_implemented", "implemented", "partially_implemented", "not_applicable", "implemented", "not_implemented", "partially_implemented", "implemented", "implemented", "partially_implemented", "not_implemented", "implemented", "partially_implemented", "implemented", "not_implemented", "partially_implemented"];
       await answerControls("meridian", 25, rohan, mix, { submitted: true, validated: true });
+      // Scope decisions are recorded before the assessment is finalized: applicable, except the one answered "not applicable".
+      await c.query(
+        `UPDATE assessment_controls ac SET applicability_decision = CASE WHEN r.effectiveness_rating = 'not_applicable' THEN 'not_applicable'::control_applicability_decision ELSE 'applicable'::control_applicability_decision END,
+                applicability_rationale = CASE WHEN r.effectiveness_rating = 'not_applicable' THEN 'The organisation does not carry out this activity.' ELSE 'In scope for the DPDP readiness programme.' END,
+                applicability_decided_by = $2, applicability_decided_at = $3
+           FROM assessment_responses r WHERE r.assessment_control_id = ac.id AND ac.assessment_id = $1`,
+        [m.asm, admin.id, ago(70)],
+      );
       await c.query("UPDATE assessments SET status = 'finalized' WHERE id = $1", [m.asm]);
 
       const f1 = await finding("meridian", "No documented retention schedule", "Customer KYC records, call recordings and rejected applications are kept indefinitely. There is no schedule defining how long each type of personal data should be retained, or when it is erased.", "high", true);
@@ -366,6 +374,39 @@ async function main() {
       await notify("bazaarly", ishita, "task", "A task was assigned to you", "Share the list of third-party SDKs used in the app", "/portal/tasks", ago(5), false);
     }
 
+    // ---- maturity scoring method (practice content) and per-engagement weights ----
+    // Every control belongs to exactly one domain, so the maturity score uses every answer.
+    {
+      const methodology = {
+        rating_scores: { implemented: 5, partially_implemented: 3, not_implemented: 1, not_applicable: null, not_assessed: null },
+        levels: [
+          { min: 1, max: 1.99, label: "Ad hoc" },
+          { min: 2, max: 2.99, label: "Developing" },
+          { min: 3, max: 3.99, label: "Defined" },
+          { min: 4, max: 4.99, label: "Managed" },
+          { min: 5, max: 5, label: "Optimised" },
+        ],
+      };
+      await c.query("INSERT INTO maturity_scoring_methodologies (tenant_id, name, version, definition, is_active) VALUES ($1,'Primus DPDP maturity','v1 (demo)',$2::jsonb,true)", [tenantId, JSON.stringify(methodology)]);
+      const DOMAINS: Array<{ code: string; name: string; weight: number; prefixes: string[]; description: string }> = [
+        { code: "GOV", name: "Governance and accountability", weight: 20, prefixes: ["GOV", "INV", "LEG", "PUR"], description: "Who is accountable, what data is held and on what basis." },
+        { code: "NOC", name: "Notice and consent", weight: 20, prefixes: ["NOT", "CON", "CHI"], description: "Telling people what happens to their data and asking properly, including for children." },
+        { code: "RIG", name: "Data Principal rights", weight: 15, prefixes: ["RIG", "ACC"], description: "Handling requests, grievances and keeping data accurate." },
+        { code: "SEB", name: "Security and breach response", weight: 20, prefixes: ["SEC", "BRE"], description: "Safeguards, access control and breach handling." },
+        { code: "RTP", name: "Retention, vendors and transfers", weight: 15, prefixes: ["RET", "PRO", "XBR"], description: "Erasure, processors and cross-border transfers." },
+        { code: "SDF", name: "Significant Data Fiduciary duties", weight: 10, prefixes: ["SDF"], description: "Extra duties for large or sensitive processors." },
+      ];
+      for (const d of DOMAINS) {
+        const domId = (await c.query<{ id: string }>("INSERT INTO maturity_domains (tenant_id, name, code, description, is_active) VALUES ($1,$2,$3,$4,true) RETURNING id", [tenantId, d.name, d.code, d.description])).rows[0]!.id;
+        for (const ctl of controls.filter((x) => d.prefixes.some((p) => x.code.startsWith(`${p}-`)))) {
+          await c.query("INSERT INTO maturity_domain_control_mappings (maturity_domain_id, control_id, tenant_id) VALUES ($1,$2,$3)", [domId, ctl.id, tenantId]);
+        }
+        for (const x of Object.values(ids)) {
+          await c.query("INSERT INTO maturity_domain_weights (engagement_id, organisation_id, tenant_id, maturity_domain_id, weight, is_active) VALUES ($1,$2,$3,$4,$5,true)", [x.eng, x.org, tenantId, domId, d.weight]);
+        }
+      }
+    }
+
     await c.query("COMMIT");
     console.log(`✓ Demo data added: 3 fictional organisations (Meridian Finserve, Vitalis Care Network, Bazaarly Commerce), ${controls.length} controls each, ${PRIMUS_TEAM.length + 1} Primus users, ${FIRMS.reduce((n, f) => n + f.team.length, 0)} client users.`);
 
@@ -375,6 +416,10 @@ async function main() {
     const m = ids.meridian!;
     const out = await withRequestDb(admin.id, (db) => releaseReport(db, admin.id, { organisationId: m.org, engagementId: m.eng, userEmail: "admin@primus.local" }));
     console.log(`✓ Report v${out.version} released for Meridian Finserve.`);
+    // Maturity is computed by the product itself, once, because Meridian's assessment is finalized.
+    const { computeAndFinalizeMaturityAssessment } = await import("../lib/domain/maturity");
+    const mat = await withRequestDb(admin.id, (db) => computeAndFinalizeMaturityAssessment(db, admin.id, { assessmentId: m.asm }));
+    console.log(`✓ Maturity computed for Meridian Finserve: ${mat.overallScore} (${mat.overallLevel ?? "no level"}).`);
     // Make the report's release time and its activity entries sit sensibly in the past
     await c.query("UPDATE report_releases SET released_at = $2 WHERE engagement_id = $1", [m.eng, ago(10)]);
     await c.query("DELETE FROM engagement_activity WHERE engagement_id = $1 AND kind = 'report_released' AND occurred_at > $2", [m.eng, ago(1)]);

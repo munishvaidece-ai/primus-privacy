@@ -49,7 +49,7 @@ To switch, press **Log out** (top right) and choose again. No password is asked 
 
 | Organisation | Stage | People |
 |---|---|---|
-| Meridian Finserve Ltd (NBFC, Mumbai) | Results delivered: assessment validated, 4 findings released, report v1 released, remediation in progress | Asha Verma (Client Administrator), Rohan Gupta (Privacy Officer), Kabir Shah (CXO, read-only), Neha Joshi (Business Owner) |
+| Meridian Finserve Ltd (NBFC, Mumbai) | Results delivered: assessment validated and finalized, maturity score computed (4 of 5, Managed, across six domains), 4 findings released, report v1 released, remediation in progress | Asha Verma (Client Administrator), Rohan Gupta (Privacy Officer), Kabir Shah (CXO, read-only), Neha Joshi (Business Owner) |
 | Vitalis Care Network Pvt Ltd (hospital group, Bengaluru) | Client is mid-assessment (14 of 25 answered), 3 evidence requests open, 2 draft findings not yet released | Dr Ananya Rao (Client Administrator), Vikram Sethi (Privacy Officer), Pooja Menon (CXO, read-only) |
 | Bazaarly Commerce Pvt Ltd (e-commerce, Gurugram) | Just started: discovery in progress, tasks assigned | Sameer Khanna (Client Administrator), Ishita Bose (Privacy Officer) |
 
@@ -58,6 +58,7 @@ Everything is invented for demonstration: names, numbers, findings, risks and re
 ## A suggested leadership demo (about 10 minutes)
 
 1. **Primus door**, Demo Administrator: show the *Dashboard* (three clients at three phases), open *Organisations*, then Meridian's engagement (delivery status, release findings, release report).
+1b. On Meridian's finalized *Assessment* page, show the **Maturity** panel: the overall score and six domain scores, each from the answers and the weights set for the engagement.
 2. **Client door**, Meridian, Asha Verma: *Overview*, *Findings* (only released ones), *Risks* heat map, *Remediation*, *Reports* (download the PDF), *Rights requests*.
 3. **Client door**, Vitalis, Vikram Sethi: open *Assessment*, answer a question, see the progress move. Open *Evidence centre*.
 4. Back on the **Primus door**, open Vitalis: the 2 draft findings exist but the client cannot see them until released. Release one, then sign in as Dr Ananya Rao to show it has appeared.
