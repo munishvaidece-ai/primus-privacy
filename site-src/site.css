@@ -238,3 +238,41 @@ footer{border-top:1px solid var(--line);padding-block:36px;font-size:14px;color:
 .js .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s,transform .7s}
 .js .reveal.in{opacity:1;transform:none}
 @media(prefers-reduced-motion:reduce){.js .reveal{opacity:1;transform:none;transition:none}}
+
+.road{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}@media(max-width:900px){.road{grid-template-columns:minmax(0,1fr)}}
+.road-col ul{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:12px}
+.road-col li{display:grid;gap:2px;padding-top:12px;border-top:1px solid var(--line)}.road-col li:first-child{border-top:0;padding-top:0}
+.road-col li b{font-family:var(--f-display);font-size:15px;color:var(--ink)}.road-col li span{font-size:14px;color:var(--ink2)}
+
+/* ---------- motion layer: aurora, sheen, spotlight, progress, page-in ---------- */
+@keyframes pagein{from{opacity:0}to{opacity:1}}
+body{animation:pagein .6s ease both}
+@keyframes drift1{0%{transform:translate3d(-6%,-4%,0) scale(1)}100%{transform:translate3d(8%,6%,0) scale(1.18)}}
+@keyframes drift2{0%{transform:translate3d(6%,6%,0) scale(1.1)}100%{transform:translate3d(-8%,-5%,0) scale(.95)}}
+.hero{overflow:hidden;isolation:isolate}
+.hero .aurora{position:absolute;inset:-20%;z-index:-1;pointer-events:none;filter:blur(60px);opacity:.9}
+.hero .aurora i{position:absolute;border-radius:50%;mix-blend-mode:screen}
+.hero .aurora i:nth-child(1){width:46%;height:60%;left:50%;top:-10%;background:radial-gradient(circle,rgba(214,150,84,.55),transparent 65%);animation:drift1 16s ease-in-out infinite alternate}
+.hero .aurora i:nth-child(2){width:42%;height:55%;left:4%;top:40%;background:radial-gradient(circle,rgba(168,52,44,.6),transparent 65%);animation:drift2 20s ease-in-out infinite alternate}
+.hero .aurora i:nth-child(3){width:30%;height:40%;left:36%;top:50%;background:radial-gradient(circle,rgba(255,190,120,.28),transparent 65%);animation:drift1 24s ease-in-out infinite alternate-reverse}
+.hero .spark{position:absolute;z-index:-1;pointer-events:none;width:3px;height:3px;border-radius:50%;background:rgba(255,226,196,.9);box-shadow:0 0 10px 2px rgba(255,200,140,.7);animation:float var(--t,9s) ease-in-out infinite;animation-delay:var(--dl,0s)}
+@keyframes float{0%,100%{transform:translateY(0);opacity:.15}50%{transform:translateY(-34px);opacity:1}}
+/* button sheen */
+.btn{position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s,background .2s,border-color .2s}
+.btn:active{transform:translateY(0) scale(.98)}
+.btn-copper::before,.btn-primary::before{content:"";position:absolute;top:0;left:-130%;width:55%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.38),transparent);transform:skewX(-20deg);transition:left .7s}
+.btn-copper:hover::before,.btn-primary:hover::before{left:150%}
+.btn-copper:hover{box-shadow:0 16px 30px -10px rgba(163,101,46,.9)}
+/* card spotlight that follows the pointer */
+.spot{position:relative}
+.spot::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;transition:opacity .3s;background:radial-gradient(340px circle at var(--mx,50%) var(--my,50%),rgba(200,138,74,.17),transparent 62%)}
+.spot:hover::after{opacity:1}
+/* scroll progress */
+#sp{position:fixed;left:0;top:env(safe-area-inset-top,0px);height:3px;width:100%;z-index:70;transform-origin:0 50%;transform:scaleX(0);background:linear-gradient(90deg,#c88a4a,#8f5424,#5c1a16);pointer-events:none}
+/* header gains depth once the page scrolls */
+header.nav{transition:box-shadow .25s,background .25s}
+header.nav.scrolled{box-shadow:0 10px 30px -18px rgba(79,17,25,.45)}
+/* staggered reveal for siblings */
+.js .reveal{transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1);transition-delay:var(--d,0s)}
+.bento .b{transition:transform .25s,box-shadow .25s}.bento .b:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
+@media(prefers-reduced-motion:reduce){body{animation:none}.hero .aurora i,.hero .spark{animation:none}.btn::before{display:none}#sp{display:none}}

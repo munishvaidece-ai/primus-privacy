@@ -31,6 +31,13 @@ Sign in as the right person for the hand-off. The screen tells you when you are 
 | 6 Findings released | Nobody (uses 4 and 5) | none | Drafts findings for weak controls; a critical one waits for a person | Release is a person's action |
 | 7 Remediation and final report | Client, then Primus | Closure Log + proof files | Plans actions from findings; checks each proof; drafts the final report for a person to issue | Weak proofs are sent back, the irrelevant one is rejected |
 
+## After phase 7: a breach (3 minutes)
+
+1. On the Live Run, press **After the assessment: incidents and cases**. In demo mode, press **Open a sample incident** (a client list emailed to the wrong address).
+2. Open **Needs your review**. Approve the breach assessment and the notices (only an Engagement Manager, such as the Demo Administrator, can approve the notices).
+3. Open the case. Point at: the affected system and vendor taken from the data map; **Who may have to be told** (the DPDP Board plus the sector regulator and CERT-In for this organisation); the draft notices with placeholders for unknown facts; and **Raise a finding and remediation action**, which feeds the normal findings and remediation flow.
+4. Say: the DPDP breach duties are enforceable from 13 May 2027; the platform helps a person decide and records the decision. It does not decide whether an incident is reportable, and it sends nothing.
+
 ## Things to say
 
 * The AI reads only the template and the files above. Nothing is guessed, and each answer shows its cell or file.

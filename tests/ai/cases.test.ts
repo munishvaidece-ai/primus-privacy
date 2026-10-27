@@ -6,7 +6,7 @@ import { finalizeAssessment } from "@/lib/domain/assessments";
 import { saveAiSettings } from "@/lib/ai/settings";
 import { runOnce } from "@/lib/ai/worker";
 import { decideSuggestion, listSuggestions, getQueueCounts } from "@/lib/ai/suggestions";
-import { approveCaseResponse, closeCase, createCase, getCase, listCases, saveDraftResponse, CaseInputError } from "@/lib/ai/cases";
+import { approveCaseResponse, closeCase, createCase, getCase, listCases, listDataMapChoices, raiseFromBreach, saveDraftResponse, CaseInputError } from "@/lib/ai/cases";
 import { listRecentJobs, listReportIssuances, retryJob, runNow, jobCounts } from "@/lib/ai/control";
 import { pool } from "../app/helpers";
 import { buildAiFixture, type AiFixture } from "./helpers";
@@ -158,4 +158,32 @@ describe("operations flows and report issuance", () => {
     expect(after.rows[0]).toMatchObject({ status: "queued", attempts: 0 });
     await expect(withRequestDb(f.consultantId, (db) => retryJob(db, f.consultantId, scope(), rows[0].id))).rejects.toThrow();
   });
+  it("a breach keeps the systems and vendors picked from the data map and can raise a finding and an action once", async () => {
+    const c = await withRequestDb(f.emId, (db) =>
+      createCase(db, f.emId, scope(), { type: "breach", title: "Support export emailed out", details: { discoveredAt: "2026-10-22T08:00:00.000Z", categories: ["financial"], principalsAffected: 40, encrypted: false, contained: false, description: "Export sent to the wrong person.", affectedSystems: ["Support CRM"], affectedVendors: ["Mail Vendor"] } }),
+    );
+    const got = await withRequestDb(f.emId, (db) => getCase(db, f.emId, scope(), c.id));
+    expect((got.details as { affectedSystems: string[] }).affectedSystems).toEqual(["Support CRM"]);
+    // The fixture's breach control is called BR-1, so there is nothing to attach to yet: the user is told why.
+    await expect(withRequestDb(f.emId, (db) => raiseFromBreach(db, f.emId, scope(), c.id))).rejects.toThrow(/BRE-01/);
+    const cx = await pool.connect();
+    try {
+      await cx.query("BEGIN");
+      await cx.query("SET LOCAL session_replication_role = replica"); // test-only: the library is published and locked
+      await cx.query(`UPDATE controls SET code = 'BRE-01' WHERE id = $1`, [f.controlIds.breach]);
+      await cx.query("COMMIT");
+    } finally {
+      cx.release();
+    }
+    const r = await withRequestDb(f.emId, (db) => raiseFromBreach(db, f.emId, scope(), c.id));
+    expect(r.findingId).toBeTruthy();
+    const f2 = await pool.query(`SELECT count(*)::int AS n FROM remediation_findings WHERE finding_id = $1`, [r.findingId]);
+    expect(f2.rows[0].n).toBe(1);
+    // Only once.
+    await expect(withRequestDb(f.emId, (db) => raiseFromBreach(db, f.emId, scope(), c.id))).rejects.toThrow(/already raised/);
+    // A client-side user cannot do it, and the data-map choices read without error.
+    const choices = await withRequestDb(f.emId, (db) => listDataMapChoices(db, f.organisationId));
+    expect(Array.isArray(choices.systems)).toBe(true);
+  });
+
 });

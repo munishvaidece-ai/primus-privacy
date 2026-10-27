@@ -78,6 +78,7 @@ export default async function LiveRunPage({
             The whole engagement, in seven phases, on real files. At each phase a document goes in, the platform checks it, the AI reads it and does its work, and the result becomes the next phase&apos;s starting point. Where a person must decide, the AI stops and waits.
           </p>
         </div>
+        <Link href={`${base}/ai/cases`} className="inline-flex h-9 shrink-0 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 hover:border-copper hover:text-copper">After the assessment: incidents and cases</Link>
         {ctx.isDemo ? (
           <a href="/demo/Orchid_Hill_Demo_Pack.zip" className="inline-flex h-9 shrink-0 items-center rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark">Download the whole demo pack (ZIP)</a>
         ) : null}

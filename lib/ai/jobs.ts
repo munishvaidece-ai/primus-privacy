@@ -255,6 +255,11 @@ const breachDetails = z.object({
   encrypted: z.boolean().default(false),
   contained: z.boolean().default(false),
   description: z.string().default(""),
+  /** Names picked from the organisation's data map. */
+  affectedSystems: z.array(z.string()).default([]),
+  affectedVendors: z.array(z.string()).default([]),
+  /** Filled in when a person raises a finding and action from this breach. */
+  raised: z.object({ findingId: z.string(), remediationActionId: z.string() }).optional(),
 });
 const consentDetails = z.object({
   consentText: z.string().default(""),

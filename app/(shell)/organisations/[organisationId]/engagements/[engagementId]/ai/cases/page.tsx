@@ -4,8 +4,9 @@ import { AiShell, CARD, Flash, INPUT, LABEL, aiBase } from "@/components/ai/shel
 import { Badge, riskRatingTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getQueueCounts } from "@/lib/ai/suggestions";
-import { CASE_LABELS, listCases, type CaseType } from "@/lib/ai/cases";
-import { createCaseAction } from "./actions";
+import { CASE_LABELS, listCases, listDataMapChoices, type CaseType } from "@/lib/ai/cases";
+import { isDemoAuthActive } from "@/lib/auth/demo-auth";
+import { createCaseAction, createSampleBreachAction } from "./actions";
 
 const DATA_CATS = [["contact", "Contact details"], ["identity", "ID numbers (Aadhaar, PAN…)"], ["financial", "Financial / payment"], ["health", "Health"], ["credentials", "Passwords / credentials"], ["children", "Children's data"], ["other", "Other"]];
 
@@ -26,6 +27,7 @@ export default async function CasesPage({
   const { ctx, data } = await loadAiContext(params, async (db, c) => ({
     cases: await listCases(db, c.userId, params),
     counts: await getQueueCounts(db, params.engagementId),
+    map: await listDataMapChoices(db, params.organisationId),
   }));
   const base = aiBase(params.organisationId, params.engagementId);
   const hidden = (t: CaseType) => (
@@ -42,8 +44,16 @@ export default async function CasesPage({
     <AiShell {...ctx} active="/cases" badge={{ queue: data.counts.pending }}>
       <Flash saved={searchParams.saved} error={searchParams.error} />
       <p className="max-w-3xl text-sm text-slate-600">
-        The day-to-day work after the assessment: people&rsquo;s rights requests, personal data breaches, consent reviews and vendor reviews. Open a case and the AI works out the deadline, assesses it and drafts the reply or notice; a person approves what goes out. Deadlines follow the DPDP Rules 2025 (rights requests: 90 days; breaches: detailed report to the Board within 72 hours) — have your practice confirm them against the latest text.
+        The day-to-day work after the assessment: people&rsquo;s rights requests, personal data breaches, consent reviews and vendor reviews. Open a case and the AI works out the deadline, assesses it and drafts the reply or notice; a person approves what goes out. Deadlines follow the DPDP Rules 2025 (rights requests: 90 days; breaches: detailed report to the Board within 72 hours). The breach and rights duties are enforceable from 13 May 2027, and the register works the same way before and after. Have your practice confirm the dates against the Gazette.
       </p>
+
+      {isDemoAuthActive() ? (
+        <form action={createSampleBreachAction} className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-3">
+          {hidden("breach")}
+          <Button type="submit" size="sm" variant="secondary">Open a sample incident</Button>
+          <span className="text-sm text-slate-600">Demo only: a client list emailed to the wrong address, so you can show the breach flow without typing it in.</span>
+        </form>
+      ) : null}
 
       <section className="mt-6 grid gap-4 md:grid-cols-2" aria-label="Open a case">
         <details className={CARD}>
@@ -65,6 +75,8 @@ export default async function CasesPage({
             <div><label className={LABEL} htmlFor="br-when">When was it discovered? *</label><input id="br-when" name="discoveredAt" type="datetime-local" required className={INPUT} /></div>
             <fieldset><legend className={LABEL}>What kinds of data?</legend><div className="mt-1 grid grid-cols-2 gap-1">{DATA_CATS.map(([v, l]) => <label key={v} className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="categories" value={v} /> {l}</label>)}</div></fieldset>
             <div><label className={LABEL} htmlFor="br-n">Roughly how many people? (blank if unknown)</label><input id="br-n" name="principalsAffected" type="number" min={0} className={INPUT} /></div>
+            {data.map.systems.length ? <fieldset><legend className={LABEL}>Which systems were affected? (from your data map)</legend><div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">{data.map.systems.map((n) => <label key={n} className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="affectedSystems" value={n} /> {n}</label>)}</div></fieldset> : null}
+            {data.map.vendors.length ? <fieldset><legend className={LABEL}>Which vendors were involved?</legend><div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">{data.map.vendors.map((n) => <label key={n} className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="affectedVendors" value={n} /> {n}</label>)}</div></fieldset> : null}
             <Check name="encrypted" label="The data was encrypted" />
             <Check name="contained" label="The breach has been contained" />
             <div><label className={LABEL} htmlFor="br-d">What happened?</label><textarea id="br-d" name="description" rows={3} className={INPUT} /></div>

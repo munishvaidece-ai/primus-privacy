@@ -59,9 +59,9 @@ export default async function DashboardPage() {
 
       <Panel title="Engagements" hint={`${live.length} in progress`} action={<Link href="/engagements" className="text-sm font-medium text-copper hover:underline">All engagements →</Link>}>
         {metrics.length === 0 ? <Empty>No engagements yet. Create an organisation, then open an engagement for it.</Empty> : (
-          <ul className="grid gap-3 md:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {metrics.map((m) => (
-              <li key={m.id}>
+              <li key={m.id} className="min-w-0">
                 <Link href={`/organisations/${m.organisationId}/engagements/${m.id}`} className="flex items-center gap-4 rounded-xl border border-slate-200 p-4 transition hover:-translate-y-0.5 hover:border-copper hover:shadow-lift">
                   <Ring value={m.progress} size={60} />
                   <span className="min-w-0 flex-1">

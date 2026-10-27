@@ -96,7 +96,7 @@ function indexPage(): string {
   </div>
   <div style="position:relative">
     ${heroArt()}
-    <div class="clock" style="position:relative;margin-top:-70px;max-width:340px;margin-left:auto">
+    <div class="clock" style="position:relative;margin-top:6px;max-width:340px;margin-left:auto">
       <div class="k">Days to the main duties</div>
       <div class="big" data-days-to="${RULE_PHASES["18m"].date}">—</div>
       <div class="sub">${fmt(RULE_PHASES["18m"].date)}: notice, consent, security, breach reporting, children, rights and penalties</div>
@@ -234,6 +234,28 @@ function checkPage(): string {
 }
 
 // ------------------------------------------------------------------ platform
+const ROADMAP: Array<{ label: string; tone: string; items: Array<[string, string]> }> = [
+  { label: "Live now", tone: "good", items: [
+    ["Assessment, seven phases", "From the first upload to the final report, with a person at every decision."],
+    ["Which DPDP rules apply", "The Act, the Rules and 12 sector regimes, worked out for each organisation with the reason."],
+    ["Data map and database scan", "A read-only scan that finds personal data the client did not list."],
+    ["Findings, remediation, reports", "Evidence tested, findings released by a person, actions closed against proof."],
+    ["Two portals", "Primus and the client run the same journey from their own logins."],
+    ["Breach, rights, consent and vendor cases", "The AI assesses and drafts; a person approves. Breach cases list who else must be told for the sector, and can raise a finding."],
+  ] },
+  { label: "Next", tone: "warn", items: [
+    ["Privacy impact assessments", "DPIAs and process assessments on the same engine, tied to the data map."],
+    ["Vendor assessments", "Due diligence, risk rating and reassessment for each processor."],
+    ["Programme operations", "Policy register, retention schedules, training records and a compliance calendar."],
+  ] },
+  { label: "Later", tone: "", items: [
+    ["Rights requests as a full workflow", "Identity checks, task routing to system owners and fulfilment evidence."],
+    ["Consent and notice governance", "Notice versions, consent records, withdrawal, and cookie and banner management."],
+    ["Redaction and masking", "Irreversible redaction for evidence packs and exports."],
+    ["More connectors", "Further databases, file stores and applications, each tested before release."],
+  ] },
+];
+
 function platformPage(): string {
   const body = `
 <section class="hero slim">${ringsArt()}<div class="wrap"><span class="eyebrow">The platform</span><h1>From the first upload to the final report, with a person at every decision.</h1><p class="lead">Seven phases. At each one a fixed-format document goes in, the platform checks it, an AI does the reading and the drafting, and people decide what matters.</p></div></section>
@@ -262,6 +284,13 @@ function platformPage(): string {
     <div class="card"><h3>Sign-off gates, always on</h3><p>Rejecting critical evidence, releasing critical findings, issuing the final report and sending breach notices stop for a named person, at every level.</p></div>
     <div class="card"><h3>Templates first</h3><p>Every file goes in a fixed template. The platform checks it before the AI reads a word, and tells the sender exactly which cell to fix.</p></div>
     <div class="card"><h3>Look, do not trust</h3><p>A read-only connector can scan the client's database for tables holding personal data and compare them with what the client wrote in the inventory. It keeps names and categories, never values.</p></div>
+  </div>
+</div></section>
+
+<section class="band-soft"><div class="wrap">
+  <div class="sec-head reveal"><span class="eyebrow">Roadmap</span><h2>What is live, what is next, what comes later.</h2><p>Only what is live today is shown in a demonstration. The order of what follows is set by what organisations need first.</p></div>
+  <div class="road reveal">
+    ${ROADMAP.map((col) => `<div class="card road-col"><span class="tag ${col.tone}">${esc(col.label)}</span><ul>${col.items.map((i) => `<li><b>${esc(i[0])}</b><span>${esc(i[1])}</span></li>`).join("")}</ul></div>`).join("")}
   </div>
 </div></section>
 

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { CountUp } from "./count-up";
 
 // Shared building blocks for the Primus dashboard and the client portal overview. Server components, plain SVG,
 // no charting library: every figure on these screens is drawn from live records.
@@ -10,7 +11,8 @@ export const PALETTE = { brand: "#5c1a16", copper: "#a3652e", copperLight: "#d9a
 export function DashHero({ eyebrow, title, sub, daysToDuties, dutiesDate, children }: { eyebrow: string; title: string; sub?: ReactNode; daysToDuties: number; dutiesDate: string; children?: ReactNode }) {
   return (
     <section className="rise relative overflow-hidden rounded-2xl bg-[radial-gradient(900px_400px_at_85%_0%,rgba(200,138,74,.35),transparent_60%),linear-gradient(150deg,#2a0706_0%,#4a1411_60%,#3a0f0c_100%)] p-6 text-white shadow-lift sm:p-8">
-      <svg viewBox="0 0 220 240" aria-hidden="true" className="pointer-events-none absolute -right-8 -top-10 h-72 w-64 text-white/10">
+      <span className="dash-aurora" aria-hidden="true"><i /><i /><i /></span>
+      <svg viewBox="0 0 220 240" aria-hidden="true" className="dash-shield pointer-events-none absolute -right-8 -top-10 h-72 w-64 text-white/10">
         <path d="M110 12 20 46v68c0 58 38 98 90 114 52-16 90-56 90-114V46z" fill="none" stroke="currentColor" strokeWidth="2" />
         {Array.from({ length: 9 }).flatMap((_, r) => Array.from({ length: 7 }).map((__, c) => <circle key={`${r}-${c}`} cx={36 + c * 25} cy={62 + r * 19} r="2" fill="currentColor" />))}
       </svg>
@@ -23,7 +25,7 @@ export function DashHero({ eyebrow, title, sub, daysToDuties, dutiesDate, childr
         </div>
         <div className="rounded-2xl bg-white/10 p-5 ring-1 ring-inset ring-white/15 backdrop-blur-sm">
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#e9bd8c]">DPDP main duties</p>
-          <p className="mt-1 font-display text-5xl font-bold leading-none tracking-tight">{Math.max(daysToDuties, 0).toLocaleString("en-IN")}</p>
+          <p className="mt-1 font-display text-5xl font-bold leading-none tracking-tight"><CountUp value={Math.max(daysToDuties, 0).toLocaleString("en-IN")} /></p>
           <p className="mt-1 text-sm text-[#ffebe4]/80">days to {dutiesDate}</p>
           <p className="mt-3 border-t border-white/15 pt-2 text-xs text-[#ffebe4]/70">Notice, consent, security, breach reporting, children, rights and penalties.</p>
         </div>
@@ -35,7 +37,7 @@ export function DashHero({ eyebrow, title, sub, daysToDuties, dutiesDate, childr
 export function HeroStat({ n, label, tone }: { n: ReactNode; label: string; tone?: string }) {
   return (
     <div className="rounded-xl bg-white/10 px-4 py-3 ring-1 ring-inset ring-white/15">
-      <p className={`font-display text-2xl font-bold sm:text-3xl ${tone ?? "text-white"}`}>{n}</p>
+      <p className={`font-display text-2xl font-bold sm:text-3xl ${tone ?? "text-white"}`}>{typeof n === "number" || typeof n === "string" ? <CountUp value={n} /> : n}</p>
       <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#f0c9a0]">{label}</p>
     </div>
   );
@@ -118,7 +120,7 @@ export function BarList({ rows, empty }: { rows: Array<{ label: string; value: n
         const row = (
           <div>
             <div className="flex justify-between text-sm"><span className="text-slate-700">{r.label}</span><span className="font-semibold tabular-nums text-slate-900">{r.value}</span></div>
-            <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-gradient-to-r from-copper-light to-brand" style={{ width: `${(r.value / max) * 100}%` }} /></div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-200"><div className="grow-x h-full rounded-full bg-gradient-to-r from-copper-light to-brand" style={{ width: `${(r.value / max) * 100}%` }} /></div>
           </div>
         );
         return <li key={r.label}>{r.href ? <Link href={r.href} className="block rounded-md hover:bg-slate-50">{row}</Link> : row}</li>;
@@ -135,7 +137,7 @@ export function Ring({ value, size = 56 }: { value: number; size?: number }) {
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }} role="img" aria-label={`${v}%`}>
       <svg viewBox="0 0 48 48" className="-rotate-90">
         <circle cx="24" cy="24" r={R} fill="none" stroke="#f3dcd6" strokeWidth="5" />
-        <circle cx="24" cy="24" r={R} fill="none" stroke="url(#ringg)" strokeWidth="5" strokeLinecap="round" strokeDasharray={`${(v / 100) * C} ${C}`} />
+        <circle cx="24" cy="24" r={R} fill="none" stroke="url(#ringg)" strokeWidth="5" strokeLinecap="round" strokeDasharray={`${(v / 100) * C} ${C}`} className="ring-draw" style={{ ["--c" as string]: `${C}`, ["--to" as string]: `${(v / 100) * C}` }} />
         <defs><linearGradient id="ringg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#d9a064" /><stop offset="1" stopColor="#5c1a16" /></linearGradient></defs>
       </svg>
       <span className="absolute inset-0 flex items-center justify-center font-display text-[11px] font-bold text-slate-900">{v}%</span>

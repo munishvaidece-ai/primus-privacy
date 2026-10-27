@@ -5341,3 +5341,18 @@ functions each one calls are).
 
 **Decision:** Home, DPDP, Sectors, Check and Platform replace the earlier nine pages; old addresses redirect. `npm run site:build` regenerates `public/site`. Facts are stated once; nothing repeats across pages.
 **Rationale:** less to maintain and no contradictions.
+
+### R-222 — The breach register is the existing breach case, made useful for an organisation's own sectors
+
+**Decision:** Breaches stay a case type in the AI Operations area (`ops_cases`), so there is one list. A breach now records the systems and vendors affected, picked from the organisation's data map. The case page lists who may have to be told, taken from the catalogue (`lib/regulation/incident.ts`): the DPDP duty plus the incident-reporting controls of the engagement's sectors and the cross-sector CERT-In duty. A person decides which apply. The DPDP breach duty is shown as enforceable from 13 May 2027 and "confirm against the Gazette". The 72-hour figure stays in the case logic because the Rules state it; it is not applied to any sector duty.
+**Rationale:** the same incident can need reports to the Board, the sector regulator and CERT-In. Showing them together is what a privacy lead needs, and it comes from data we already hold.
+
+### R-223 — A breach can raise a finding and a remediation action, once
+
+**Decision:** `raiseFromBreach` creates a risk, a finding and a remediation action against the breach-response control (BRE-01, else BRE-02) in the engagement's latest assessment, using the existing domain functions and the same permissions as raising them by hand. It refuses, with a plain message, when there is no assessment or the control is not in it. The result is stored on the case so it cannot be raised twice.
+**Rationale:** a breach should feed the assessment and the remediation flow instead of living beside it.
+
+### R-224 — A "Roadmap" section on the microsite Platform page states what is live and what is not
+
+**Decision:** The Platform page lists Live now, Next and Later (privacy impact assessments, vendor assessments, programme operations, a full rights workflow, consent and notice governance including cookie and banner management, redaction, more connectors). It is generated from `scripts/build-site.ts`.
+**Rationale:** leadership will ask; an honest map is better than an unlabelled gap.

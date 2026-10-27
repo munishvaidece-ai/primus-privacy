@@ -18,6 +18,7 @@ import { GOVERNMENT } from "./sectors/government";
 
 export * from "./types";
 export * from "./dpdp";
+export { incidentDuties, DPDP_INCIDENT_DUTY, type IncidentDuty } from "./incident";
 
 export const SECTORS: Sector[] = [BROKING, BANKING, INSURANCE, HEALTHCARE, TELECOM, ECOMMERCE, OTT, AVIATION, AI, EDUCATION, MSME, GOVERNMENT, ALL];
 

@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { getQueueCounts, listSuggestions } from "@/lib/ai/suggestions";
 import { CASE_LABELS, getCase, type CaseType } from "@/lib/ai/cases";
 import { describeProposal } from "@/lib/ai/present";
-import { approveResponseAction, closeCaseAction, saveDraftAction } from "../actions";
+import { getEngagementSectors } from "@/lib/domain/sectors";
+import { incidentDuties, RULE_PHASES } from "@/lib/regulation";
+import { approveResponseAction, closeCaseAction, raiseFindingAction, saveDraftAction } from "../actions";
 
 export default async function CaseDetailPage({
   params,
@@ -20,7 +22,8 @@ export default async function CaseDetailPage({
     const row = await getCase(db, c.userId, params, params.caseId).catch(() => null);
     if (!row) return null;
     const waiting = (await listSuggestions(db, params.engagementId, { status: ["pending_review"] })).filter((s) => s.subjectId === row.id);
-    return { row, waiting, counts: await getQueueCounts(db, params.engagementId) };
+    const sectors = row.caseType === "breach" ? await getEngagementSectors(db, c.userId, params) : [];
+    return { row, waiting, sectors, counts: await getQueueCounts(db, params.engagementId) };
   });
   if (!data) notFound();
   const { row: c, waiting } = data;
@@ -32,7 +35,7 @@ export default async function CaseDetailPage({
       <input type="hidden" name="caseId" value={c.id} />
     </>
   );
-  const details = describeProposal("case", c.details as Record<string, unknown>);
+  const details = describeProposal("case", c.details as Record<string, unknown>).filter((l) => l.key !== "raised");
   const assessment = c.aiAssessment ? describeProposal("case", c.aiAssessment as Record<string, unknown>) : [];
   const late = c.dueAt && c.dueAt.getTime() < Date.now() && c.status !== "closed";
   const breach = c.caseType === "breach";
@@ -60,6 +63,22 @@ export default async function CaseDetailPage({
         <h3 id="det" className="text-sm font-semibold uppercase tracking-wide text-slate-500">What was reported</h3>
         <dl className="mt-3 space-y-2 text-sm">{details.map((l) => <div key={l.key} className="sm:flex sm:gap-3"><dt className="shrink-0 font-medium text-slate-700 sm:w-56">{l.label}</dt><dd className="whitespace-pre-line text-slate-800">{l.value}</dd></div>)}</dl>
       </section>
+
+      {breach ? (
+        <section className={`${CARD} mt-6`} aria-labelledby="who">
+          <h3 id="who" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Who may have to be told</h3>
+          <p className="mt-2 text-sm text-slate-600">One incident can trigger several separate duties to separate bodies. These come from the sectors on this engagement. A person decides which apply to this incident.</p>
+          <ul className="mt-3 divide-y divide-slate-100 text-sm">
+            {incidentDuties(data.sectors).map((d) => (
+              <li key={d.body + d.asks} className="py-2">
+                <p className="font-medium text-slate-900">{d.body}{d.control ? <span className="ml-2 font-mono text-xs font-normal text-slate-500">{d.control}</span> : null}{d.inForce ? <span className="ml-2 text-xs font-normal text-slate-500">enforceable from {d.inForce}</span> : null}{!d.confirmed ? <span className="ml-2 text-xs font-normal text-amber-700">check the source before relying on it</span> : null}</p>
+                <p className="text-slate-700">{d.asks}</p>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-slate-500">The DPDP breach duties are enforceable from {RULE_PHASES["18m"].label.replace("In force from ", "")}. Confirm against the Gazette.</p>
+        </section>
+      ) : null}
 
       <section className={`${CARD} mt-6`} aria-labelledby="ai">
         <h3 id="ai" className="text-sm font-semibold uppercase tracking-wide text-slate-500">The AI&rsquo;s assessment</h3>
@@ -93,6 +112,20 @@ export default async function CaseDetailPage({
           <p className="mt-3 text-sm text-slate-500">No draft yet.{breach ? " For breaches, the notice appears once the AI has prepared it; it is held for an Engagement Manager's sign-off." : ""}</p>
         )}
       </section>
+
+      {breach ? (
+        <section className={`${CARD} mt-6`} aria-labelledby="learn">
+          <h3 id="learn" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Learn from this breach</h3>
+          {(c.details as { raised?: { findingId: string; remediationActionId: string } }).raised ? (
+            <p className="mt-3 text-sm text-slate-700">A finding and a remediation action were raised from this breach. <Link className="underline" href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/findings/${(c.details as { raised: { findingId: string } }).raised.findingId}`}>Open the finding</Link> or <Link className="underline" href={`/organisations/${params.organisationId}/engagements/${params.engagementId}/remediation/${(c.details as { raised: { remediationActionId: string } }).raised.remediationActionId}`}>open the remediation action</Link>.</p>
+          ) : (
+            <>
+              <p className="mt-3 text-sm text-slate-600">Turn the incident into a finding and a remediation action against the breach-response control (BRE-01) in this engagement&rsquo;s assessment. It then follows the normal review, release and closure steps, and counts toward the assessment.</p>
+              <form action={raiseFindingAction} className="mt-3">{hidden}<Button type="submit" size="sm" variant="secondary">Raise a finding and remediation action</Button></form>
+            </>
+          )}
+        </section>
+      ) : null}
 
       {c.status !== "closed" ? (
         <form action={closeCaseAction} className="mt-6">{hidden}<Button type="submit" variant="secondary" size="sm">Close this case</Button></form>
