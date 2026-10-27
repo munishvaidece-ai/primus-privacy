@@ -5362,3 +5362,9 @@ functions each one calls are).
 - The headline and summary a person issued with the final report (latest `ai_report_issuances` row) appear at the top of the Executive Summary, labelled as AI-drafted and person-issued. The figures stay counted from stored records.
 - Live Run phase 7 gains "Release the final report and download it": the release builds the client-safe PDF and stores that exact copy; the client downloads it from Reports and from the Journey page. The working copy (with drafts) stays Primus-only.
 - The PDF palette moved from blue to the product's maroon and copper.
+
+### R-226 — Chaukidar: a guided, scripted DPDP conversation on the microsite
+- A floating "Ask Chaukidar" button on every microsite page opens a panel where the visitor only picks answers (no free text, no language model). Questions, answers, follow-ups and citations are written in `lib/regulation/chaukidar.ts`; a checker (`checkGraph`) proves there are no dead ends or unknown citations, and a test runs it.
+- Numbers (obligations that apply, ceilings, dates, who to tell after an incident, sector briefs) come from the product's engine and catalogue, loaded as `engine.js` on first use, so the bot and the platform cannot disagree.
+- Rationale: a free-text bot would sooner or later give a wrong legal answer to a prospect. A guided one is checkable, works offline, costs nothing to run, and ends in a result the visitor can copy.
+- Not built: capturing a visitor's details (needs a form endpoint and a consent notice, a decision for devops) and an in-product version.

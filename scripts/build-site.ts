@@ -3,7 +3,7 @@
 //
 //   npm run site:build
 //
-// Writes: public/site/{index,dpdp,sectors,check,platform}.html, site.css, site.js, check.js, engine.js
+// Writes: public/site/{index,dpdp,sectors,check,platform}.html, site.css, site.js, check.js, chaukidar.js, chaukidar.css, engine.js
 import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { buildSync } from "esbuild";
@@ -65,6 +65,7 @@ function page(file: string, title: string, desc: string, body: string, scripts =
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 439 439"><path d="M29,29 H446 V444 H175 V161.5 H294 A73.75,73.75 0 0 1 294,309 H229 V254 H245 A72.75,72.75 0 0 0 245,108.5 H122.5 V390.5 H29 Z" fill="none" stroke="#8a4a2a" stroke-width="40"/></svg>')}">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Fira+Sans:wght@500&display=swap">
 <link rel="stylesheet" href="/site/site.css">
+<link rel="stylesheet" href="/site/chaukidar.css">
 <script>try{var t=localStorage.getItem("pp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
 </head><body>${MARK}
 <header class="nav"><div class="wrap nav-in">
@@ -75,6 +76,7 @@ function page(file: string, title: string, desc: string, body: string, scripts =
 <main>${body}</main>
 <footer><div class="wrap foot"><div><div class="logo" style="color:var(--logo)"><svg aria-hidden="true" style="width:30px;height:30px"><use href="#pmark"/></svg><span class="lt" style="font-size:14px"><span>PRIMUS</span><span>PARTNERS<sup>®</sup></span></span></div><p class="disc" style="margin-top:10px">Data Privacy &amp; Digital Advisory. Indicative reference content, not legal advice. DPDP content last checked ${STAMP}. Confirm dates and provisions against the Gazette and the official text before relying on them.</p></div><nav aria-label="Footer">${NAV.map(([f, l]) => `<a href="/site/${f}">${l}</a>`).join("")}<a href="/login">Sign in</a></nav></div></footer>
 <script src="/site/site.js"></script>${scripts}
+<script src="/site/chaukidar.js" defer></script>
 </body></html>`;
 }
 
@@ -299,13 +301,13 @@ function platformPage(): string {
 }
 
 // ------------------------------------------------------------------ write
-for (const f of readdirSync(OUT)) if (f.endsWith(".html") || f === "site.css" || f === "site.js" || f === "check.js" || f === "engine.js") rmSync(path.join(OUT, f));
+for (const f of readdirSync(OUT)) if (f.endsWith(".html") || f === "site.css" || f === "site.js" || f === "check.js" || f === "engine.js" || f === "chaukidar.js" || f === "chaukidar.css") rmSync(path.join(OUT, f));
 writeFileSync(path.join(OUT, "index.html"), indexPage());
 writeFileSync(path.join(OUT, "dpdp.html"), dpdpPage());
 writeFileSync(path.join(OUT, "sectors.html"), sectorsPage());
 writeFileSync(path.join(OUT, "check.html"), checkPage());
 writeFileSync(path.join(OUT, "platform.html"), platformPage());
-for (const f of ["site.css", "site.js", "check.js"]) writeFileSync(path.join(OUT, f), readFileSync(path.join(SRC, f), "utf8"));
+for (const f of ["site.css", "site.js", "check.js", "chaukidar.js", "chaukidar.css"]) writeFileSync(path.join(OUT, f), readFileSync(path.join(SRC, f), "utf8"));
 buildSync({ entryPoints: [path.join(SRC, "engine-entry.ts")], bundle: true, minify: true, format: "iife", globalName: "PrimusRegulation", outfile: path.join(OUT, "engine.js"), target: "es2019", logLevel: "error" });
 if (!existsSync(path.join(OUT, "engine.js"))) throw new Error("engine.js was not built");
 console.log(`✓ Microsite built: 5 pages, ${sectors.length} sectors, ${instruments.length} instruments, ${DPDP_RULES.length} Rules, ${totalControls} controls.`);

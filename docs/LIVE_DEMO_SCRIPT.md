@@ -53,3 +53,12 @@ After the assessment is finalised and the AI has drafted the final report, appro
 ## If something looks stuck
 
 The live log (right) shows the queue. If a job fails, its reason shows under the log. `npm run local:setup` again is safe. To start Orchid Hill from empty, stop the app, run `docker compose -f docker-compose.local.yml down -v`, then `npm run local:db`, `npm run local:setup`, `npm run dev`.
+
+
+## Chaukidar, the guided DPDP guide (microsite)
+
+A button at the bottom right of every microsite page, "Ask Chaukidar", opens a guided conversation. There is no typing: Chaukidar asks a question, the visitor picks an answer from a drop-down tray, and a relevant follow-up appears. Six front-door choices: does DPDP apply to us, we have had a breach (with a 72 hour clock and who to tell for the visitor's sectors), someone has asked for their data, explain DPDP to my board, what my sector adds, and key dates and penalties. A strip at the top counts the duties that apply as the visitor answers.
+
+Good 90-second demo: open the microsite, press Ask Chaukidar, choose "Does the DPDP Act apply to us?", pick Stock broking and Banking, answer the five questions, and show the map. Then choose "Start over", "We have had a data breach", and show the clock and the regulators to tell.
+
+Everything it says is written in `lib/regulation/chaukidar.ts` and the numbers come from the same engine as the product. It never calls a language model and nothing leaves the browser. To change the name, edit `CH_NAME` there and the visible labels in `site-src/chaukidar.js`, then run `npm run site:build`.

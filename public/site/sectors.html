@@ -4,6 +4,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%2218%2018%20439%20439%22%3E%3Cpath%20d%3D%22M29%2C29%20H446%20V444%20H175%20V161.5%20H294%20A73.75%2C73.75%200%200%201%20294%2C309%20H229%20V254%20H245%20A72.75%2C72.75%200%200%200%20245%2C108.5%20H122.5%20V390.5%20H29%20Z%22%20fill%3D%22none%22%20stroke%3D%22%238a4a2a%22%20stroke-width%3D%2240%22%2F%3E%3C%2Fsvg%3E">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Fira+Sans:wght@500&display=swap">
 <link rel="stylesheet" href="/site/site.css">
+<link rel="stylesheet" href="/site/chaukidar.css">
 <script>try{var t=localStorage.getItem("pp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
 </head><body><svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="pmg" gradientUnits="userSpaceOnUse" x1="29" y1="444" x2="446" y2="29"><stop offset="0" stop-color="#b27a42"/><stop offset=".55" stop-color="#8a4a2a"/><stop offset="1" stop-color="#5a0f13"/></linearGradient><symbol id="pmark" viewBox="18 18 439 439"><path d="M29,29 H446 V444 H175 V161.5 H294 A73.75,73.75 0 0 1 294,309 H229 V254 H245 A72.75,72.75 0 0 0 245,108.5 H122.5 V390.5 H29 Z" fill="none" stroke="url(#pmg)" stroke-width="16" stroke-linejoin="miter"/></symbol></defs></svg>
 <header class="nav"><div class="wrap nav-in">
@@ -147,4 +148,5 @@ function f(){var t=q.value.trim().toLowerCase(),n=0;cards.forEach(function(c){va
 q.addEventListener("input",f);chips.forEach(function(b){b.addEventListener("click",function(){g=b.getAttribute("data-g");chips.forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});f()})});
 cards.forEach(function(c){var b=c.querySelector("button.open");b.addEventListener("click",function(){var o=c.classList.toggle("expanded");b.setAttribute("aria-expanded",o?"true":"false");b.lastElementChild.textContent=o?"−":"+"})});
 var h=location.hash.slice(1);if(h){var c=document.querySelector('[data-group="'+h+'"]');}})();</script>
+<script src="/site/chaukidar.js" defer></script>
 </body></html>
