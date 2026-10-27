@@ -224,23 +224,23 @@ export function PhaseCard({ cfg, st, ctx, live }: { cfg: PhaseConfig; st: PhaseS
               <p className="text-xs text-slate-500">Uploads are recorded under your name: {ctx.viewerName}.</p>
             )}
             {cfg.template ? (
-              <form action={uploadAction} className="flex flex-wrap items-end gap-2">
+              <form action={uploadAction} className="flex flex-wrap items-end gap-3 rounded-xl border-2 border-dashed border-[#e4c3bb] bg-white/70 p-3 transition hover:border-copper">
                 <Hidden ctx={ctx} phase={n} />
                 <input type="hidden" name="kind" value="template" />
-                <div>
+                <div className="min-w-0 flex-1 basis-64">
                   <label htmlFor={`tpl-${n}`} className="block text-xs font-medium text-slate-700">Filled template (.xlsx)</label>
-                  <input id={`tpl-${n}`} name="files" type="file" accept=".xlsx" required className="mt-1 block w-72 max-w-full text-sm file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm" />
+                  <input id={`tpl-${n}`} name="files" type="file" accept=".xlsx" required className="mt-1 block w-full text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-copper-soft file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-copper-deep hover:file:bg-[#f1dcc3]" />
                 </div>
                 <Button type="submit">Check and upload</Button>
               </form>
             ) : null}
             {cfg.support ? (
-              <form action={uploadAction} className="flex flex-wrap items-end gap-2">
+              <form action={uploadAction} className="flex flex-wrap items-end gap-3 rounded-xl border-2 border-dashed border-[#e4c3bb] bg-white/70 p-3 transition hover:border-copper">
                 <Hidden ctx={ctx} phase={n} />
                 <input type="hidden" name="kind" value="support" />
-                <div>
+                <div className="min-w-0 flex-1 basis-64">
                   <label htmlFor={`sup-${n}`} className="block text-xs font-medium text-slate-700">{cfg.support.label} (several files allowed)</label>
-                  <input id={`sup-${n}`} name="files" type="file" multiple required className="mt-1 block w-72 max-w-full text-sm file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm" />
+                  <input id={`sup-${n}`} name="files" type="file" multiple required className="mt-1 block w-full text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-copper-soft file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-copper-deep hover:file:bg-[#f1dcc3]" />
                 </div>
                 <Button type="submit" variant="secondary">Upload files</Button>
                 <p className="w-full text-xs text-slate-500">{cfg.support.hint}</p>

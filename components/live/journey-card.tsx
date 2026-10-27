@@ -92,22 +92,22 @@ export function JourneyCard({ cfg, st, ctx, prevDone }: { cfg: PhaseConfig; st: 
             <h4 className="mt-4 font-semibold text-slate-900">2. Send the files</h4>
             {!ctx.canUpload ? <p className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700">Your role can see this step but cannot upload. Ask a colleague with contributor access.</p> : (
               <div className="mt-2 space-y-3">
-                <form action={uploadAction} className="flex flex-wrap items-end gap-2">
+                <form action={uploadAction} className="flex flex-wrap items-end gap-3 rounded-xl border-2 border-dashed border-[#e4c3bb] bg-white/70 p-3 transition hover:border-copper">
                   <Hidden ctx={ctx} phase={cfg.n} />
                   <input type="hidden" name="kind" value="template" />
-                  <div>
+                  <div className="min-w-0 flex-1 basis-64">
                     <label htmlFor={`jt-${cfg.n}`} className="block text-xs font-medium text-slate-700">Filled template (.xlsx)</label>
-                    <input id={`jt-${cfg.n}`} name="files" type="file" accept=".xlsx" required className="mt-1 block w-72 max-w-full text-sm file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm" />
+                    <input id={`jt-${cfg.n}`} name="files" type="file" accept=".xlsx" required className="mt-1 block w-full text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-copper-soft file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-copper-deep hover:file:bg-[#f1dcc3]" />
                   </div>
                   <Button type="submit">Check and send</Button>
                 </form>
                 {cfg.support ? (
-                  <form action={uploadAction} className="flex flex-wrap items-end gap-2">
+                  <form action={uploadAction} className="flex flex-wrap items-end gap-3 rounded-xl border-2 border-dashed border-[#e4c3bb] bg-white/70 p-3 transition hover:border-copper">
                     <Hidden ctx={ctx} phase={cfg.n} />
                     <input type="hidden" name="kind" value="support" />
-                    <div>
+                    <div className="min-w-0 flex-1 basis-64">
                       <label htmlFor={`js-${cfg.n}`} className="block text-xs font-medium text-slate-700">{cfg.support.label} (several files allowed)</label>
-                      <input id={`js-${cfg.n}`} name="files" type="file" multiple required className="mt-1 block w-72 max-w-full text-sm file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm" />
+                      <input id={`js-${cfg.n}`} name="files" type="file" multiple required className="mt-1 block w-full text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-copper-soft file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-copper-deep hover:file:bg-[#f1dcc3]" />
                     </div>
                     <Button type="submit" variant="secondary">Send files</Button>
                     <p className="w-full text-xs text-slate-500">{cfg.support.hint}</p>

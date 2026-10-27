@@ -4,23 +4,30 @@ import { Badge } from "@/components/ui/badge";
 
 export const INPUT = "mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600";
 export const LABEL = "block text-xs font-medium text-slate-700";
-export const CARD = "rounded-xl border border-slate-200 bg-white p-5 shadow-card";
+export const CARD = "rounded-2xl border border-[#f0dcd5] bg-gradient-to-b from-white to-[#fffaf8] p-5 shadow-card";
 export const TH = "px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.1em] text-slate-500";
 export const TD = "px-3 py-2 align-top";
 export const LINK = "font-medium text-slate-900 hover:underline";
 
 export function PageHeader({ title, subtitle, actions, crumb }: { title: string; subtitle?: ReactNode; actions?: ReactNode; crumb?: ReactNode }) {
   return (
-    <div className="rise mb-7 border-b border-slate-200 pb-5">
-      {crumb ? <p className="text-sm text-slate-500">{crumb}</p> : null}
-      <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">{title}</h1>
-          {subtitle ? <p className="mt-1.5 max-w-3xl text-[15px] leading-relaxed text-slate-600">{subtitle}</p> : null}
+    <header className="page-hero rise mb-7">
+      <span className="dash-aurora" aria-hidden="true"><i /><i /><i /></span>
+      <svg viewBox="0 0 220 240" aria-hidden="true" className="dash-shield pointer-events-none absolute -right-6 -top-8 hidden h-56 w-52 text-white/10 sm:block">
+        <path d="M110 12 20 46v68c0 58 38 98 90 114 52-16 90-56 90-114V46z" fill="none" stroke="currentColor" strokeWidth="2" />
+        {Array.from({ length: 7 }).flatMap((_, r) => Array.from({ length: 5 }).map((__, c) => <circle key={`${r}-${c}`} cx={52 + c * 28} cy={66 + r * 22} r="2" fill="currentColor" />))}
+      </svg>
+      <div className="relative">
+        {crumb ? <p className="text-[13px] text-[#f0c9a0]/90">{crumb}</p> : null}
+        <div className="mt-1.5 flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl font-bold tracking-tight text-white sm:text-[30px]">{title}</h1>
+            {subtitle ? <p className="mt-2 max-w-3xl text-[15px] leading-relaxed text-[#ffebe4]/80">{subtitle}</p> : null}
+          </div>
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
-    </div>
+    </header>
   );
 }
 
@@ -35,7 +42,8 @@ export function Flash({ saved, error }: { saved?: string; error?: string }) {
 
 export function Stat({ label, value, hint, href, tone }: { label: string; value: ReactNode; hint?: string; href?: string; tone?: "warn" | "bad" }) {
   const body = (
-    <div className={`${CARD} h-full ${href ? "transition hover:-translate-y-0.5 hover:shadow-lift" : ""}`}>
+    <div className={`${CARD} stat-card relative h-full overflow-hidden ${href ? "transition hover:-translate-y-0.5 hover:shadow-lift" : ""}`}>
+      <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${tone === "bad" ? "bg-red-600" : tone === "warn" ? "bg-amber-500" : "bg-gradient-to-b from-copper-light to-brand"}`} />
       <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-copper">{label}</p>
       <p className={`mt-1.5 font-display text-3xl font-bold ${tone === "bad" ? "text-red-700" : tone === "warn" ? "text-amber-700" : "text-slate-900"}`}>{value}</p>
       {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
@@ -50,9 +58,9 @@ export function Empty({ children }: { children: ReactNode }) {
 
 export function Table({ head, children, label }: { head: string[]; children: ReactNode; label?: string }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
+    <div className="overflow-x-auto rounded-2xl border border-[#f0dcd5] bg-white shadow-card">
       <table className="min-w-full divide-y divide-slate-200 text-sm" aria-label={label}>
-        <thead className="bg-slate-100/70">
+        <thead className="bg-gradient-to-b from-[#fbeeea] to-[#fdf6f3]">
           <tr>{head.map((h) => <th key={h} scope="col" className={TH}>{h}</th>)}</tr>
         </thead>
         <tbody className="divide-y divide-slate-100">{children}</tbody>
@@ -103,7 +111,7 @@ export function FilterBar({ children, reset }: { children: ReactNode; reset: str
   return (
     <form method="get" className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-card">
       {children}
-      <button type="submit" className="h-9 rounded-lg bg-brand px-4 font-display text-xs font-semibold text-white hover:bg-brand-dark">Filter</button>
+      <button type="submit" className="h-9 rounded-lg bg-brand px-4 font-display text-xs font-semibold text-white shadow-sm hover:bg-brand-dark">Filter</button>
       <Link href={reset} className="text-xs text-slate-600 hover:underline">Clear</Link>
     </form>
   );

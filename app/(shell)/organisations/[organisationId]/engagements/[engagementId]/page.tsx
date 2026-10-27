@@ -12,7 +12,7 @@ import { getViewer } from "@/lib/workspace/common";
 import { engagementMetrics } from "@/lib/workspace/portfolio";
 import { listReleasedReports } from "@/lib/workspace/reports";
 import { listEvidenceRequests } from "@/lib/workspace/evidence-requests";
-import { PhaseBadge, Progress, fmtDateTime } from "@/components/ui/kit";
+import { CARD, PageHeader, PhaseBadge, Progress, fmtDateTime } from "@/components/ui/kit";
 import { releaseReportAction, requestEvidenceAction } from "@/app/(shell)/workspace-actions";
 import { addEngagementMemberAction, revokeEngagementMemberAction, createEngagementInvitationAction } from "./actions";
 
@@ -102,29 +102,20 @@ export default async function EngagementDetailPage({
 
   return (
     <div>
-      <p className="text-sm text-slate-500">
-        <Link href={`/organisations/${engagement.organisationId}`} className="hover:underline">
-          {engagement.organisationName}
-        </Link>
-      </p>
-      <div className="mt-1 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-900">{engagement.name}</h1>
-        <Badge tone={statusTone(engagement.status)}>{engagement.status}</Badge>
-      </div>
-      <p className="mt-1 text-sm text-slate-600">
-        {engagement.engagementType} · Control library:{" "}
-        {engagement.controlLibraryVersionLabel ?? "not yet pinned"}
-      </p>
-      {engagement.periodStart || engagement.periodEnd ? (
-        <p className="mt-1 text-sm text-slate-600">
-          Period: {engagement.periodStart ?? "?"} – {engagement.periodEnd ?? "?"}
-        </p>
-      ) : null}
-      <p className="mt-1 text-sm text-slate-500">
-        {engagement.currentUserRoleName
-          ? <>Your role on this engagement: {engagement.currentUserRoleName}</>
-          : "You can view this engagement through your organisation-level access."}
-      </p>
+      <PageHeader
+        crumb={<Link href={`/organisations/${engagement.organisationId}`} className="hover:underline">{engagement.organisationName}</Link>}
+        title={engagement.name}
+        subtitle={
+          <>
+            {engagement.engagementType} · Control library: {engagement.controlLibraryVersionLabel ?? "not yet pinned"}
+            {engagement.periodStart || engagement.periodEnd ? <> · Period: {engagement.periodStart ?? "?"} – {engagement.periodEnd ?? "?"}</> : null}
+            <span className="mt-1 block text-[13px] text-[#ffebe4]/70">
+              {engagement.currentUserRoleName ? <>Your role on this engagement: {engagement.currentUserRoleName}</> : "You can view this engagement through your organisation-level access."}
+            </span>
+          </>
+        }
+        actions={<Badge tone={statusTone(engagement.status)}>{engagement.status}</Badge>}
+      />
 
       {searchParams.joined === "1" ? (
         <p role="status" className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
@@ -166,7 +157,7 @@ export default async function EngagementDetailPage({
       ) : null}
 
       {delivery.metrics ? (
-        <section className="mt-8 rounded-xl border border-slate-200 bg-white shadow-card p-4" aria-labelledby="delivery-h">
+        <section className={`${CARD} mt-2`} aria-labelledby="delivery-h">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="delivery-h" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Delivery status</h2>
             <PhaseBadge phase={delivery.metrics.phase} />
@@ -189,7 +180,8 @@ export default async function EngagementDetailPage({
         </section>
       ) : null}
 
-      <section className="mt-8">
+      <div className="mt-8 grid gap-4 md:grid-cols-2">
+      <section className="nav-card">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Live Run</h2>
           <Link href={`/organisations/${engagement.organisationId}/engagements/${engagement.id}/live`} className="text-sm font-medium text-slate-900 underline">
@@ -202,7 +194,7 @@ export default async function EngagementDetailPage({
       </section>
 
       {canUseAi ? (
-        <section className="mt-8">
+        <section className="nav-card">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">AI Operations Centre</h2>
             <Link
@@ -218,7 +210,7 @@ export default async function EngagementDetailPage({
         </section>
       ) : null}
 
-      <section className="mt-8">
+      <section className="nav-card">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Regulations</h2>
           <Link
@@ -233,7 +225,7 @@ export default async function EngagementDetailPage({
         </p>
       </section>
 
-      <section className="mt-8">
+      <section className="nav-card">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Applicability &amp; Scope</h2>
           <Link
@@ -248,7 +240,7 @@ export default async function EngagementDetailPage({
         </p>
       </section>
 
-      <section className="mt-8">
+      <section className="nav-card">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Data Landscape</h2>
           <Link
@@ -263,7 +255,7 @@ export default async function EngagementDetailPage({
         </p>
       </section>
 
-      <section className="mt-8">
+      <section className="nav-card">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assessments</h2>
           <Link
@@ -291,7 +283,7 @@ export default async function EngagementDetailPage({
         )}
       </section>
 
-      <section className="mt-8">
+      <section className="nav-card">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Risks</h2>
           <Link
@@ -306,7 +298,7 @@ export default async function EngagementDetailPage({
         </p>
       </section>
 
-      <section className="mt-8">
+      <section className="nav-card">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Findings</h2>
           <Link
@@ -319,7 +311,7 @@ export default async function EngagementDetailPage({
         <p className="mt-3 text-sm text-slate-600">Created from a Risk&rsquo;s own detail page.</p>
       </section>
 
-      <section className="mt-8">
+      <section className="nav-card">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Remediation</h2>
           <Link
@@ -331,6 +323,7 @@ export default async function EngagementDetailPage({
         </div>
         <p className="mt-3 text-sm text-slate-600">Created from a Finding&rsquo;s own detail page.</p>
       </section>
+      </div>
 
       <section className="mt-8">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Reports</h2>

@@ -106,13 +106,14 @@ export function Sidebar({ isClient, unread, demo = false }: { isClient: boolean;
   const groups = groupsFor(isClient, unread, demo);
   const allHrefs = groups.flatMap((g) => g.items.map((i) => i.href));
   // the longest matching link wins, so "/portal" is not lit up on "/portal/tasks"
-  const active = allHrefs.filter((h) => path === h || path.startsWith(h + "/")).sort((a, b) => b.length - a.length)[0];
+  const engagementPath = !isClient && /^\/organisations\/[^/]+\/engagements\/[^/]+/.test(path);
+  const active = engagementPath ? "/engagements" : allHrefs.filter((h) => path === h || path.startsWith(h + "/")).sort((a, b) => b.length - a.length)[0];
   return (
     <nav aria-label="Main" className="w-full shrink-0 md:w-60">
-      <div className="flex gap-4 overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 shadow-card md:sticky md:top-24 md:flex-col md:gap-4 md:overflow-visible">
+      <div className="side-panel flex gap-4 overflow-x-auto rounded-2xl p-3 md:sticky md:top-24 md:flex-col md:gap-4 md:overflow-visible">
         {groups.map((g, i) => (
           <div key={i} className="min-w-max md:min-w-0">
-            {g.title ? <p className="mb-1 px-3 text-[11px] font-bold uppercase tracking-[0.14em] text-copper">{g.title}</p> : null}
+            {g.title ? <p className="mb-1 px-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[#e9bd8c]">{g.title}</p> : null}
             <ul className="flex gap-1 md:flex-col md:gap-0.5">
               {g.items.map((it) => {
                 const on = it.href === active;
@@ -121,11 +122,11 @@ export function Sidebar({ isClient, unread, demo = false }: { isClient: boolean;
                     <Link
                       href={it.href}
                       aria-current={on ? "page" : undefined}
-                      className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${on ? "bg-brand text-white shadow-sm" : "text-slate-700 hover:bg-slate-100"}`}
+                      className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${on ? "bg-gradient-to-r from-[#c88a4a] to-[#8f5424] text-white shadow-[0_10px_22px_-10px_rgba(200,138,74,.95)]" : "text-[#f3dcd6]/90 hover:bg-white/10 hover:text-white"}`}
                     >
-                      <NavIcon name={it.icon} className={`h-4 w-4 shrink-0 ${on ? "text-[#f0c9a0]" : "text-slate-400"}`} />
+                      <NavIcon name={it.icon} className={`h-4 w-4 shrink-0 ${on ? "text-white" : "text-[#e9bd8c]/80"}`} />
                       <span className="flex-1">{it.label}</span>
-                      {it.badge ? <span className="rounded-full bg-copper px-2 py-0.5 text-xs font-semibold text-white" aria-label={`${it.badge} unread`}>{it.badge}</span> : null}
+                      {it.badge ? <span className="rounded-full bg-[#f0c9a0] px-2 py-0.5 text-xs font-semibold text-[#3a0f0c]" aria-label={`${it.badge} unread`}>{it.badge}</span> : null}
                     </Link>
                   </li>
                 );

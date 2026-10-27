@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHeader } from "@/components/ui/kit";
 import { notFound } from "next/navigation";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { withRequestDb } from "@/lib/db/request-client";
@@ -66,23 +67,15 @@ export default async function LiveRunPage({
 
   return (
     <div>
-      <p className="text-sm text-slate-500">
-        <Link href={`/organisations/${params.organisationId}`} className="hover:underline">{eng.organisationName}</Link>
-        {" / "}
-        <Link href={base} className="hover:underline">{eng.name}</Link>
-      </p>
-      <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Live Run</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            The whole engagement, in seven phases, on real files. At each phase a document goes in, the platform checks it, the AI reads it and does its work, and the result becomes the next phase&apos;s starting point. Where a person must decide, the AI stops and waits.
-          </p>
-        </div>
-        <Link href={`${base}/ai/cases`} className="inline-flex h-9 shrink-0 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 hover:border-copper hover:text-copper">After the assessment: incidents and cases</Link>
-        {ctx.isDemo ? (
-          <a href="/demo/Orchid_Hill_Demo_Pack.zip" className="inline-flex h-9 shrink-0 items-center rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark">Download the whole demo pack (ZIP)</a>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Live Run"
+        crumb={<><Link href={`/organisations/${params.organisationId}`} className="hover:underline">{eng.organisationName}</Link>{" / "}<Link href={base} className="hover:underline">{eng.name}</Link></>}
+        subtitle="The whole engagement, in seven phases, on real files. At each phase a document goes in, the platform checks it, the AI reads it and does its work, and the result becomes the next phase's starting point. Where a person must decide, the AI stops and waits."
+        actions={<>
+          <Link href={`${base}/ai/cases`} className="inline-flex h-9 shrink-0 items-center rounded-xl border border-white/30 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20">After the assessment: incidents and cases</Link>
+          {ctx.isDemo ? <a href="/demo/Orchid_Hill_Demo_Pack.zip" className="inline-flex h-9 shrink-0 items-center rounded-xl bg-gradient-to-r from-[#c88a4a] to-[#8f5424] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgba(200,138,74,.95)] transition hover:-translate-y-px">Download the whole demo pack (ZIP)</a> : null}
+        </>}
+      />
 
       {searchParams.ok ? <p role="status" className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">{searchParams.ok}</p> : null}
       {searchParams.problem ? (

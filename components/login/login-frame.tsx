@@ -7,6 +7,7 @@ export function LoginFrame({ children, wide = false }: { children: ReactNode; wi
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-b from-[#fdf2f0] via-[#fdf8f6] to-white">
       <div className="hero-grid-bg pointer-events-none absolute inset-0 opacity-35" aria-hidden="true" />
+      <div className="app-bg" aria-hidden="true"><i /><i /><i /></div>
       <header className="relative z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <a href="/site/index.html" aria-label="Primus Privacy site"><Wordmark /></a>

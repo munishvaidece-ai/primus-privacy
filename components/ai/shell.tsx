@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { PageHeader } from "@/components/ui/kit";
 
 export const aiBase = (organisationId: string, engagementId: string) => `/organisations/${organisationId}/engagements/${engagementId}/ai`;
 
@@ -35,13 +36,8 @@ export function AiShell({
   const base = aiBase(organisationId, engagementId);
   return (
     <div>
-      <p className="text-sm text-slate-500">
-        <Link href={`/organisations/${organisationId}/engagements/${engagementId}`} className="hover:underline">
-          {engagementName}
-        </Link>
-      </p>
-      <h1 className="mt-1 text-xl font-semibold text-slate-900">AI Operations Centre</h1>
-      <nav aria-label="AI sections" className="mt-4 flex flex-wrap gap-1 border-b border-slate-200">
+      <PageHeader title="AI Operations Centre" crumb={<Link href={`/organisations/${organisationId}/engagements/${engagementId}`} className="hover:underline">{engagementName}</Link>} />
+      <nav aria-label="AI sections" className="-mt-2 flex flex-wrap gap-1.5">
         {TABS.map((t) => (
           <Link
             key={t.href}
@@ -49,8 +45,8 @@ export function AiShell({
             aria-current={active === t.href ? "page" : undefined}
             className={
               active === t.href
-                ? "-mb-px border-b-2 border-slate-900 px-3 py-2 text-sm font-medium text-slate-900"
-                : "px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+                ? "rounded-full bg-gradient-to-b from-[#6e211b] to-brand px-4 py-1.5 text-sm font-semibold text-white shadow-[0_8px_18px_-10px_rgba(92,26,22,.85)]"
+                : "rounded-full px-4 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-900 hover:shadow-sm"
             }
           >
             {t.label}

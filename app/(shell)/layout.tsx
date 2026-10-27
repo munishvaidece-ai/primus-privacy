@@ -54,8 +54,9 @@ export default async function ShellLayout({ children }: { children: ReactNode })
   const home = isClient ? "/portal" : "/dashboard";
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
+    <div className="relative min-h-screen">
+      <div className="app-bg" aria-hidden="true"><i /><i /><i /></div>
+      <header className="app-header sticky top-0 z-40 bg-white/85 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3">
           <div className="flex min-w-0 items-center gap-4">
             <Link href={home} aria-label="Primus Privacy home"><Wordmark /></Link>
