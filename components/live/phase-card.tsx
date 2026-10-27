@@ -7,7 +7,7 @@ import { KIND_LABELS } from "@/lib/ai/types";
 import { percent } from "@/lib/ai/present";
 import type { PhaseConfig } from "@/lib/live/config";
 import type { LiveStatus, PhaseState, PhaseStatus } from "@/lib/live/status";
-import { approveAllAction, connectorAction, decideAction, finaliseAction, loadAction, releaseAction, runAction, scopeAction, uploadAction } from "@/app/(shell)/organisations/[organisationId]/engagements/[engagementId]/live/actions";
+import { approveAllAction, connectorAction, decideAction, finaliseAction, loadAction, releaseAction, releaseReportStepAction, runAction, scopeAction, uploadAction } from "@/app/(shell)/organisations/[organisationId]/engagements/[engagementId]/live/actions";
 
 export interface LiveCtx {
   organisationId: string;
@@ -17,6 +17,8 @@ export interface LiveCtx {
   isDemo: boolean;
   viewerName: string;
   viewerSide: "primus" | "client";
+  /** Reports already released to the client, newest first. */
+  reports?: { id: string; title: string; version: number; releasedAt: Date }[];
 }
 
 const STATE_TONE: Record<PhaseState, "neutral" | "positive" | "warning" | "critical"> = { waiting: "neutral", ready: "neutral", working: "warning", needs_person: "warning", done: "positive" };
@@ -362,6 +364,24 @@ export function PhaseCard({ cfg, st, ctx, live }: { cfg: PhaseConfig; st: PhaseS
                 <PlainButton ctx={ctx} phase={7} action={finaliseAction} label="Finalise the assessment" disabled={!live.assessmentId || live.assessmentStatus === "finalized"} />
                 <RunButton ctx={ctx} phase={7} step="7c" label="Draft the final report" primary={false} hint="After the assessment is finalised." />
               </div>
+            </Step>
+            <Step n={++step} title="Release the final report and download it">
+              <p>This builds the PDF from the live records: the AI&rsquo;s headline and summary, the findings, the remediation roadmap in 30, 60 and 90 day steps, validation and evidence. Releasing it puts that exact copy on the client&rsquo;s Reports page.</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <PlainButton ctx={ctx} phase={7} action={releaseReportStepAction} label="Release the report to the client" primary disabled={!ctx.canRelease || live.assessmentStatus !== "finalized"} />
+                <a href={`/organisations/${ctx.organisationId}/engagements/${ctx.engagementId}/reports`} className="inline-flex items-center rounded-xl border border-[#e4c3bb] bg-white px-4 py-2 text-sm font-medium text-brand shadow-sm transition hover:border-copper hover:text-copper">Download a working copy (PDF)</a>
+              </div>
+              {live.assessmentStatus !== "finalized" ? <p className="text-xs text-slate-500">Finalise the assessment first.</p> : null}
+              {ctx.reports?.length ? (
+                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white text-sm">
+                  {ctx.reports.map((r) => (
+                    <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                      <span>Released version {r.version} · {fmtDateTime(r.releasedAt)}</span>
+                      <a href={`/portal/reports/${r.id}/download`} className="font-semibold text-copper hover:underline">Download PDF</a>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-xs text-slate-500">Nothing has been released to the client yet.</p>}
             </Step>
           </>
         ) : null}

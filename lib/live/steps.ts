@@ -11,6 +11,7 @@ import { ensureAssessment, loadControlTests, reconcileEvidence } from "@/lib/int
 import { createEngagementScope, lockEngagementScope } from "@/lib/domain/applicability";
 import { finalizeAssessment } from "@/lib/domain/assessments";
 import { releaseFindings } from "@/lib/workspace/review";
+import { releaseReport } from "@/lib/workspace/reports";
 import { mimeFor } from "@/lib/live/mime";
 import { phaseOf } from "./config";
 import { sql } from "drizzle-orm";
@@ -125,6 +126,13 @@ export async function finalise(db: RequestDb, userId: string, scope: Scope): Pro
   if (!id) return { ok: false, message: "There is no open assessment to finalise." };
   await finalizeAssessment(db, userId, { organisationId: scope.organisationId, engagementId: scope.engagementId, assessmentId: id });
   return { ok: true, message: "The assessment is finalised. Now ask the AI to draft the final report." };
+}
+
+export async function releaseFinalReport(db: RequestDb, userId: string, userEmail: string | null, scope: Scope): Promise<StepReport> {
+  const r = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM assessments WHERE engagement_id = ${scope.engagementId}`);
+  if (!Number(r.rows[0]?.n ?? 0)) return { ok: false, message: "There is no assessment to report on yet." };
+  const out = await releaseReport(db, userId, { organisationId: scope.organisationId, engagementId: scope.engagementId, userEmail });
+  return { ok: true, message: `The final report (version ${out.version}) is released. The client can download it from their Reports page, and you can download it below.` };
 }
 
 export { NotFoundOrForbiddenError };

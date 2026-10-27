@@ -14,6 +14,8 @@ export interface JourneyCtx {
   isDemo: boolean;
   canUpload: boolean;
   viewerName: string;
+  /** Final reports Primus has released to this organisation, newest first. */
+  reports?: { id: string; version: number }[];
 }
 
 /** What the person at the organisation sees for each phase: what they do, what Primus does, and where the result shows up. */
@@ -128,6 +130,15 @@ export function JourneyCard({ cfg, st, ctx, prevDone }: { cfg: PhaseConfig; st: 
               </div>
             ))}
           </dl>
+        ) : null}
+
+        {cfg.n === 7 ? (
+          ctx.reports?.length ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-copper/40 bg-amber-50/70 p-3">
+              <p className="text-slate-800"><span className="font-semibold">Your final report is ready.</span> It has the summary, your findings and the remediation roadmap in 30, 60 and 90 day steps.</p>
+              <a href={`/portal/reports/${ctx.reports[0]!.id}/download`} className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:opacity-90">Download the report (PDF)</a>
+            </div>
+          ) : <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">When Primus releases the final report, a download button appears here.</p>
         ) : null}
 
         <p className="flex flex-wrap gap-x-5 gap-y-1">

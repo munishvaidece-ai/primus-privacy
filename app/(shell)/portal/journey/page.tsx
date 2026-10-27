@@ -3,6 +3,7 @@ import { hasPermission } from "@/lib/workspace/common";
 import { isDemoAuthActive } from "@/lib/auth/demo-auth";
 import { loadLiveStatus } from "@/lib/live/status";
 import { PHASES } from "@/lib/live/config";
+import { listReleasedReports } from "@/lib/workspace/reports";
 import { PortalHeader } from "@/components/portal/header";
 import { JourneyCard, journeyState, type JourneyCtx } from "@/components/live/journey-card";
 
@@ -14,6 +15,7 @@ export default async function PortalJourney({ searchParams }: { searchParams: { 
     live: await loadLiveStatus(db, user.id, { engagementId: current.id, organisationId: current.organisationId }, false),
     canUpload: await hasPermission(db, user.id, current, "client.contribute"),
     me: user.email,
+    reports: await listReleasedReports(db, { engagementId: current.id }),
   }));
   const m = portal.current;
   const { live } = data;
@@ -24,6 +26,7 @@ export default async function PortalJourney({ searchParams }: { searchParams: { 
     isDemo: isDemoAuthActive(),
     canUpload: data.canUpload,
     viewerName: data.me ?? "you",
+    reports: data.reports.map((r) => ({ id: r.id, version: r.version })),
   };
   const done = live.phases.filter((p) => p.state === "done").length;
   const dot = { Done: "bg-emerald-600", "Waiting for you": "bg-copper", "Sent. With Primus": "bg-amber-500", "Primus is working on this": "bg-amber-500", "Not open yet": "bg-slate-300" } as Record<string, string>;

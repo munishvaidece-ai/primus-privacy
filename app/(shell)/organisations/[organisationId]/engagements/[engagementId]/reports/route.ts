@@ -6,6 +6,7 @@ import { renderEngagementReportPdf } from "@/lib/reports/engagement-report-pdf";
 import { NotFoundOrForbiddenError } from "@/lib/authorization/service";
 import { auditLog } from "@/db/schema";
 import { getViewer } from "@/lib/workspace/common";
+import { loadIssuedSummary } from "@/lib/workspace/reports";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,7 @@ export async function GET(
         engagementId: params.engagementId,
       });
 
-      const pdf = await renderEngagementReportPdf(data, { generatedByEmail: user.email });
+      const pdf = await renderEngagementReportPdf(data, { generatedByEmail: user.email, summary: await loadIssuedSummary(db, data.selectedAssessment.id) });
 
       await db.insert(auditLog).values({
         tenantId: data.engagement.tenantId,

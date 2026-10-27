@@ -10,7 +10,7 @@ import { IntakeInputError } from "@/lib/intake/store";
 import { approveMany, decideSuggestion, DecisionNoteRequiredError, SuggestionApplyError, SuggestionNotPendingError } from "@/lib/ai/suggestions";
 import { getAiSettings, saveAiSettings } from "@/lib/ai/settings";
 import { ConnectorInputError, requestConnectorRun } from "@/lib/connectors/service";
-import { finalise, isRunStep, loadUploads, releaseAll, runStep, scopeStep, uploadSupport, uploadTemplate, type StepReport } from "@/lib/live/steps";
+import { finalise, isRunStep, loadUploads, releaseAll, releaseFinalReport, runStep, scopeStep, uploadSupport, uploadTemplate, type StepReport } from "@/lib/live/steps";
 import { mimeFor } from "@/lib/live/mime";
 
 const ids = z.object({ organisationId: z.string().uuid(), engagementId: z.string().uuid(), phase: z.coerce.number().int().min(1).max(7) });
@@ -124,6 +124,12 @@ export async function releaseAction(formData: FormData): Promise<void> {
   const user = await requireAuthenticatedUser();
   const { scope, phase, base } = parse(formData);
   await guarded(base, phase, () => withRequestDb(user.id, (db) => releaseAll(db, user.id, scope)));
+}
+
+export async function releaseReportStepAction(formData: FormData): Promise<void> {
+  const user = await requireAuthenticatedUser();
+  const { scope, phase, base } = parse(formData);
+  await guarded(base, phase, () => withRequestDb(user.id, (db) => releaseFinalReport(db, user.id, user.email ?? null, scope)));
 }
 
 export async function finaliseAction(formData: FormData): Promise<void> {

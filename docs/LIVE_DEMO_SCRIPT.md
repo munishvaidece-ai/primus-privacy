@@ -31,6 +31,10 @@ Sign in as the right person for the hand-off. The screen tells you when you are 
 | 6 Findings released | Nobody (uses 4 and 5) | none | Drafts findings for weak controls; a critical one waits for a person | Release is a person's action |
 | 7 Remediation and final report | Client, then Primus | Closure Log + proof files | Plans actions from findings; checks each proof; drafts the final report for a person to issue | Weak proofs are sent back, the irrelevant one is rejected |
 
+## At the end of phase 7: the final report (2 minutes)
+
+After the assessment is finalised and the AI has drafted the final report, approve it (Primus side). Then press **Release the report to the client** in phase 7 and use **Download PDF**. The PDF opens with the AI's headline and summary, and has a **Remediation Roadmap** in 30, 60 and 90 day steps. Sign in as the client and open **Live journey**: phase 7 shows **Download the report (PDF)**.
+
 ## After phase 7: a breach (3 minutes)
 
 1. On the Live Run, press **After the assessment: incidents and cases**. In demo mode, press **Open a sample incident** (a client list emailed to the wrong address).

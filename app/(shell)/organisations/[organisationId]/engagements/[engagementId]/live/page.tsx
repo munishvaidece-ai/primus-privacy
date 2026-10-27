@@ -12,6 +12,7 @@ import { LEVEL_NAMES, type AutopilotLevel } from "@/lib/ai/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LiveLog } from "@/components/live/live-log";
+import { listReleasedReports } from "@/lib/workspace/reports";
 import { PhaseCard, type LiveCtx } from "@/components/live/phase-card";
 import { PHASES } from "@/lib/live/config";
 import { loadLiveStatus, type PhaseState } from "@/lib/live/status";
@@ -46,13 +47,14 @@ export default async function LiveRunPage({
       ]);
       const live = await loadLiveStatus(db, user.id, params, canRun);
       const settings = canRun ? await getAiSettings(db, params.engagementId, params.organisationId) : null;
-      return { eng, canRun, canRelease, canConfigure, viewer, live, settings };
+      const reports = await listReleasedReports(db, { engagementId: params.engagementId });
+      return { eng, canRun, canRelease, canConfigure, viewer, live, settings, reports };
     } catch (err) {
       if (err instanceof NotFoundOrForbiddenError) notFound();
       throw err;
     }
   });
-  const { eng, canRun, canRelease, canConfigure, viewer, live, settings } = data;
+  const { eng, canRun, canRelease, canConfigure, viewer, live, settings, reports } = data;
   const base = `/organisations/${params.organisationId}/engagements/${params.engagementId}`;
   const ctx: LiveCtx = {
     organisationId: params.organisationId,
@@ -62,6 +64,7 @@ export default async function LiveRunPage({
     isDemo: isDemoAuthActive(),
     viewerName: viewer.displayName ?? viewer.email ?? "you",
     viewerSide: viewer.side,
+    reports: reports.map((r) => ({ id: r.id, title: r.title, version: r.version, releasedAt: r.releasedAt })),
   };
   const done = live.phases.filter((p) => p.state === "done").length;
 

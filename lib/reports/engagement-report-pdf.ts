@@ -26,10 +26,10 @@ import type { EngagementReportData } from "@/lib/domain/reports";
 // throughout every page in app/(shell)). This module reuses those exact
 // hex values rather than choosing new ones, so the PDF reads as the
 // same product, not a separately art-directed document.
-const COLOR_HEADING = "#0f172a"; // Tailwind slate-900
+const COLOR_HEADING = "#4a1511"; // Primus maroon (deep)
 const COLOR_BODY = "#334155"; // Tailwind slate-700
 const COLOR_MUTED = "#64748b"; // Tailwind slate-500
-const COLOR_ACCENT = "#2563eb"; // Tailwind blue-600
+const COLOR_ACCENT = "#8f5424"; // Primus copper
 const COLOR_RULE = "#cbd5e1"; // Tailwind slate-300
 
 const PAGE_MARGIN = 56;
@@ -56,6 +56,38 @@ function raw(value: string | null | undefined): string {
 
 export interface EngagementReportRenderMeta {
   generatedByEmail: string | null;
+  /** The headline and short summary a person issued with the final report, if any. */
+  summary?: { headline: string; narrative: string; version: number } | null;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Groups the open remediation actions by when they fall due, counted from the
+ * day the report is generated. Actions already validated or closed are counted
+ * separately. Pure, so it can be tested without a database.
+ */
+export function buildRoadmap(actions: EngagementReportData["remediationActions"], today: Date) {
+  const start = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const order = { critical: 0, high: 1, medium: 2, low: 3 } as Record<string, number>;
+  const groups = [
+    { key: "overdue", title: "Overdue", rows: [] as typeof actions },
+    { key: "d30", title: "Next 30 days", rows: [] as typeof actions },
+    { key: "d60", title: "31 to 60 days", rows: [] as typeof actions },
+    { key: "d90", title: "61 to 90 days", rows: [] as typeof actions },
+    { key: "later", title: "After 90 days", rows: [] as typeof actions },
+    { key: "undated", title: "No due date set", rows: [] as typeof actions },
+  ];
+  let closed = 0;
+  for (const a of actions) {
+    if (a.status === "validated" || a.status === "closed") { closed += 1; continue; }
+    const due = a.dueDate ? Date.parse(a.dueDate) : NaN;
+    if (Number.isNaN(due)) { groups[5]!.rows.push(a); continue; }
+    const days = Math.floor((due - start) / DAY_MS);
+    groups[days < 0 ? 0 : days <= 30 ? 1 : days <= 60 ? 2 : days <= 90 ? 3 : 4]!.rows.push(a);
+  }
+  for (const g of groups) g.rows.sort((x, y) => (order[x.priority ?? ""] ?? 9) - (order[y.priority ?? ""] ?? 9) || String(x.dueDate ?? "").localeCompare(String(y.dueDate ?? "")));
+  return { groups, closed };
 }
 
 /**
@@ -261,9 +293,17 @@ export function renderEngagementReportPdf(
     // === Executive Summary ================================================
     newPage();
     sectionHeading("Executive Summary");
-    bodyText(
-      "This section is a deterministic tally of the current governance-loop state for this Engagement's most recent Assessment. It is generated directly from stored records — no narrative or interpretation has been added or inferred.",
-    );
+    if (meta.summary && (meta.summary.headline || meta.summary.narrative)) {
+      doc.font("Helvetica-Bold").fillColor(COLOR_HEADING).fontSize(13).text(meta.summary.headline);
+      doc.moveDown(0.4);
+      if (meta.summary.narrative) bodyText(meta.summary.narrative);
+      doc.moveDown(0.3);
+      emptyNote(`Summary drafted by the AI and issued by a person at Primus (final report v${meta.summary.version}). The figures below are counted directly from stored records.`);
+    } else {
+      bodyText(
+        "This section is a deterministic tally of the current governance-loop state for this Engagement's most recent Assessment. It is generated directly from stored records — no narrative or interpretation has been added or inferred.",
+      );
+    }
     doc.moveDown(0.6);
 
     const controlTotal = data.selectedAssessment.progress.total;
@@ -455,6 +495,35 @@ export function renderEngagementReportPdf(
           r.ownerEmail ?? "—",
         ]),
       );
+    }
+    drawFooter();
+
+    // === Remediation roadmap ================================================
+    newPage();
+    sectionHeading("Remediation Roadmap");
+    {
+      const { groups, closed } = buildRoadmap(data.remediationActions, data.generatedAt);
+      const open = groups.reduce((n, g) => n + g.rows.length, 0);
+      if (open === 0) {
+        emptyNote(closed > 0 ? `All ${closed} remediation action${closed === 1 ? " is" : "s are"} validated or closed.` : "No remediation actions have been recorded for this Engagement.");
+      } else {
+        bodyText(`The open remediation actions, in the order they fall due, counted from ${formatDate(data.generatedAt)}. Within each period the most serious come first.`);
+        doc.moveDown(0.5);
+        kv("Open actions:", String(open));
+        kv("Already validated or closed:", String(closed));
+        for (const g of groups) if (g.rows.length) kv(`  ${g.title}:`, String(g.rows.length));
+        for (const g of groups) {
+          if (g.rows.length === 0) continue;
+          if (doc.y > doc.page.height - PAGE_MARGIN - 130) newPage();
+          doc.x = PAGE_MARGIN; // the table above leaves the cursor at its last column
+          subHeading(`${g.title} (${g.rows.length})`);
+          table(
+            ["Remediation Action", "Priority", "Due", "Status", "Owner"],
+            [0.4, 0.11, 0.12, 0.15, 0.22],
+            g.rows.map((r) => [r.title, raw(r.priority), formatDate(r.dueDate), raw(r.status), r.ownerEmail ?? "—"]),
+          );
+        }
+      }
     }
     drawFooter();
 

@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { RequestDb } from "@/lib/db/request-client";
-import { findings, remediationFindings, reportReleases } from "@/db/schema";
+import { aiReportIssuances, findings, remediationFindings, reportReleases } from "@/db/schema";
 import { NotFoundOrForbiddenError, hasEngagementPermission } from "@/lib/authorization/service";
 import { getEngagementReportData, type EngagementReportData } from "@/lib/domain/reports";
 import { renderEngagementReportPdf } from "@/lib/reports/engagement-report-pdf";
@@ -45,6 +45,17 @@ export async function clientSafeReportData(db: RequestDb, data: EngagementReport
   };
 }
 
+/** The headline and summary a person issued with the final report (latest version), or null if none was issued. */
+export async function loadIssuedSummary(db: RequestDb, assessmentId: string): Promise<{ headline: string; narrative: string; version: number } | null> {
+  const [row] = await db
+    .select({ headline: aiReportIssuances.headline, narrative: aiReportIssuances.narrative, version: aiReportIssuances.version })
+    .from(aiReportIssuances)
+    .where(eq(aiReportIssuances.assessmentId, assessmentId))
+    .orderBy(desc(aiReportIssuances.version))
+    .limit(1);
+  return row ? { headline: row.headline ?? "", narrative: row.narrative ?? "", version: row.version } : null;
+}
+
 /** Builds the engagement report from the current records and stores it, unchanged, for the client. */
 export async function releaseReport(
   db: RequestDb,
@@ -56,7 +67,7 @@ export async function releaseReport(
   if (!(await hasEngagementPermission(db, userId, eng.id, "report.release"))) throw new NotFoundOrForbiddenError();
   const full = await getEngagementReportData(db, userId, { organisationId: eng.organisationId, engagementId: eng.id });
   const data = await clientSafeReportData(db, full);
-  const pdf = await renderEngagementReportPdf(data, { generatedByEmail: input.userEmail });
+  const pdf = await renderEngagementReportPdf(data, { generatedByEmail: input.userEmail, summary: await loadIssuedSummary(db, data.selectedAssessment.id) });
   const [maxRow] = await db
     .select({ v: sql<number>`coalesce(max(${reportReleases.version}), 0)::int` })
     .from(reportReleases)

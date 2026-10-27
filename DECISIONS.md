@@ -5356,3 +5356,9 @@ functions each one calls are).
 
 **Decision:** The Platform page lists Live now, Next and Later (privacy impact assessments, vendor assessments, programme operations, a full rights workflow, consent and notice governance including cookie and banner management, redaction, more connectors). It is generated from `scripts/build-site.ts`.
 **Rationale:** leadership will ask; an honest map is better than an unlabelled gap.
+
+### R-225 — The final report is a downloadable PDF with a remediation roadmap and the AI summary
+- The engagement report PDF gains a **Remediation Roadmap** section: open actions grouped as Overdue, next 30 days, 31–60, 61–90, after 90 days and no date, counted from the day the report is made, most serious first. Validated or closed actions are counted, not listed.
+- The headline and summary a person issued with the final report (latest `ai_report_issuances` row) appear at the top of the Executive Summary, labelled as AI-drafted and person-issued. The figures stay counted from stored records.
+- Live Run phase 7 gains "Release the final report and download it": the release builds the client-safe PDF and stores that exact copy; the client downloads it from Reports and from the Journey page. The working copy (with drafts) stays Primus-only.
+- The PDF palette moved from blue to the product's maroon and copper.
