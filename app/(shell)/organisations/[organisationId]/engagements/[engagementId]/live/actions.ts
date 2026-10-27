@@ -18,16 +18,21 @@ const ids = z.object({ organisationId: z.string().uuid(), engagementId: z.string
 function parse(formData: FormData) {
   const p = ids.safeParse({ organisationId: formData.get("organisationId"), engagementId: formData.get("engagementId"), phase: formData.get("phase") ?? 1 });
   if (!p.success) redirect("/organisations");
-  const base = `/organisations/${p.data.organisationId}/engagements/${p.data.engagementId}/live`;
+  // The organisation login does the same steps from its own Journey page, so it says where to come back to.
+  const wanted = String(formData.get("returnTo") ?? "");
+  const returnTo = /^\/portal\/journey(\?e=[0-9a-f-]{36})?$/i.test(wanted) ? wanted : null;
+  const base = returnTo ?? `/organisations/${p.data.organisationId}/engagements/${p.data.engagementId}/live`;
   return { scope: { organisationId: p.data.organisationId, engagementId: p.data.engagementId }, phase: p.data.phase, base };
 }
 
 function back(base: string, phase: number, report: StepReport): never {
-  const q = new URLSearchParams({ [report.ok ? "ok" : "problem"]: report.message });
+  const [path, existing] = base.split("?");
+  const q = new URLSearchParams(existing ?? "");
+  q.set(report.ok ? "ok" : "problem", report.message);
   if (report.details?.length) q.set("details", report.details.join("\n"));
   q.set("phase", String(phase));
-  revalidatePath(base);
-  redirect(`${base}?${q.toString()}#phase-${phase}`);
+  revalidatePath(path!);
+  redirect(`${path}?${q.toString()}#phase-${phase}`);
 }
 
 async function guarded(base: string, phase: number, fn: () => Promise<StepReport>): Promise<never> {

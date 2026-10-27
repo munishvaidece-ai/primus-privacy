@@ -1,69 +1,86 @@
 import Link from "next/link";
 import { loadPortal } from "@/lib/workspace/page";
-import { clientNextSteps, recentActivity } from "@/lib/workspace/portfolio";
+import { clientNextSteps, portfolioInsights, recentActivity } from "@/lib/workspace/portfolio";
 import { listTasks } from "@/lib/workspace/tasks";
+import { loadLiveStatus } from "@/lib/live/status";
+import { loadEngagementApplicability } from "@/lib/workspace/applicability";
+import { PHASES } from "@/lib/live/config";
 import { PortalHeader } from "@/components/portal/header";
-import { CARD, Empty, Progress, Stat, fmtDate, fmtDateTime } from "@/components/ui/kit";
+import { fmtDate, fmtDateTime } from "@/components/ui/kit";
 import { Badge } from "@/components/ui/badge";
 import { daysUntil } from "@/lib/workspace/common";
+import { DashHero, Donut, Feed, HeroStat, Needs, PALETTE, Panel, Ring, StackBar, Stepper, type Step } from "@/components/dashboard/widgets";
+
+export const dynamic = "force-dynamic";
 
 export default async function PortalOverview({ searchParams }: { searchParams: { e?: string } }) {
-  const { portal, data } = await loadPortal(searchParams, async ({ db, current }) => ({
-    milestones: await listTasks(db, { engagementId: current.id, kind: "milestone", status: "open" }),
-    activity: await recentActivity(db, { engagementId: current.id, limit: 10 }),
-  }));
+  const { portal, data } = await loadPortal(searchParams, async ({ db, user, current }) => {
+    const scope = { engagementId: current.id, organisationId: current.organisationId };
+    return {
+      milestones: await listTasks(db, { engagementId: current.id, kind: "milestone", status: "open" }),
+      activity: (await recentActivity(db, { engagementId: current.id, limit: 60 })).filter((a) => !/was uploaded for phase/.test(a.summary)).slice(0, 8),
+      live: await loadLiveStatus(db, user.id, scope, false),
+      applies: await loadEngagementApplicability(db, user.id, scope),
+      ins: await portfolioInsights(db, { engagementId: current.id }),
+    };
+  });
   const m = portal.current;
   const q = portal.q;
   const steps = clientNextSteps(m);
+  const { live, applies, ins } = data;
+  const firstOpen = live.phases.findIndex((p) => p.state !== "done");
+  const stepper: Step[] = PHASES.map((cfg, i) => ({ n: cfg.n, name: cfg.name, state: live.phases[i]!.state === "done" ? "done" : i === firstOpen ? "now" : "todo", who: cfg.from.side === "client" ? "you" : "primus" }));
+  const days = applies.summary.daysToFirstDuty;
+  const f = ins.findingsBySeverity;
+  const r = ins.ratings;
+  const rated = r.implemented + r.partial + r.notImplemented;
+
   return (
-    <div>
+    <div className="space-y-6">
       <PortalHeader title="Overview" subtitle="Where your privacy programme stands and what is waiting for you." engagements={portal.engagements} current={m} />
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Overall progress" value={`${m.progress}%`} hint={m.phase} />
-        <Stat label="Open findings" value={m.findingsOpen} href={`/portal/findings${q}`} hint={`${m.findingsCriticalHigh} critical or high`} tone={m.findingsCriticalHigh ? "bad" : undefined} />
-        <Stat label="Remediation done" value={`${m.remediationClosed}/${m.remediationTotal}`} href={`/portal/remediation${q}`} />
-        <Stat label="Open clarifications" value={m.clarificationsOpen} href={`/portal/clarifications${q}`} />
+      <DashHero eyebrow={`${m.organisationName} · ${m.phase}`} title={rated ? `${Math.round((r.implemented / rated) * 100)}% of your assessed controls are in place` : "Your DPDP readiness programme"} sub={`${applies.summary.applies} DPDP obligations apply to you today, bound by ${applies.summary.rules.length} Rules, with a penalty ceiling of up to ${applies.summary.highestCeilingText?.replace("up to ", "") ?? "n/a"}.`} daysToDuties={days} dutiesDate="13 May 2027">
+        <HeroStat n={`${m.progress}%`} label="Programme progress" />
+        <HeroStat n={m.findingsOpen} label="Open findings" tone={m.findingsCriticalHigh ? "text-[#ffb4a8]" : undefined} />
+        <HeroStat n={`${m.remediationClosed}/${m.remediationTotal}`} label="Actions closed" />
+        <HeroStat n={m.clarificationsOpen} label="Clarifications" />
+      </DashHero>
+
+      <Panel title="Your journey" hint="Seven phases. Four need a file from you." action={<Link href={`/portal/journey${q}`} className="text-sm font-medium text-copper hover:underline">Open the live journey →</Link>}>
+        <Stepper steps={stepper} />
+      </Panel>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Panel title="What to do next">
+          <Needs items={steps.map((s) => ({ label: s.label, detail: s.detail, href: `${s.href}${q}` }))} empty="You are up to date. Primus will tell you when something needs you." />
+        </Panel>
+        <Panel title="Open findings" hint="By severity, released to you">
+          <Donut caption="open" slices={[{ label: "Critical", value: f.critical, color: PALETTE.bad }, { label: "High", value: f.high, color: "#d8662a" }, { label: "Medium", value: f.medium, color: PALETTE.warn }, { label: "Low", value: f.low, color: PALETTE.mute }]} />
+        </Panel>
+        <Panel title="What applies to you" hint="From your answers, data map and sector" action={<Link href={`/portal/regulations${q}`} className="text-sm font-medium text-copper hover:underline">See all →</Link>}>
+          <StackBar slices={[{ label: "Apply", value: applies.summary.applies, color: PALETTE.brand }, { label: "May apply", value: applies.summary.mayApply, color: PALETTE.copperLight }, { label: "Do not apply", value: applies.summary.notApplicable, color: PALETTE.mute }]} />
+          <p className="mt-4 text-sm text-slate-600">Sectors: <b className="text-slate-900">{applies.sectors.length ? applies.sectors.map((s) => s.label).join(", ") : "not set yet"}</b></p>
+        </Panel>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <section className={CARD} aria-labelledby="next">
-          <h2 id="next" className="text-sm font-semibold text-slate-900">What to do next</h2>
-          {steps.length === 0 ? <p className="mt-3 text-sm text-slate-500">You are up to date. Primus will tell you when something needs you.</p> : (
-            <ul className="mt-3 divide-y divide-slate-100">
-              {steps.map((s) => (
-                <li key={s.label}><Link href={`${s.href}${q}`} className="flex flex-col py-2 hover:bg-slate-50"><span className="text-sm font-medium text-slate-900">{s.label}</span><span className="text-xs text-slate-500">{s.detail}</span></Link></li>
-              ))}
-            </ul>
-          )}
-        </section>
-        <section className={CARD} aria-labelledby="ms">
-          <h2 id="ms" className="text-sm font-semibold text-slate-900">Milestones</h2>
-          {data.milestones.length === 0 ? <p className="mt-3 text-sm text-slate-500">No upcoming milestones.</p> : (
-            <ol className="mt-3 divide-y divide-slate-100">
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <Panel title="Milestones">
+          {data.milestones.length === 0 ? <p className="text-sm text-slate-500">No upcoming milestones.</p> : (
+            <ol className="divide-y divide-slate-100">
               {data.milestones.map((t) => {
                 const d = daysUntil(t.dueDate);
-                return <li key={t.id} className="flex items-center justify-between py-2 text-sm"><span>{t.title}</span><span className="flex items-center gap-2 text-slate-600">{fmtDate(t.dueDate)}{d !== null && d < 0 ? <Badge tone="critical">late</Badge> : null}</span></li>;
+                return <li key={t.id} className="flex items-center justify-between py-2.5 text-sm"><span>{t.title}</span><span className="flex items-center gap-2 text-slate-600">{fmtDate(t.dueDate)}{d !== null && d < 0 ? <Badge tone="critical">late</Badge> : null}</span></li>;
               })}
             </ol>
           )}
-        </section>
+          <div className="mt-4 flex items-center gap-4 border-t border-slate-100 pt-4 text-sm text-slate-600">
+            <Ring value={m.discoveryStatus === "approved" ? 100 : (m.discoveryDone / 13) * 100} /><span>Discovery questionnaire</span>
+            <Ring value={m.questionsTotal ? (m.questionsValidated / m.questionsTotal) * 100 : 0} /><span>Validated by Primus</span>
+          </div>
+        </Panel>
+        <Panel title="Recent activity">
+          <Feed items={data.activity.map((a) => ({ id: a.id, text: a.summary, at: fmtDateTime(a.occurredAt) }))} />
+        </Panel>
       </div>
-
-      <section className={`${CARD} mt-6`} aria-labelledby="steps">
-        <h2 id="steps" className="text-sm font-semibold text-slate-900">Programme steps</h2>
-        <ul className="mt-3 grid gap-3 md:grid-cols-3">
-          <li><p className="text-xs text-slate-500">Discovery questionnaire</p><Progress value={m.discoveryStatus === "approved" ? 100 : (m.discoveryDone / 13) * 100} label="Discovery" /></li>
-          <li><p className="text-xs text-slate-500">Assessment answers</p><Progress value={m.questionsTotal ? (m.questionsAnswered / m.questionsTotal) * 100 : 0} label="Assessment answered" /></li>
-          <li><p className="text-xs text-slate-500">Validated by Primus</p><Progress value={m.questionsTotal ? (m.questionsValidated / m.questionsTotal) * 100 : 0} label="Assessment validated" /></li>
-        </ul>
-      </section>
-
-      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Recent activity</h2>
-      {data.activity.length === 0 ? <Empty>No activity yet.</Empty> : (
-        <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-card">
-          {data.activity.map((a) => <li key={a.id} className="flex flex-wrap justify-between gap-2 px-4 py-2 text-sm"><span>{a.summary}</span><span className="text-xs text-slate-500">{fmtDateTime(a.occurredAt)}</span></li>)}
-        </ul>
-      )}
     </div>
   );
 }

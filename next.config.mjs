@@ -2,6 +2,11 @@
 const nextConfig = {
   reactStrictMode: true,
   // The microsite is static HTML in /public/site; give it clean URLs.
+  // The microsite used to be eleven overlapping pages. Old links still land somewhere useful.
+  async redirects() {
+    const to = (from, dest) => ({ source: `/site/${from}.html`, destination: `/site/${dest}.html`, permanent: false });
+    return [to("obligations", "check"), to("readiness", "check"), to("configurator", "check"), to("portal", "platform"), to("workflows", "platform"), to("ai-layer", "platform"), to("ai-console", "platform"), to("live-skeleton", "platform"), to("sitemap", "index")];
+  },
   async rewrites() {
     return [
       { source: "/site", destination: "/site/index.html" },

@@ -36,7 +36,7 @@ export function NavIcon({ name, className = "h-4 w-4" }: { name: string; classNa
   );
 }
 
-function groupsFor(isClient: boolean, unread: number): Group[] {
+function groupsFor(isClient: boolean, unread: number, demo: boolean): Group[] {
   if (isClient) {
     return [
       { items: [{ href: "/portal", label: "Overview", icon: "home" }, { href: "/portal/tasks", label: "Tasks & milestones", icon: "check" }, { href: "/notifications", label: "Notifications", badge: unread, icon: "bell" }] },
@@ -46,7 +46,9 @@ function groupsFor(isClient: boolean, unread: number): Group[] {
           { href: "/portal/profile", label: "Company profile", icon: "building" },
           { href: "/portal/business-units", label: "Business units", icon: "layers" },
           { href: "/portal/processing", label: "Data & processing", icon: "layers" },
+          { href: "/portal/journey", label: "Live journey", icon: "chart" },
           { href: "/portal/discovery", label: "Discovery", icon: "search" },
+          { href: "/portal/regulations", label: "What applies to you", icon: "scale" },
           { href: "/portal/assessment", label: "Assessment", icon: "list" },
           { href: "/portal/evidence", label: "Evidence centre", icon: "upload" },
           { href: "/portal/clarifications", label: "Clarifications", icon: "chat" },
@@ -93,14 +95,15 @@ function groupsFor(isClient: boolean, unread: number): Group[] {
         { href: "/regulations", label: "Regulations", icon: "scale" },
         { href: "/methodology", label: "Methodology", icon: "book" },
         { href: "/connectors", label: "Connectors", icon: "plug" },
+        ...(demo ? [{ href: "/demo", label: "Demo environment", icon: "wrench" }] : []),
       ],
     },
   ];
 }
 
-export function Sidebar({ isClient, unread }: { isClient: boolean; unread: number }) {
+export function Sidebar({ isClient, unread, demo = false }: { isClient: boolean; unread: number; demo?: boolean }) {
   const path = usePathname() ?? "";
-  const groups = groupsFor(isClient, unread);
+  const groups = groupsFor(isClient, unread, demo);
   const allHrefs = groups.flatMap((g) => g.items.map((i) => i.href));
   // the longest matching link wins, so "/portal" is not lit up on "/portal/tasks"
   const active = allHrefs.filter((h) => path === h || path.startsWith(h + "/")).sort((a, b) => b.length - a.length)[0];

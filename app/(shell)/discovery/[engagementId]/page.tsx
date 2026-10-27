@@ -39,8 +39,8 @@ export default async function DiscoveryReviewPage({ params, searchParams }: { pa
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Answers</h2>
       <DiscoveryAnswers state={state} />
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Indicative obligations</h2>
-      <p className="mb-3 max-w-3xl text-sm text-slate-600">Worked out from the answers above as a starting point. The formal applicability decision is still made on the engagement&rsquo;s Applicability &amp; Scope page.</p>
-      <ObligationsPreview items={state.preview} />
+      <p className="mb-3 max-w-3xl text-sm text-slate-600">Worked out from the answers above, the data map and the sector.</p>
+      <ObligationsPreview href={`/organisations/${eng.organisationId}/engagements/${eng.id}/regulations`} />
     </div>
   );
 }

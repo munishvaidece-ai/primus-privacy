@@ -9,6 +9,14 @@ About 25 minutes. Everything is fictional. Orchid Hill is a mid-sized stock brok
 3. Optional: in `.env` set `AI_DEMO_PACE_MS=800` so each item shows up in the live log one at a time (restart `npm run dev`).
 4. Download the demo pack from the top of the Live Run screen. Files are in one folder per phase, split into "From the client" and "From Primus", which is where they would come from in real life.
 
+**Two ways to demo.** (a) From the Demo Administrator alone: the Live Run does every step. (b) With both logins: the Demo Administrator runs the AI, approvals and release, and the Orchid Hill login (for example Meera Kapoor, in a second browser) uploads its own files from **Live journey** and sees each phase turn to Done. Both show the same flow.
+
+**To run it again for someone else:** Demo Administrator, **Demo environment**, **Clear the demo data**. Orchid Hill goes back to empty; the other fictional clients stay.
+
+**Phase 5 note:** when the client uploads the Evidence Index and the files, the platform links them to controls by itself, so the "Link the files to controls" button will report that there is nothing new to link. That is expected.
+
+**After phase 3** open **Regulations** to show which DPDP Rules and sector rules bind Orchid Hill, with the reason for each. The client sees the same under **What applies to you**.
+
 Sign in as the right person for the hand-off. The screen tells you when you are not: client uploads (phases 1, 2, 5 and the phase 7 Closure Log) as **Client door, Orchid Hill**; the Control Test Log (phase 4), the AI buttons, approvals and release as the Primus side.
 
 ## Phase by phase

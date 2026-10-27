@@ -5316,3 +5316,28 @@ functions each one calls are).
 
 **Decision:** `instrumentation.ts` starts the AI worker loop inside the Next.js server (Node runtime only, in `instrumentation-node.ts`). A separate worker process is still supported for production. `AI_DEMO_PACE_MS` can slow each item so the live log is watchable.
 **Rationale:** one `npm run dev` should be enough for a demonstration.
+
+### R-217 — One applicability engine decides which DPDP rules bind an organisation, and everything shows its output
+
+**Decision:** `lib/regulation/applicability.ts` is a pure function over the catalogue (DPDP Act, Rules, 13 sector regimes) and the organisation's facts (sectors, data map, discovery answers). It returns each obligation as applies / may apply / does not apply, with the reason, the provision, the commencement date and the penalty ceiling. The Primus Regulations page, the client "What applies to you" page, the dashboards and the microsite checker all use this one function (the microsite gets it as a bundled copy). DPDP dates are kept in one place (`DPDP_VERIFIED_ON`) and shown as "confirm against the Gazette".
+**Rationale:** one answer everywhere, no repeated tables; the Jan 2026 consultation on shortening the phase-in is not notified, so it is not used.
+
+### R-218 — The client has the same seven-phase journey as Primus
+
+**Decision:** `/portal/journey` shows the same phases from the organisation's login. The client uploads at phases 1, 2, 5 and 7 through the same upload actions (with a safe `returnTo`); Primus-only steps are shown as "Primus". Client status uses only records the client may read (RLS), so phase 7 is Done when the assessment is finalised.
+**Rationale:** the demo can be shown from either portal and behaves the same.
+
+### R-219 — Evidence the client uploads is linked to controls on upload
+
+**Decision:** Phase 5 uploads are linked to controls straight after upload. The Primus "Link the files" button also catches up files uploaded by anyone (`anyUploader`).
+**Rationale:** otherwise client files stayed unlinked, because linking only looked at the signed-in user's own uploads.
+
+### R-220 — Demo reset empties one organisation, in demo mode only
+
+**Decision:** `lib/demo/reset.ts` deletes the engagement-scoped rows (58 tables) and the organisation's master data for the demo firm, and refuses unless `LOCAL_DEMO_AUTH` is on. Sign-in records and the audit log are never touched. The button is on **Demo environment**, for Platform Administrators.
+**Rationale:** one demo, many audiences.
+
+### R-221 — The microsite is five pages generated from `site-src`
+
+**Decision:** Home, DPDP, Sectors, Check and Platform replace the earlier nine pages; old addresses redirect. `npm run site:build` regenerates `public/site`. Facts are stated once; nothing repeats across pages.
+**Rationale:** less to maintain and no contradictions.

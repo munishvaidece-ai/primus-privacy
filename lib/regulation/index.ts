@@ -60,3 +60,5 @@ export function controlsForSectors(selected: SectorKey[]): FlatSectorControl[] {
   const keys = new Set<SectorKey>(["all", ...selected]);
   return allSectorControls().filter((c) => keys.has(c.sector));
 }
+
+export * from "./applicability";

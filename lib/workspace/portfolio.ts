@@ -376,3 +376,28 @@ export async function listAllAssessments(db: RequestDb): Promise<CrossAssessment
      order by (a.submitted_at is not null and a.status = 'draft') desc, a.created_at desc limit 500`);
   return r.rows.map((x) => ({ id: x.id, periodLabel: x.period_label, assessmentType: x.assessment_type, status: x.status, submittedAt: x.submitted_at ? new Date(x.submitted_at) : null, total: x.total, answered: x.answered, validated: x.validated, engagementId: x.engagement_id, engagementName: x.engagement_name, organisationId: x.organisation_id, organisationName: x.organisation_name }));
 }
+
+// ---------------------------------------------------------------------------
+// Portfolio insights for the dashboard: counts the caller is allowed to see (row security scopes them).
+// ---------------------------------------------------------------------------
+export interface PortfolioInsights {
+  findingsBySeverity: Record<"critical" | "high" | "medium" | "low", number>;
+  ratings: { implemented: number; partial: number; notImplemented: number; notAssessed: number };
+  sectors: Array<{ key: string; engagements: number }>;
+  evidence: { accepted: number; pending: number; rejected: number };
+}
+
+export async function portfolioInsights(db: RequestDb, opts: { engagementId?: string } = {}): Promise<PortfolioInsights> {
+  const e = opts.engagementId ? sql`and engagement_id = ${opts.engagementId}::uuid` : sql``;
+  const sev = (await db.execute<{ s: string; n: number }>(sql`select severity::text as s, count(*)::int as n from findings where status in ('open','in_progress') ${e} group by 1`)).rows;
+  const rat = (await db.execute<{ r: string; n: number }>(sql`select coalesce(effectiveness_rating::text,'not_assessed') as r, count(*)::int as n from assessment_responses where true ${e} group by 1`)).rows;
+  const sec = (await db.execute<{ k: string; n: number }>(sql`select sector_key as k, count(distinct engagement_id)::int as n from engagement_sectors where true ${e} group by 1 order by 2 desc, 1`)).rows;
+  const ev = (await db.execute<{ r: string; n: number }>(sql`select review_status::text as r, count(*)::int as n from evidence where true ${e} group by 1`)).rows;
+  const get = <T extends { n: number }>(rows: T[], f: (r: T) => boolean) => rows.filter(f).reduce((a, r) => a + r.n, 0);
+  return {
+    findingsBySeverity: { critical: get(sev, (r) => r.s === "critical"), high: get(sev, (r) => r.s === "high"), medium: get(sev, (r) => r.s === "medium"), low: get(sev, (r) => r.s === "low") },
+    ratings: { implemented: get(rat, (r) => r.r === "implemented"), partial: get(rat, (r) => r.r === "partially_implemented"), notImplemented: get(rat, (r) => r.r === "not_implemented"), notAssessed: get(rat, (r) => r.r === "not_assessed") },
+    sectors: sec.map((s) => ({ key: s.k, engagements: s.n })),
+    evidence: { accepted: get(ev, (r) => r.r === "accepted"), pending: get(ev, (r) => r.r === "pending_review"), rejected: get(ev, (r) => r.r === "rejected") },
+  };
+}

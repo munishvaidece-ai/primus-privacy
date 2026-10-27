@@ -69,8 +69,9 @@ const EVIDENCE_TYPE: Record<string, "policy_document" | "screenshot" | "signed_a
 /**
  * Phase 5: for every file this person uploaded that the Evidence Index lists, creates the evidence record
  * linked to the control the index names. Files not on the index are left alone and reported.
+ * `anyUploader` is the Primus catch-up: it also links files the client sent earlier, before the index or the assessment existed.
  */
-export async function reconcileEvidence(db: RequestDb, userId: string, scope: { engagementId: string; organisationId: string }): Promise<LoadResult> {
+export async function reconcileEvidence(db: RequestDb, userId: string, scope: { engagementId: string; organisationId: string }, opts: { anyUploader?: boolean } = {}): Promise<LoadResult> {
   const out: LoadResult = { created: 0, issues: [], lines: [] };
   const idx = await latestParsed(db, scope.engagementId, "EVIDENCE-INDEX");
   const files = await db.select().from(intakeFiles).where(and(eq(intakeFiles.engagementId, scope.engagementId), eq(intakeFiles.role, "evidence_file"), eq(intakeFiles.phase, 5))).orderBy(asc(intakeFiles.uploadedAt));
@@ -89,7 +90,7 @@ export async function reconcileEvidence(db: RequestDb, userId: string, scope: { 
   const acByCode = new Map(acs.map((a) => [a.code.toUpperCase(), a.acId]));
   const loadedBefore = await db.select({ f: intakeFiles.id }).from(intakeFiles).where(and(eq(intakeFiles.engagementId, scope.engagementId), eq(intakeFiles.role, "evidence_file"), eq(intakeFiles.status, "processed")));
   const done = new Set(loadedBefore.map((x) => x.f));
-  const mine = files.filter((f) => f.uploadedBy === userId && !done.has(f.id));
+  const mine = files.filter((f) => (opts.anyUploader || f.uploadedBy === userId) && !done.has(f.id));
 
   for (const f of mine) {
     const listed = rows.filter((r) => r.v.file!.trim().toLowerCase() === f.filename.toLowerCase());

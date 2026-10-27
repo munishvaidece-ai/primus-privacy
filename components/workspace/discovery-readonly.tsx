@@ -29,26 +29,15 @@ export function DiscoveryAnswers({ state }: { state: DiscoveryState }) {
   );
 }
 
-const statusLabel: Record<ObligationPreview["status"], string> = { applicable: "Applies", potential: "May apply", not_applicable: "Does not apply" };
-const statusTone: Record<ObligationPreview["status"], "positive" | "warning" | "neutral"> = { applicable: "positive", potential: "warning", not_applicable: "neutral" };
-
-export function ObligationsPreview({ items }: { items: ObligationPreview[] }) {
+/** One place shows what applies: the Regulations view. This is just the doorway to it. */
+export function ObligationsPreview({ href, count }: { href: string; count?: number }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
-      <table className="min-w-full divide-y divide-slate-200 text-sm" aria-label="Indicative obligations">
-        <thead className="bg-slate-50"><tr>{["Reference", "Obligation", "Source", "Indicative result", "Why"].map((h) => <th key={h} scope="col" className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500">{h}</th>)}</tr></thead>
-        <tbody className="divide-y divide-slate-100">
-          {items.map((o) => (
-            <tr key={o.ref}>
-              <td className="px-3 py-2 whitespace-nowrap">{o.ref}</td>
-              <td className="px-3 py-2">{o.title}</td>
-              <td className="px-3 py-2">{o.source}</td>
-              <td className="px-3 py-2"><Badge tone={statusTone[o.status]}>{statusLabel[o.status]}</Badge></td>
-              <td className="px-3 py-2 text-slate-600">{o.reason}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <a href={href} className="group flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-card hover:border-copper">
+      <span>
+        <span className="block text-sm font-semibold text-slate-900">See which DPDP rules apply{count ? ` (${count} provisions)` : ""}</span>
+        <span className="block text-sm text-slate-600">Worked out from these answers, the data map and the sector, with the section, the Rule, the date and the penalty ceiling for each.</span>
+      </span>
+      <span aria-hidden="true" className="text-copper transition-transform group-hover:translate-x-1">→</span>
+    </a>
   );
 }

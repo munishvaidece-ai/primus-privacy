@@ -73,7 +73,11 @@ A fourth fictional firm, a stock broking company, starts **empty**. Open it on t
 * The whole set of demo files is one download at the top of the Live Run screen (`Orchid_Hill_Demo_Pack.zip`), in one folder per phase, split into "From the client" and "From Primus". It also includes deliberately bad files (wrong template, renamed headings, empty required cells, not a spreadsheet) so you can show the checks.
 * Phase 2 can also read the client's **database** (a fictional back-office PostgreSQL database that `npm run local:setup` creates on your computer). Press **Scan the database now** before **Read the data inventory**.
 * Step-by-step script with what to say: `docs/LIVE_DEMO_SCRIPT.md`.
-* To start Orchid Hill again from empty: stop the app, `docker compose -f docker-compose.local.yml down -v`, `npm run local:db`, `npm run local:setup`, `npm run dev`.
+* **Both portals show the same flow.** The Demo Administrator can do every step from the Live Run. The organisation login (Orchid Hill, e.g. Meera Kapoor) sees the same seven phases on **Live journey**: it downloads the templates, uploads its own files at phases 1, 2, 5 and 7 and sees each phase turn to Done as Primus works. Open the two logins in two different browsers (or one normal and one private window) to show both at once.
+* **What applies to this organisation.** After phases 1 to 3, open **Regulations** (Primus side) or **What applies to you** (organisation side): every DPDP obligation and sector rule that binds this organisation, with the reason, the Rule and the penalty ceiling.
+* **Start the demo again for the next audience.** Sign in as Demo Administrator, open **Demo environment** (left menu), press **Clear the demo data**. This empties Orchid Hill, so it can be run again from phase 1. It only works in demo mode, never touches the sign-in records or the audit trail, and the other fictional clients stay.
+* **Microsite.** `public/site` holds the five pages. After changing anything in `site-src`, run `npm run site:build`.
+* To start everything from empty (all fictional firms): stop the app, `docker compose -f docker-compose.local.yml down -v`, `npm run local:db`, `npm run local:setup`, `npm run dev`.
 
 ## Showing what the AI reads and did (Vitalis)
 

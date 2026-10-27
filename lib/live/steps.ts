@@ -62,14 +62,27 @@ export async function uploadTemplate(db: RequestDb, userId: string, scope: Scope
       return { ok: true, message: `${file.filename} passed the template check, but the tests could not be recorded yet. Finish Phase 3 (lock the scope) first, then press "Load the tests".` };
     }
   }
+  if (phase === 5) return withLinking(db, userId, scope, `${file.filename} passed the template check (${result.stats.rows} rows read).`);
   return { ok: true, message: `${file.filename} passed the template check (${result.stats.rows} rows read). Ready for the AI.` };
+}
+
+/** Phase 5: files are linked to the controls the index names as soon as both the index and the files are in. */
+async function withLinking(db: RequestDb, userId: string, scope: Scope, lead: string): Promise<StepReport> {
+  try {
+    const r = await reconcileEvidence(db, userId, scope);
+    const tail = r.created ? r.lines.join(" ") : "Files are linked to their controls once the Evidence Index and the files are both in and the assessment is open.";
+    return { ok: true, message: `${lead} ${tail}`, details: r.issues.map((i) => i.text) };
+  } catch {
+    return { ok: true, message: `${lead} Linking to controls will happen when the assessment is open.` };
+  }
 }
 
 export async function uploadSupport(db: RequestDb, userId: string, scope: Scope, phase: number, files: FileInput[]): Promise<StepReport> {
   const role = phaseOf(phase).support?.role;
   if (!role) return { ok: false, message: "This phase takes no supporting files." };
   for (const f of files) await receiveSupportFile(db, userId, { ...scope, phase, role, file: { ...f, mimeType: f.mimeType || mimeFor(f.filename) } });
-  return { ok: true, message: `${files.length} file${files.length === 1 ? "" : "s"} received.` };
+  const lead = `${files.length} file${files.length === 1 ? "" : "s"} received.`;
+  return phase === 5 ? withLinking(db, userId, scope, lead) : { ok: true, message: lead };
 }
 
 /** Phase 4 and 5: reads the uploaded test log / evidence index and creates the records, as the person who uploaded them. */
@@ -79,8 +92,9 @@ export async function loadUploads(db: RequestDb, userId: string, scope: Scope, p
     return { ok: true, message: r.created ? r.lines.join(" ") : "No new test log from you is waiting to be loaded.", details: r.issues.map((i) => i.text) };
   }
   if (phase === 5) {
-    const r = await reconcileEvidence(db, userId, scope);
-    return { ok: true, message: r.created ? r.lines.join(" ") : "Nothing new to link. Upload the Evidence Index and the files first.", details: r.issues.map((i) => i.text) };
+    const primus = await hasEngagementPermission(db, userId, scope.engagementId, "ai.supervise");
+    const r = await reconcileEvidence(db, userId, scope, { anyUploader: primus });
+    return { ok: true, message: r.created ? r.lines.join(" ") : (await alreadyLinked(db, scope.engagementId)) ? "All uploaded files are already linked to their controls. Go on to the AI review." : "Nothing to link yet. Upload the Evidence Index and the files first.", details: r.issues.map((i) => i.text) };
   }
   return { ok: false, message: "Nothing to load in this phase." };
 }
@@ -114,3 +128,9 @@ export async function finalise(db: RequestDb, userId: string, scope: Scope): Pro
 }
 
 export { NotFoundOrForbiddenError };
+
+
+async function alreadyLinked(db: RequestDb, engagementId: string): Promise<boolean> {
+  const r = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM evidence WHERE engagement_id = ${engagementId}`);
+  return Number(r.rows[0]?.n ?? 0) > 0;
+}

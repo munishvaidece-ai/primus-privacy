@@ -23,7 +23,7 @@ const STATE_TONE: Record<PhaseState, "neutral" | "positive" | "warning" | "criti
 const FILE_TONE = { accepted: "positive", processed: "positive", received: "neutral", rejected: "critical" } as const;
 const FILE_WORD = { accepted: "Passed the check", processed: "Read by the AI", received: "Received", rejected: "Refused" } as const;
 
-function Hidden({ ctx, phase }: { ctx: LiveCtx; phase: number }) {
+export function Hidden({ ctx, phase }: { ctx: LiveCtx; phase: number }) {
   return (
     <>
       <input type="hidden" name="organisationId" value={ctx.organisationId} />
@@ -66,7 +66,7 @@ function PlainButton({ ctx, phase, action, label, extra, disabled, primary = fal
   );
 }
 
-function FilesTable({ st }: { st: PhaseStatus }) {
+export function FilesTable({ st }: { st: PhaseStatus }) {
   const templates = st.files.filter((f) => f.role === "template");
   const others = st.files.filter((f) => f.role !== "template");
   if (!st.files.length) return <p className="text-sm text-slate-500">Nothing has been uploaded for this phase yet.</p>;
@@ -344,6 +344,7 @@ export function PhaseCard({ cfg, st, ctx, live }: { cfg: PhaseConfig; st: PhaseS
         {n === 3 ? (
           <Step n={++step} title="Lock the scope and open the assessment">
             <p>When every control is decided, a person locks the scope. The assessment is created from it, and Phase 4 can start.</p>
+            <p className="text-xs text-slate-600"><Link className="font-medium underline" href={`${base}/regulations`}>See which DPDP Rules and sector rules apply to this organisation</Link>, with the reason for each.</p>
             <PlainButton ctx={ctx} phase={3} action={scopeAction} extra={{ step: "lock" }} label="Lock the scope" primary disabled={!live.scopeId || live.scopeStatus === "locked"} />
           </Step>
         ) : null}

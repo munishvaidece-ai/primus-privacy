@@ -75,7 +75,7 @@ export async function loadLiveStatus(db: RequestDb, userId: string, scope: { eng
               count(r.*) FILTER (WHERE r.effectiveness_rating::text = 'not_implemented')::int AS not_implemented
          FROM assessments a LEFT JOIN assessment_controls ac ON ac.assessment_id = a.id LEFT JOIN assessment_responses r ON r.assessment_control_id = ac.id
         WHERE a.engagement_id = ${e} GROUP BY a.id, a.status ORDER BY a.created_at DESC LIMIT 1`),
-    one(sql`SELECT count(*)::int AS n FROM ai_report_issuances WHERE engagement_id = ${e}`),
+    one(canSeeAi ? sql`SELECT count(*)::int AS n FROM ai_report_issuances WHERE engagement_id = ${e}` : sql`SELECT count(*)::int AS n FROM report_releases WHERE engagement_id = ${e}`),
     one(sql`SELECT status::text AS status FROM engagement_discovery WHERE engagement_id = ${e}`),
   ]);
 
@@ -131,7 +131,7 @@ export async function loadLiveStatus(db: RequestDb, userId: string, scope: { eng
       { label: "Closed (validated)", value: String(n(actions.closed)) },
       { label: "Sent back, in progress", value: String(n(actions.wip)) },
       { label: "Assessment", value: assess.status ? String(assess.status) : "not started" },
-      { label: "Final report", value: n(issued.n) ? "issued" : "not issued" },
+      { label: "Final report", value: n(issued.n) > 0 || (!canSeeAi && String(assess.status ?? "") === "finalized") ? "issued" : "not issued" },
     ],
   };
 
@@ -150,12 +150,12 @@ export async function loadLiveStatus(db: RequestDb, userId: string, scope: { eng
     let started = phaseFiles.length > 0 || own.length > 0;
     switch (p.n) {
       case 1: done = sectors.length > 0 && n(units.n) > 0; break;
-      case 2: done = n(acts.n) > 0 && String(disc.status ?? "") !== "" && own.some((s) => String(s.kind) === "discovery_prefill" && ["approved", "overridden", "auto_applied"].includes(String(s.status))); break;
+      case 2: done = n(acts.n) > 0 && String(disc.status ?? "") !== "" && (!canSeeAi || own.some((s) => String(s.kind) === "discovery_prefill" && ["approved", "overridden", "auto_applied"].includes(String(s.status)))); break;
       case 3: done = locked; started = hasScope; break;
-      case 4: done = n(tests.n) > 0 && sg.some((s) => String(s.kind) === "rating"); break;
-      case 5: done = n(evid.n) > 0 && sg.some((s) => String(s.kind) === "evidence_review") && !waiting.length; break;
+      case 4: done = n(tests.n) > 0 && (!canSeeAi || sg.some((s) => String(s.kind) === "rating")); break;
+      case 5: done = n(evid.n) > 0 && (canSeeAi ? sg.some((s) => String(s.kind) === "evidence_review") && !waiting.length : n(evid.accepted) + n(evid.rejected) > 0); break;
       case 6: done = n(finds.n) > 0 && n(finds.released) === n(finds.n) && !waiting.length; started = n(finds.n) > 0 || own.length > 0; break;
-      case 7: done = n(issued.n) > 0; started = n(actions.n) > 0 || phaseFiles.length > 0; break;
+      case 7: done = n(issued.n) > 0 || (!canSeeAi && String(assess.status ?? "") === "finalized"); started = n(actions.n) > 0 || phaseFiles.length > 0; break;
     }
     const state: PhaseState = running ? "working" : waiting.length ? "needs_person" : done ? "done" : started ? "ready" : "waiting";
     const stateText = { working: "AI is working", needs_person: `${waiting.length} waiting for a person`, done: "Done", ready: "Ready for the next step", waiting: "Not started" }[state];

@@ -10,6 +10,7 @@ import { Wordmark } from "@/components/shell/logo";
 import { users } from "@/db/schema/users";
 import { organisations } from "@/db/schema/organisations";
 import { eq } from "drizzle-orm";
+import { isDemoAuthActive } from "@/lib/auth/demo-auth";
 
 // The authenticated application shell (PHASE A instructions §8). Every
 // route under this route group — /organisations and everything nested
@@ -68,7 +69,7 @@ export default async function ShellLayout({ children }: { children: ReactNode })
         </div>
       </header>
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 md:flex-row">
-        <Sidebar isClient={isClient} unread={unread} />
+        <Sidebar isClient={isClient} unread={unread} demo={isDemoAuthActive()} />
         <main className="min-w-0 flex-1">{children}</main>
       </div>
     </div>

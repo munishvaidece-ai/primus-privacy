@@ -63,8 +63,8 @@ export default async function PortalDiscovery({ searchParams }: { searchParams: 
         <>
           <DiscoveryAnswers state={state} />
           <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Indicative obligations</h2>
-          <p className="mb-3 max-w-3xl text-sm text-slate-600">Worked out from your answers as a starting point. Primus makes the formal decision on what applies.</p>
-          <ObligationsPreview items={state.preview} />
+          <p className="mb-3 max-w-3xl text-sm text-slate-600">Worked out from your answers, your data map and your sector. Primus confirms the final scope.</p>
+          <ObligationsPreview href={`/portal/regulations${portal.q}`} />
         </>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
