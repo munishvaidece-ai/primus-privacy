@@ -17,6 +17,7 @@ import { markAllRead, markRead } from "@/lib/workspace/notifications";
 import { updateOrganisationProfile } from "@/lib/workspace/organisation-profile";
 import { reviewEvidence, uploadEvidence } from "@/lib/domain/evidence";
 import { actorName, emit } from "@/lib/workspace/emit";
+import { connectionRequestText } from "@/lib/workspace/data-connections";
 
 /** Where to go back to: a path on this site only. */
 function back(fd: FormData, fallback: string): string {
@@ -74,6 +75,19 @@ export async function raiseClarificationAction(fd: FormData): Promise<void> {
   if (error) redirect(`${to}${to.includes("?") ? "&" : "?"}error=${encodeURIComponent(error)}`);
   const detail = to.startsWith("/portal") ? `/portal/clarifications/${id}` : `/clarifications/${id}`;
   redirect(`${detail}${to.includes("e=") ? "?" + to.split("?")[1] : ""}`);
+}
+/** A client asks Primus to connect one of their systems. It is a clarification, so it lands in Primus's inbox and has a thread; no credentials are taken here. */
+export async function requestConnectionAction(fd: FormData): Promise<void> {
+  return act(back(fd, "/portal/data-connections"), async ({ db, user }) => {
+    let text;
+    try {
+      text = connectionRequestText({ type: fd.get("type"), systemName: fd.get("systemName"), hostedWhere: fd.get("hostedWhere"), contactName: fd.get("contactName"), notes: fd.get("notes") });
+    } catch (e) {
+      throw new WorkspaceInputError(e instanceof Error ? e.message : "Please check the form.");
+    }
+    await raiseClarification(db, user.id, { engagementId: need(uuidOr(fd.get("engagementId")), "engagement"), subject: text.subject, question: text.question });
+    return "Sent to Primus. They will reply under Clarifications, and no password or connection detail is needed until you agree how to share it.";
+  });
 }
 export async function replyClarificationAction(fd: FormData): Promise<void> {
   return act(back(fd, "/clarifications"), async ({ db, user }) => {

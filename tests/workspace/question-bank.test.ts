@@ -3,6 +3,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { withRequestDb } from "@/lib/db/request-client";
 import { SELECTABLE_SECTORS } from "@/lib/regulation";
+import { DPDP_DUTIES } from "@/lib/workspace/question-bank-extra";
 import { BANK_KEYS, BANK_SECTION_KEYS, BANK_TOTAL, COMMON_QUESTIONS, bankKeyFromSection, bankSection, questionsFor } from "@/lib/workspace/question-bank";
 import { LEGACY_SECTOR_VALUES, SECTIONS, sanitizeAnswers, sectionComplete } from "@/lib/workspace/discovery-sections";
 import { approveDiscovery, getSectorQuestions, saveDiscoverySection, submitDiscovery } from "@/lib/workspace/discovery";
@@ -44,6 +45,37 @@ describe("question bank (data)", () => {
       expect(q.label, `${k} ${q.key}`).not.toMatch(/\bthe client\b/i);
       expect(q.label, `${k} ${q.key}`).toMatch(/\b(you|your)\b/i);
     }
+  });
+
+  it("education has questions for schools, colleges, coaching centres and edtech, and others may answer 'not applicable'", () => {
+    const edu = questionsFor("education");
+    const topics = new Set(edu.map((x) => x.topic));
+    for (const t of ["School", "College or university", "Coaching centre", "Edtech platform"]) expect(topics.has(t), t).toBe(true);
+    const typed = edu.filter((x) => ["School", "College or university", "Coaching centre", "Edtech platform"].includes(x.topic));
+    for (const x of typed) {
+      expect(x.options!.map((o) => o.value)).toContain("na");
+      expect(x.label).toMatch(/^If you run an? /);
+    }
+    const sec = bankSection("education");
+    const answers = Object.fromEntries(sec.fields.map((f) => [f.key, "na"]));
+    expect(sectionComplete(sec, sanitizeAnswers(sec, answers))).toBe(false); // common-to-all questions have no 'na'
+    const ok = Object.fromEntries(sec.fields.map((f) => [f.key, f.options!.some((o) => o.value === "na") ? "na" : "yes"]));
+    expect(sectionComplete(sec, sanitizeAnswers(sec, ok))).toBe(true);
+  });
+
+  it("the common set covers every duty in the Act and Rules that we list, each with a DPDP reference", () => {
+    const refs = new Set(questionsFor("common").flatMap((x) => (x.ref ?? "").split(";").map((r) => r.trim()).filter(Boolean)));
+    for (const d of DPDP_DUTIES) expect(refs.has(d.ref), `${d.ref} ${d.duty}`).toBe(true);
+    // Every common question says which part of the law it checks.
+    for (const x of questionsFor("common")) expect(x.ref, x.key).toBeTruthy();
+    expect(questionsFor("common").length).toBeGreaterThanOrEqual(35);
+  });
+
+  it("every sector has at least twelve questions, and extra questions never repeat a base question", () => {
+    for (const s of SELECTABLE_SECTORS) expect(questionsFor(s.key).length, s.key).toBeGreaterThanOrEqual(12);
+    expect(BANK_TOTAL).toBeGreaterThan(250);
+    const all = BANK_KEYS.flatMap((k) => questionsFor(k).map((x) => x.label.toLowerCase()));
+    expect(new Set(all).size, "a question appears in two sets").toBe(all.length);
   });
 
   it("section keys round-trip and unknown keys are not accepted", () => {

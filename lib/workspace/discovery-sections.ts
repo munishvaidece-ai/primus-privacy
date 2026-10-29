@@ -40,7 +40,7 @@ export const SECTIONS: Section[] = [
     intro: "Tell us about your organisation, its services and its customers.",
     fields: [
       { key: "summary", label: "Summarise the organisation, its services and customer base", type: "text", required: true },
-      { key: "sector", label: "Your main sector", type: "choice", required: true, help: "The questions you are asked later, and the rules we show you, follow this choice.", options: [...SELECTABLE_SECTORS.map((x) => ({ value: x.key, label: x.label })), { value: "other", label: "Other" }] },
+      { key: "sector", label: "Your main sector", type: "choice", required: true, help: "The questions you are asked later, and the rules we show you, follow this choice. If you run a small business, choose your industry here. Primus can add the small-business essentials as well.", options: [...SELECTABLE_SECTORS.map((x) => ({ value: x.key, label: x.label })), { value: "other", label: "Other" }] },
       { key: "employees", label: "Approximate number of employees", type: "choice", required: true, options: opt(["lt_50", "Under 50"], ["50_250", "50 to 250"], ["250_1000", "250 to 1,000"], ["1000_5000", "1,000 to 5,000"], ["gt_5000", "More than 5,000"]) },
       { key: "website", label: "Website", type: "line" },
     ],

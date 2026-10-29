@@ -63,7 +63,7 @@ const RULES: Rule[] = [
   { key: "ott", registered: /\bmib\b|ott (registration|platform)/i, mentioned: /\bott\b|streaming|online gaming|social media platform|publisher of news/i },
   { key: "aviation", registered: /\bdgca\b|\bbcas\b|air operator|airport operator/i, mentioned: /airline|airport|aviation|passenger|travel agen/i },
   { key: "ai", registered: /ai (registration|governance)/i, mentioned: /artificial intelligence|machine learning|model training|\bllm\b|ai platform|ai product/i },
-  { key: "education", registered: /\bugc\b|\baicte\b|\bcbse\b|school board|university grants/i, mentioned: /school|college|university|students|edtech|learning platform/i },
+  { key: "education", registered: /\bugc\b|\baicte\b|\bcbse\b|school board|university grants|ministry of education/i, mentioned: /school|college|university|students|edtech|learning platform|coaching|tuition/i },
   { key: "msme", registered: /\budyam\b|\bmsme\b registration/i, mentioned: /\bmsme\b|micro enterprise|small enterprise|startup recognition|dpiit/i },
   { key: "pharma", registered: /\bcdsco\b|\bdcgi\b|drug (manufacturing )?licen|clinical trial (approval|registration)|\bctri\b|\bpvpi\b|wholesale drug/i, mentioned: /pharma|drug maker|clinical trial|\bcro\b|pharmacovigilance|formulation|api manufactur|life sciences/i },
   { key: "psu", registered: /\bcpse\b|central public sector|state public sector|\bpsu\b|navratna|maharatna|miniratna|\bdpe\b/i, mentioned: /public sector (undertaking|enterprise)|government company|owned by the government|\bpsu\b|\bcpse\b/i },

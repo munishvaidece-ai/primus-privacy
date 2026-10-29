@@ -63,7 +63,7 @@ export const PHASES: PhaseConfig[] = [
     kinds: ["applicability"],
     reads: "The sectors, business units, data map and questionnaire answers from Phases 1 and 2, and the control library.",
     does: [
-      "Decides for each of the 132 controls whether it applies: DPDP controls plus the controls of the sectors chosen.",
+      "Decides for each of the 139 controls whether it applies: DPDP controls plus the controls of the sectors chosen.",
       "Gives the reason and the facts it relied on for every decision. Controls for other sectors are marked not applicable.",
     ],
     handsOn: "A locked scope: the controls that will be assessed.",

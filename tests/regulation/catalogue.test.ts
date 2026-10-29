@@ -67,6 +67,23 @@ describe("regulation catalogue", () => {
     }
   });
 
+  it("education covers schools, colleges, coaching centres and edtech, each with its own control", () => {
+    const edu = SECTORS.find((s) => s.key === "education")!;
+    const text = (edu.label + edu.blurb).toLowerCase();
+    for (const w of ["school", "college", "coaching", "edtech"]) expect(text, w).toContain(w);
+    const titles = edu.controls.map((c) => c.title.toLowerCase()).join(" | ");
+    for (const w of ["campus", "colleges", "coaching", "edtech", "student id"]) expect(titles, w).toContain(w);
+    expect(edu.instruments.some((i) => i.id === "moe-coaching")).toBe(true);
+    // Instruments we have not checked against the published text say so.
+    for (const i of edu.instruments.filter((x) => ["moe-coaching", "ugc-boards", "student-id"].includes(x.id))) expect(i.confirmed, i.id).toBe(false);
+  });
+
+  it("MSME controls tell a small firm to check exemptions and to also follow its own industry", () => {
+    const m = SECTORS.find((s) => s.key === "msme")!;
+    expect(m.controls.map((c) => c.code)).toEqual(expect.arrayContaining(["MSM-05", "MSM-06"]));
+    expect(m.blurb.toLowerCase()).toContain("industry sector");
+  });
+
   it("stock broking is the deepest sector", () => {
     const broking = SECTORS.find((s) => s.key === "broking")!;
     for (const s of SELECTABLE_SECTORS.filter((x) => x.key !== "broking")) expect(broking.controls.length, s.key).toBeGreaterThan(s.controls.length);

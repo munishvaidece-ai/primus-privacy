@@ -2,23 +2,32 @@ import type { Sector } from "../types";
 
 export const EDUCATION: Sector = {
   key: "education",
-  label: "Education and edtech",
+  label: "Education, coaching and edtech",
   prefix: "EDU",
-  blurb: "Schools, colleges and edtech platforms: most users are children, so parental consent and the ban on tracking children come first.",
-  regulators: ["Ministry of Education", "State education departments", "UGC"],
+  blurb: "Schools, colleges and universities, coaching centres and edtech platforms: most students are children, so parental consent and the ban on tracking children come first. Each type of institution has its own extra duties.",
+  regulators: ["Ministry of Education", "State education departments", "UGC", "CBSE and state boards"],
   instruments: [
     { id: "dpdp-children-edu", name: "DPDP Act s.9 and Rules 10 to 12 (children's data), applied to education", regulator: "MeitY", kind: "law", confirmed: true, summary: "Verifiable parental consent before processing a child's data; no tracking, behavioural monitoring or targeted ads aimed at children. Rule 12 and the Fourth Schedule exempt educational institutions only as far as tracking and monitoring are needed for educational activities or the safety of enrolled children." },
     { id: "edu-records", name: "Education records and examination body rules", regulator: "State boards, UGC", kind: "regulation", confirmed: false, summary: "Student and examination records are kept for the periods the board or university requires." },
+    { id: "moe-coaching", name: "Guidelines for Registration and Regulation of Coaching Centres, 2024", regulator: "Ministry of Education", kind: "guidelines", confirmed: false, summary: "Applies to coaching centres, which States register and oversee. Covers student age, fee and refund practice, student well-being and counselling, and the records a centre keeps. States adopt and enforce them in their own rules, so check the State where the centre operates." },
+    { id: "ugc-boards", name: "UGC regulations and school board affiliation rules (CBSE and State boards)", regulator: "UGC, CBSE, State boards", kind: "regulation", confirmed: false, summary: "Universities and colleges follow UGC rules on admissions, student records and grievance redress. Schools follow their board's affiliation rules, including campus safety expectations such as camera coverage." },
+    { id: "student-id", name: "Student identity and record systems (APAAR, UDISE+) and the Right of Children to Free and Compulsory Education Act, 2009", regulator: "Ministry of Education", kind: "guidelines", confirmed: false, summary: "Student ID and school data systems carry children's data into government records. Parental consent is expected before a child's ID is created. The RTE Act requires schools to keep certain admission and attendance records." },
   ],
   controls: [
     { code: "EDU-01", title: "Verifiable parental consent for student data", type: "preventive", instrument: "dpdp-children-edu", description: "Parental consent is obtained and verified before processing a child's data on enrolment or on a learning platform, and the record can be produced.", related: ["CHI-01", "CON-01"] },
     { code: "EDU-02", title: "No tracking or targeted advertising to students", type: "preventive", instrument: "dpdp-children-edu", description: "Learning apps do not track or profile students for advertising, and any monitoring is limited to what the educational activity or student safety needs.", related: ["CHI-01"] },
     { code: "EDU-03", title: "Student records retention and access", type: "preventive", instrument: "edu-records", description: "Student and examination records are kept for the period the rules require, access is limited to staff who need it, and the retention schedule names the legal basis.", related: ["RET-01", "SEC-02"] },
     { code: "EDU-04", title: "Third-party learning tools and student data", type: "preventive", instrument: "dpdp-children-edu", description: "Learning apps, proctoring and cloud tools that receive student data are chosen after due diligence and bound by agreements that prohibit secondary use.", related: ["PRO-01", "PRO-02"] },
+    { code: "EDU-05", title: "Campus safety records: cameras, transport and hostel", type: "preventive", instrument: "ugc-boards", description: "A school or college that uses cameras, school transport or hostels limits who can see footage, pick-up routes, medical and guardian details, keeps them only as long as needed, and tells students and parents.", related: ["RET-01", "SEC-02", "NOT-01"] },
+    { code: "EDU-06", title: "Applicant, scholarship and placement data in colleges and universities", type: "preventive", instrument: "ugc-boards", description: "Admissions, scholarship and placement data is seen only by staff who need it, applicants' data is deleted when the admission cycle ends, and students are told before their details go to recruiters or other outside bodies.", related: ["PUR-01", "RET-01", "CON-01"] },
+    { code: "EDU-07", title: "Coaching centres: enrolment, marketing and results", type: "preventive", instrument: "moe-coaching", description: "A coaching centre collects only the student and parent data it needs for enrolment and fees, stops marketing to students and parents when asked, does not publish named ranks or results without permission, and keeps counselling and well-being notes confidential. It follows the State's registration rules.", related: ["NOT-01", "CON-01", "PUR-01"] },
+    { code: "EDU-08", title: "Edtech platforms: age, parent verification and payments", type: "preventive", instrument: "dpdp-children-edu", description: "An edtech platform checks whether a user is a child before an account is created, verifies a parent's consent, handles a child's payments through the parent, and deletes activity, chat and recording data when the course ends.", related: ["CHI-01", "CON-01", "RET-01"] },
+    { code: "EDU-09", title: "Student ID and government record systems", type: "preventive", instrument: "student-id", description: "Before a child's data goes into a student ID or school record system, the institution has parental consent, sends only the fields the system needs, and can show what it sent and when.", related: ["CON-01", "PUR-01"] },
   ],
   dpdpInterplay: [
     "Almost every student is a child under 18, so s.9 applies by default. The fine for failing the children's duties can reach ₹200 crore.",
     "The class-wide Fourth Schedule exemption is narrow. Do not assume it covers marketing or analytics.",
+    "The type of institution changes the risk. Schools carry child records, cameras and transport data. Colleges carry admissions and placement data. Coaching centres carry fee, marketing and ranking data. Edtech platforms carry app tracking and payments. Pick the controls that match what the client runs.",
   ],
-  typicalEvidence: ["Admission form with parental consent", "Learning app privacy notice", "Vendor agreements for learning tools", "Student records retention schedule"],
+  typicalEvidence: ["Admission form with parental consent", "Learning app privacy notice", "Vendor agreements for learning tools", "Student records retention schedule", "Camera and transport access policy", "Coaching centre State registration", "Parent verification flow for edtech sign-up"],
 };

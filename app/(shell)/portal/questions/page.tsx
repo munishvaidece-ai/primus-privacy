@@ -37,6 +37,23 @@ export default async function PortalQuestions({ searchParams }: { searchParams: 
 
       <div className="mb-4 max-w-md"><Progress value={total ? (answered / total) * 100 : 0} label="Questions answered" /><p className="mt-1 text-xs text-slate-500">{answered} of {total} answered</p></div>
 
+      <ol className="mb-6 grid gap-3 md:grid-cols-2" aria-label="Your two parts">
+        {[{ title: "Part 1: Every organisation", sub: "Questions on notice, consent, rights, security, breaches, vendors and the rest of the DPDP Act. Everyone answers these.", set: sets.find((s) => s.key === "common") }, { title: sectorNames.length ? `Part 2: ${sectorNames.join(" and ")}` : "Part 2: Your sector", sub: sectorNames.length ? "Questions that fit the rules of your sector." : "These appear when you choose your sector in Discovery (step 1) or Primus sets it for you.", set: undefined }].map((part, i) => {
+          const group = i === 0 ? sets.filter((s) => s.key === "common") : sets.filter((s) => s.key !== "common");
+          const n = group.reduce((a, s) => a + s.section.fields.length, 0);
+          const done = group.reduce((a, s) => a + s.answered, 0);
+          const first = group.find((s) => !s.complete) ?? group[0];
+          return (
+            <li key={part.title} className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
+              <p className="text-sm font-semibold text-slate-900">{part.title}</p>
+              <p className="mt-1 text-xs text-slate-600">{part.sub}</p>
+              <p className="mt-2 text-xs text-slate-500">{n ? `${done} of ${n} answered` : "No questions yet"}</p>
+              {first ? <Link href={href(first.key)} className="mt-2 inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900 hover:border-slate-400">{done === n && n > 0 ? "Review answers" : done > 0 ? "Continue" : "Start"}</Link> : <Link href={`/portal/discovery${portal.q}`} className="mt-2 inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900 hover:border-slate-400">Choose your sector</Link>}
+            </li>
+          );
+        })}
+      </ol>
+
       <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
         <nav aria-label="Question sets">
           <ul className="space-y-1">

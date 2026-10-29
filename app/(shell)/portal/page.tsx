@@ -63,9 +63,10 @@ export default async function PortalOverview({ searchParams }: { searchParams: {
       </div>
 
       <Panel title="Learn, answer and ask">
-        <ul className="grid gap-3 sm:grid-cols-3">
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { href: `/portal/questions${q}`, t: "Your question sets", d: "Questions written for your sector. You answer them in your own time." },
+            { href: `/portal/questions${q}`, t: "Your question sets", d: "Common questions for everyone, then questions for your sector. You answer them in your own time." },
+            { href: `/portal/data-connections${q}`, t: "Documents and connections", d: "Where to upload your documents, and how Primus can look at your database or folders if you agree." },
             { href: `/portal/resources${q}`, t: "Resources", d: "Read the DPDP Act, the Rules and the laws for your sector." },
             { href: `/portal/dpo-mate${q}`, t: "DPO Mate", d: "Take your preliminary report, or book 30 minutes with our experts." },
           ].map((x) => (

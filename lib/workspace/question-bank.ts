@@ -16,22 +16,10 @@ import type { Field, Section } from "./discovery-sections";
 
 export type BankSetKey = SectorKey | "common";
 
-export interface BankQuestion extends Field {
-  /** The theme the question belongs to, for grouping on the Primus page. */
-  topic: string;
-}
+import { CHOICE, CHOICE_NA, q, qNA, t, type BankQuestion } from "./question-helpers";
+import { COMMON_REFS, EXTRA_COMMON, EXTRA_SECTOR } from "./question-bank-extra";
 
-const CHOICE = [
-  { value: "yes", label: "Yes" },
-  { value: "partly", label: "Partly" },
-  { value: "no", label: "No" },
-  { value: "unsure", label: "Not sure" },
-];
-
-/** A yes / partly / no / not-sure question. */
-const q = (n: number, topic: string, label: string, help?: string): BankQuestion => ({ key: `q${n}`, topic, label, type: "choice", options: CHOICE, required: true, help });
-/** A free-text question. */
-const t = (n: number, topic: string, label: string, help?: string): BankQuestion => ({ key: `q${n}`, topic, label, type: "text", help });
+export type { BankQuestion };
 
 export const COMMON_QUESTIONS: BankQuestion[] = [
   q(1, "Notice and consent", "Do you give people a clear notice, in plain language, before you collect their personal data?"),
@@ -170,6 +158,14 @@ const SETS: Partial<Record<SectorKey, BankQuestion[]>> = {
     q(4, "Admissions", "Do you delete applicants' data when admission cycles end?"),
     q(5, "Online classes", "Do you tell students and parents when sessions are recorded, and who can view the recordings?"),
     q(6, "Staff and alumni", "Do you protect staff and alumni records and tell them what you do with them?"),
+    qNA(7, "School", "If you run a school: do you limit who can see camera footage, transport routes and hostel records, and keep them only as long as needed?", "Answer 'Not applicable to us' if you do not run a school."),
+    qNA(8, "School", "If you run a school: do you get a parent's consent before a child's details go into a government student ID or school record system?", "Answer 'Not applicable to us' if you do not run a school."),
+    qNA(9, "College or university", "If you run a college or university: do you tell students before their details are shared with recruiters or other outside bodies?", "Answer 'Not applicable to us' if you do not run a college or university."),
+    qNA(10, "College or university", "If you run a college or university: do you use online proctoring or monitoring only after you have checked what data it collects and where it goes?", "Answer 'Not applicable to us' if you do not run a college or university."),
+    qNA(11, "Coaching centre", "If you run a coaching centre: do you collect only the student and parent details you need, and stop marketing to them when they ask?", "Answer 'Not applicable to us' if you do not run a coaching centre."),
+    qNA(12, "Coaching centre", "If you run a coaching centre: do you get permission before you publish students' names, ranks or results, and keep counselling notes confidential?", "Answer 'Not applicable to us' if you do not run a coaching centre."),
+    qNA(13, "Edtech platform", "If you run an edtech platform: do you check whether a user is a child and verify a parent's consent before an account is created or a payment is made?", "Answer 'Not applicable to us' if you do not run an edtech platform."),
+    qNA(14, "Edtech platform", "If you run an edtech platform: do you delete activity, chat and recording data when the course or subscription ends?", "Answer 'Not applicable to us' if you do not run an edtech platform."),
   ],
   msme: [
     q(1, "What you hold", "Do you know what personal data you hold, where it is, and who can see it?"),
@@ -178,6 +174,8 @@ const SETS: Partial<Record<SectorKey, BankQuestion[]>> = {
     q(4, "Staff", "Do you collect only the staff data you need, and keep it only as long as needed?"),
     q(5, "Help", "Do you have one person who handles privacy requests and breach reports?"),
     q(6, "Tools and vendors", "Do you know which software and service providers hold your customers' data?"),
+    q(7, "Exemptions", "Do you write down whether any Government exemption applies to you, and check it again every few months?", "For example the startup exemption. It applies only after the Government notifies it."),
+    q(8, "Your industry", "Do you know which industry rules apply to you as well, such as those for health, finance or education, and follow them?", "Small businesses should also answer the question set for their own industry."),
   ],
   government: [
     q(1, "Services", "For each service that collects citizen data, do you have a written reason for collecting it?"),
@@ -203,8 +201,25 @@ export function bankTitle(key: BankSetKey): string {
   return `${SELECTABLE_SECTORS.find((s) => s.key === key)?.label ?? key}: sector questions`;
 }
 
+const withRefs = (qs: BankQuestion[]): BankQuestion[] => qs.map((x) => (COMMON_REFS[x.key] ? { ...x, ref: COMMON_REFS[x.key] } : x));
+
+/** A set is its base questions followed by the extra ones, numbered on from the last base question. */
+function build(base: BankQuestion[], extra: Array<[string, string, string?, boolean?]>, common: boolean): BankQuestion[] {
+  const more = extra.map(([topic, label, ref, na], i): BankQuestion => {
+    const n = base.length + i + 1;
+    const made = na ? qNA(n, topic, label) : q(n, topic, label);
+    return common && ref ? { ...made, ref } : made;
+  });
+  return [...base, ...more];
+}
+
+const CACHE = new Map<BankSetKey, BankQuestion[]>();
 export function questionsFor(key: BankSetKey): BankQuestion[] {
-  return key === "common" ? COMMON_QUESTIONS : SETS[key] ?? [];
+  const hit = CACHE.get(key);
+  if (hit) return hit;
+  const out = key === "common" ? build(withRefs(COMMON_QUESTIONS), EXTRA_COMMON, true) : build(SETS[key] ?? [], EXTRA_SECTOR[key] ?? [], false);
+  CACHE.set(key, out);
+  return out;
 }
 
 /** A set as a questionnaire section, so the same save and validation code can handle it. */
@@ -214,7 +229,7 @@ export function bankSection(key: BankSetKey): Section {
     step: 0,
     title: bankTitle(key),
     intro: key === "common" ? "These questions apply to every organisation, whatever the sector." : `These questions are for you because you work in ${SELECTABLE_SECTORS.find((s) => s.key === key)?.label.toLowerCase() ?? key}.`,
-    fields: questionsFor(key),
+    fields: questionsFor(key).map((f) => (f.ref && !f.help ? { ...f, help: `DPDP reference: ${f.ref}` } : f)),
   };
 }
 
