@@ -79,7 +79,18 @@ export default async function PortalQuestions({ searchParams }: { searchParams: 
             <input type="hidden" name="engagementId" value={m.id} />
             <input type="hidden" name="sectionKey" value={cur.section.key} />
             <input type="hidden" name="back" value={href(cur.key)} />
-            <div className="mt-4 space-y-4">{cur.section.fields.map((f) => <FieldInput key={f.key} f={f} value={cur.answers[f.key]} disabled={!editable} />)}</div>
+            <div className="mt-4 space-y-4">{cur.section.fields.map((f) => {
+              const ans = cur.answers[f.key];
+              const needs = (ans === "partly" || ans === "no") && !String(cur.answers[`${f.key}_note`] ?? "").trim();
+              return (
+                <div key={f.key}>
+                  <FieldInput f={f} value={ans} disabled={!editable} />
+                  <label className="mt-1.5 block text-xs text-slate-600">{needs ? <span className="font-medium text-amber-800">Please add a short note: what is in place, and what is missing.</span> : "Note (optional)"}
+                    <input name={`a_${f.key}_note`} maxLength={500} disabled={!editable} defaultValue={String(cur.answers[`${f.key}_note`] ?? "")} placeholder="for example: policy exists but is not reviewed yearly" className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm" />
+                  </label>
+                </div>
+              );
+            })}</div>
             {editable ? (
               <div className="mt-6 flex flex-wrap gap-3">
                 <Button type="submit" name="intent" value="save" variant="secondary">Save draft</Button>

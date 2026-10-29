@@ -22,7 +22,14 @@ export interface Section {
   title: string;
   intro: string;
   fields: Field[];
+  /** Each choice question also takes a short note. A note is needed to complete the set when the answer is Partly or No. */
+  notes?: boolean;
 }
+
+/** The key under which the note for a choice question is saved. */
+export const noteKey = (fieldKey: string) => `${fieldKey}_note`;
+/** Answers that need a note before a set with notes can be marked complete. */
+export const NOTE_NEEDED_FOR = ["partly", "no"];
 
 const YES_NO_NOT_SURE = [
   { value: "yes", label: "Yes" },
@@ -222,6 +229,7 @@ export function sanitizeAnswers(section: Section, raw: Record<string, unknown>):
     } else {
       out[f.key] = String(v ?? "").trim().slice(0, f.type === "line" ? 300 : 4000);
     }
+    if (section.notes && f.type === "choice") out[noteKey(f.key)] = String(raw[noteKey(f.key)] ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
   }
   return out;
 }
@@ -235,7 +243,12 @@ export function isFieldFilled(f: Field, a: Answers): boolean {
 
 /** Fields still needed before a step can be marked complete. */
 export function missingFields(section: Section, answers: Answers): Field[] {
-  return section.fields.filter((f) => f.required && !isFieldFilled(f, answers));
+  const missing = section.fields.filter((f) => f.required && !isFieldFilled(f, answers));
+  if (!section.notes) return missing;
+  const needNote = section.fields
+    .filter((f) => f.type === "choice" && typeof answers[f.key] === "string" && NOTE_NEEDED_FOR.includes(answers[f.key] as string) && !String(answers[noteKey(f.key)] ?? "").trim())
+    .map((f) => ({ ...f, label: `A short note for "${f.label.slice(0, 60)}${f.label.length > 60 ? "…" : ""}"` }));
+  return [...missing, ...needNote];
 }
 
 /** The confirmation tick must be a yes. */

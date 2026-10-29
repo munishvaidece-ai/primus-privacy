@@ -59,7 +59,7 @@ export default async function QuestionBankPage({ searchParams }: { searchParams:
                   <h2 id={`c-${s.key}`} className="font-display text-lg font-semibold text-slate-900">{i === 0 ? "Part 1: " : "Part 2: "}{bankTitle(s.key)} <Badge>{s.answered} of {s.section.fields.length} answered</Badge> {s.complete ? <Badge tone="positive">Complete</Badge> : null}</h2>
                   <div className="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
                     <table className="min-w-full divide-y divide-slate-200 text-sm">
-                      <thead className="bg-slate-50"><tr><th scope="col" className={TH}>#</th><th scope="col" className={TH}>Topic</th><th scope="col" className={TH}>Question</th><th scope="col" className={TH}>Their answer</th></tr></thead>
+                      <thead className="bg-slate-50"><tr><th scope="col" className={TH}>#</th><th scope="col" className={TH}>Topic</th><th scope="col" className={TH}>Question</th><th scope="col" className={TH}>Their answer</th><th scope="col" className={TH}>Their note</th></tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {s.section.fields.map((f) => {
                           const a = s.answers[f.key];
@@ -70,6 +70,7 @@ export default async function QuestionBankPage({ searchParams }: { searchParams:
                               <td className={`${TD} whitespace-nowrap text-slate-600`}>{(questionsFor(s.key).find((x) => x.key === f.key)?.topic) ?? ""}</td>
                               <td className={`${TD} text-slate-900`}>{f.label}</td>
                               <td className={`${TD} whitespace-nowrap`}>{label ? <Badge tone={label === "Yes" ? "positive" : label === "No" ? "critical" : "neutral"}>{label}</Badge> : <span className="text-slate-400">Not answered</span>}</td>
+                              <td className={`${TD} text-xs text-slate-700`}>{String(s.answers[`${f.key}_note`] ?? "")}</td>
                             </tr>
                           );
                         })}

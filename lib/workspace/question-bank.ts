@@ -229,6 +229,7 @@ export function bankSection(key: BankSetKey): Section {
     step: 0,
     title: bankTitle(key),
     intro: key === "common" ? "These questions apply to every organisation, whatever the sector." : `These questions are for you because you work in ${SELECTABLE_SECTORS.find((s) => s.key === key)?.label.toLowerCase() ?? key}.`,
+    notes: true,
     fields: questionsFor(key).map((f) => (f.ref && !f.help ? { ...f, help: `DPDP reference: ${f.ref}` } : f)),
   };
 }

@@ -78,6 +78,21 @@ describe("question bank (data)", () => {
     expect(new Set(all).size, "a question appears in two sets").toBe(all.length);
   });
 
+  it("each answer can carry a note, and a set with Partly or No answers needs a note to be completed", () => {
+    const sec = bankSection("pharma");
+    expect(sec.notes).toBe(true);
+    const yes = Object.fromEntries(sec.fields.map((f) => [f.key, "yes"]));
+    expect(sectionComplete(sec, sanitizeAnswers(sec, yes))).toBe(true);
+    const partly = { ...yes, q1: "partly" };
+    expect(sectionComplete(sec, sanitizeAnswers(sec, partly))).toBe(false);
+    const withNote = { ...partly, q1_note: "  Policy exists\n but is not reviewed  " };
+    const clean = sanitizeAnswers(sec, withNote);
+    expect(clean.q1_note).toBe("Policy exists but is not reviewed");
+    expect(sectionComplete(sec, clean)).toBe(true);
+    expect(Object.keys(sanitizeAnswers(sec, { ...yes, evil_note: "x" }))).not.toContain("evil_note");
+    expect(String(sanitizeAnswers(sec, { ...partly, q1_note: "n".repeat(900) }).q1_note).length).toBe(500);
+  });
+
   it("section keys round-trip and unknown keys are not accepted", () => {
     expect(bankKeyFromSection("sq_banking")).toBe("banking");
     expect(bankKeyFromSection("sq_common")).toBe("common");
