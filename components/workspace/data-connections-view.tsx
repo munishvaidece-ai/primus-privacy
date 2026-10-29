@@ -14,7 +14,6 @@ interface Props {
   backPath: string;
   /** Where the client's journey and evidence pages are, with the chosen engagement kept. */
   journeyHref: string;
-  evidenceHref: string;
   clarificationsHref: string;
   canRequest: boolean;
   /** Primus only: the connectors already set up for this engagement. */
@@ -65,7 +64,6 @@ export function DataConnectionsView(p: Props) {
         </div>
         <div className="mt-3 flex flex-wrap gap-3">
           <Link href={p.journeyHref} className="inline-flex h-9 items-center rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800">Open the Live journey to upload</Link>
-          <Link href={p.evidenceHref} className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 hover:border-slate-400">Evidence centre</Link>
         </div>
         <p className="mt-2 text-xs text-slate-500">Accepted files: Excel, Word, PDF, text and images. {client ? "Your files are kept in your engagement only, and Primus staff on other engagements cannot see them." : "Files stay inside the engagement they were uploaded to."}</p>
       </section>

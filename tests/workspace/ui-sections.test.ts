@@ -119,8 +119,9 @@ describe("question sets, Resources, DPO Mate and Connect with us", () => {
   it("the client overview and journey speak to the client", async () => {
     state.userId = f.clientAdminId;
     const overview = await html(PortalOverview as never, sp());
-    expect(overview).toContain("Your question sets");
-    expect(overview).toContain("DPO Mate");
+    // The home page leads with the things only the client can do, and does not repeat what the sidebar already offers.
+    expect(overview).toContain("Answer your question sets");
+    expect(overview).not.toContain("Learn, answer and ask");
     const journey = await html(PortalJourney as never, sp());
     expect(journey).toContain("You say who you are. We work out which laws apply to you.");
     expect(journey).not.toContain("The client says who they are");

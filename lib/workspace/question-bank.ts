@@ -17,7 +17,7 @@ import type { Field, Section } from "./discovery-sections";
 export type BankSetKey = SectorKey | "common";
 
 import { CHOICE, CHOICE_NA, q, qNA, t, type BankQuestion } from "./question-helpers";
-import { COMMON_REFS, EXTRA_COMMON, EXTRA_SECTOR } from "./question-bank-extra";
+import { COMMON_REFS, EXTRA_COMMON, EXTRA_SECTOR, type Extra } from "./question-bank-extra";
 
 export type { BankQuestion };
 
@@ -217,7 +217,10 @@ const CACHE = new Map<BankSetKey, BankQuestion[]>();
 export function questionsFor(key: BankSetKey): BankQuestion[] {
   const hit = CACHE.get(key);
   if (hit) return hit;
-  const out = key === "common" ? build(withRefs(COMMON_QUESTIONS), EXTRA_COMMON, true) : build(SETS[key] ?? [], EXTRA_SECTOR[key] ?? [], false);
+  const label = key === "common" ? "" : SELECTABLE_SECTORS.find((s) => s.key === key)?.label.toLowerCase() ?? key;
+  // Every sector set ends with one question on overlap, so the sector's own rules are never left unasked.
+  const overlapQ: Extra[] = key === "common" ? [] : [["Overlap with the DPDP Act", `Where ${label} rules and the DPDP Act cover the same thing, do you know which rule you follow, and have you written down why?`]];
+  const out = key === "common" ? build(withRefs(COMMON_QUESTIONS), EXTRA_COMMON, true) : build(SETS[key] ?? [], [...(EXTRA_SECTOR[key] ?? []), ...overlapQ], false);
   CACHE.set(key, out);
   return out;
 }

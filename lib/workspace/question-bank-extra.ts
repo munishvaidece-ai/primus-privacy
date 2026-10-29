@@ -83,6 +83,8 @@ export const EXTRA_COMMON: Extra[] = [
   ["Retention", "Do you have a retention schedule that says how long each kind of personal data is kept, and why?", "s.8(7); Rule 8"],
   ["Retention", "Do you erase personal data when its purpose ends or consent is withdrawn, including copies held by your vendors?", "s.8(7); Rule 8"],
   ["Retention", "Do you keep the logs and records you must keep, for the time you must keep them, and no longer?", "Rule 8"],
+  ["Overlap with other laws", "Where a law makes you keep personal data, such as tax, KYC, medical or labour law, have you written down which law and for how long?", "s.8(7)"],
+  ["Overlap with other laws", "Where your sector's rules and the DPDP Act cover the same thing, do you know which one you follow, and have you written it down?", "s.8(1)"],
   ["Vendors", "Do you keep a list of every vendor that processes personal data for you, and check their security before you share data?", "s.8(2)"],
   ["Vendors", "Do your vendor contracts require them to report a breach to you, help with rights requests and return or delete data when the work ends?", "s.8(2); Rule 6"],
   ["Cross-border", "Do you know which of your vendors or systems send personal data outside India, and to which countries?", "s.16; Rule 15"],

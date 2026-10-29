@@ -4,6 +4,7 @@ import { clientNextSteps, portfolioInsights, recentActivity } from "@/lib/worksp
 import { listTasks } from "@/lib/workspace/tasks";
 import { loadLiveStatus } from "@/lib/live/status";
 import { loadEngagementApplicability } from "@/lib/workspace/applicability";
+import { getSectorQuestions } from "@/lib/workspace/discovery";
 import { PHASES } from "@/lib/live/config";
 import { PortalHeader } from "@/components/portal/header";
 import { fmtDate, fmtDateTime } from "@/components/ui/kit";
@@ -22,13 +23,23 @@ export default async function PortalOverview({ searchParams }: { searchParams: {
       live: await loadLiveStatus(db, user.id, scope, false),
       applies: await loadEngagementApplicability(db, user.id, scope),
       ins: await portfolioInsights(db, { engagementId: current.id }),
+      sq: await getSectorQuestions(db, user.id, current.id),
     };
   });
   const m = portal.current;
   const q = portal.q;
-  const steps = clientNextSteps(m);
-  const { live, applies, ins } = data;
+  const { live, applies, ins, sq } = data;
   const firstOpen = live.phases.findIndex((p) => p.state !== "done");
+  // The two things only you can do get a clear button at the top of the list: send the file for the current step, and answer your question sets.
+  const uploadNow = firstOpen >= 0 && PHASES[firstOpen]!.from.side === "client" ? PHASES[firstOpen]! : null;
+  const qAnswered = sq.sets.reduce((n, x) => n + x.answered, 0);
+  const qTotal = sq.sets.reduce((n, x) => n + x.section.fields.length, 0);
+  const qOpen = sq.sets.some((x) => !x.complete);
+  const steps = [
+    ...(uploadNow ? [{ label: `Upload your file: ${uploadNow.name}`, detail: "Download the template, fill it in and upload it on the Live journey page.", href: "/portal/journey" }] : []),
+    ...(qOpen ? [{ label: "Answer your question sets", detail: `${qAnswered} of ${qTotal} answered. Common questions first, then your sector.`, href: "/portal/questions" }] : []),
+    ...clientNextSteps(m),
+  ];
   const stepper: Step[] = PHASES.map((cfg, i) => ({ n: cfg.n, name: cfg.name, state: live.phases[i]!.state === "done" ? "done" : i === firstOpen ? "now" : "todo", who: cfg.from.side === "client" ? "you" : "primus" }));
   const days = applies.summary.daysToFirstDuty;
   const f = ins.findingsBySeverity;
@@ -61,19 +72,6 @@ export default async function PortalOverview({ searchParams }: { searchParams: {
           <p className="mt-4 text-sm text-slate-600">Sectors: <b className="text-slate-900">{applies.sectors.length ? applies.sectors.map((s) => s.label).join(", ") : "not set yet"}</b></p>
         </Panel>
       </div>
-
-      <Panel title="Learn, answer and ask">
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { href: `/portal/questions${q}`, t: "Your question sets", d: "Common questions for everyone, then questions for your sector. You answer them in your own time." },
-            { href: `/portal/data-connections${q}`, t: "Documents and connections", d: "Where to upload your documents, and how Primus can look at your database or folders if you agree." },
-            { href: `/portal/resources${q}`, t: "Resources", d: "Read the DPDP Act, the Rules and the laws for your sector." },
-            { href: `/portal/dpo-mate${q}`, t: "DPO Mate", d: "Take your preliminary report, or book 30 minutes with our experts." },
-          ].map((x) => (
-            <li key={x.href}><Link href={x.href} className="block h-full rounded-xl border border-slate-200 bg-white p-4 hover:border-copper"><p className="font-medium text-slate-900">{x.t} →</p><p className="mt-1 text-sm text-slate-600">{x.d}</p></Link></li>
-          ))}
-        </ul>
-      </Panel>
 
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Panel title="Milestones">

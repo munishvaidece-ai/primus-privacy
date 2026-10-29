@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { SectorPart } from "@/components/regulation/parts";
-import { RULE_PHASES, type Obligation } from "@/lib/regulation";
+import { OverlapList } from "@/components/regulation/overlap-list";
+import { RULE_PHASES, overlapsForSector, type Obligation } from "@/lib/regulation";
 import type { EngagementApplicability } from "@/lib/workspace/applicability";
 
 const STATUS: Record<Obligation["status"], { label: string; tone: "positive" | "warning" | "neutral"; bar: string }> = {
@@ -92,7 +93,7 @@ function ObligationCard({ o }: { o: Obligation }) {
 }
 
 /** Part A, tailored: every provision, whether it applies, why, when it bites and what it can cost. */
-export function ApplicabilityPartA({ a }: { a: EngagementApplicability }) {
+export function ApplicabilityPartA({ a, you = false }: { a: EngagementApplicability; you?: boolean }) {
   return (
     <div className="space-y-8">
       {GROUPS.map((g) => {
@@ -108,6 +109,7 @@ export function ApplicabilityPartA({ a }: { a: EngagementApplicability }) {
           </section>
         );
       })}
+      <OverlapList overlaps={overlapsForSector("all")} title="Where other laws overlap the DPDP Act, for every sector" you={you} />
     </div>
   );
 }

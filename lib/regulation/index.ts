@@ -25,6 +25,7 @@ import { ITBPO } from "./sectors/itbpo";
 
 export * from "./types";
 export * from "./dpdp";
+export * from "./overlaps";
 export { incidentDuties, DPDP_INCIDENT_DUTY, type IncidentDuty } from "./incident";
 
 export const SECTORS: Sector[] = [BROKING, BANKING, INSURANCE, HEALTHCARE, PHARMA, TELECOM, ECOMMERCE, OTT, AVIATION, LOGISTICS, ENERGY, MANUFACTURING, REALESTATE, ITBPO, AI, EDUCATION, MSME, GOVERNMENT, PSU, ALL];

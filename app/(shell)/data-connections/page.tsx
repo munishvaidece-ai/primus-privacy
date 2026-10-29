@@ -42,7 +42,6 @@ export default async function DataConnectionsPage({ searchParams }: { searchPara
             engagement={{ id: current.id, organisationId: current.organisationId, name: current.name }}
             backPath={`/data-connections?e=${current.id}`}
             journeyHref={`/organisations/${current.organisationId}/engagements/${current.id}/live`}
-            evidenceHref="/evidence-review"
             clarificationsHref="/clarifications"
             canRequest={false}
             connectors={connectors}

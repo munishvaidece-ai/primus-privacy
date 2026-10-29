@@ -1,9 +1,7 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-
-interface Item { href: string; label: string; badge?: number; icon: string }
-interface Group { title?: string; items: Item[] }
+import { usePathname, useSearchParams } from "next/navigation";
+import { CLIENT_NAV, PRIMUS_NAV, locate } from "./nav-config";
 
 // Small line icons (same stroke style as the microsite).
 const ICONS: Record<string, string> = {
@@ -36,91 +34,10 @@ export function NavIcon({ name, className = "h-4 w-4" }: { name: string; classNa
   );
 }
 
-function groupsFor(isClient: boolean, unread: number, demo: boolean): Group[] {
-  if (isClient) {
-    return [
-      { items: [{ href: "/portal", label: "Overview", icon: "home" }, { href: "/portal/tasks", label: "Tasks & milestones", icon: "check" }, { href: "/notifications", label: "Notifications", badge: unread, icon: "bell" }] },
-      {
-        title: "My programme",
-        items: [
-          { href: "/portal/profile", label: "Company profile", icon: "building" },
-          { href: "/portal/business-units", label: "Business units", icon: "layers" },
-          { href: "/portal/processing", label: "Data & processing", icon: "layers" },
-          { href: "/portal/journey", label: "Live journey", icon: "chart" },
-          { href: "/portal/data-connections", label: "Documents & connections", icon: "upload" },
-          { href: "/portal/discovery", label: "Discovery", icon: "search" },
-          { href: "/portal/questions", label: "Question sets", icon: "list" },
-          { href: "/portal/regulations", label: "What applies to you", icon: "scale" },
-          { href: "/portal/assessment", label: "Assessment", icon: "list" },
-          { href: "/portal/evidence", label: "Evidence centre", icon: "upload" },
-          { href: "/portal/clarifications", label: "Clarifications", icon: "chat" },
-        ],
-      },
-      {
-        title: "Results",
-        items: [
-          { href: "/portal/findings", label: "Findings", icon: "alert" },
-          { href: "/portal/remediation", label: "Remediation", icon: "wrench" },
-          { href: "/portal/risks", label: "Risks", icon: "chart" },
-          { href: "/portal/reports", label: "Reports", icon: "file" },
-          { href: "/portal/rights", label: "Rights requests", icon: "scale" },
-        ],
-      },
-      {
-        title: "Learn and talk to us",
-        items: [
-          { href: "/portal/resources", label: "Resources", icon: "book" },
-          { href: "/portal/dpo-mate", label: "DPO Mate", icon: "chat" },
-        ],
-      },
-    ];
-  }
-  return [
-    { items: [{ href: "/dashboard", label: "Dashboard", icon: "home" }, { href: "/tasks", label: "Tasks & milestones", icon: "check" }, { href: "/notifications", label: "Notifications", badge: unread, icon: "bell" }] },
-    {
-      title: "Portfolio",
-      items: [
-        { href: "/organisations", label: "Organisations", icon: "building" },
-        { href: "/engagements", label: "Engagements", icon: "layers" },
-        { href: "/stakeholders", label: "Stakeholders", icon: "users" },
-      ],
-    },
-    {
-      title: "Delivery",
-      items: [
-        { href: "/discovery", label: "Discovery", icon: "search" },
-        { href: "/question-bank", label: "Question bank", icon: "list" },
-        { href: "/assessments", label: "Assessments", icon: "list" },
-        { href: "/data-connections", label: "Documents & connections", icon: "plug" },
-        { href: "/evidence-review", label: "Evidence review", icon: "upload" },
-        { href: "/findings", label: "Findings", icon: "alert" },
-        { href: "/risks", label: "Risks", icon: "chart" },
-        { href: "/remediation", label: "Remediation", icon: "wrench" },
-        { href: "/clarifications", label: "Clarifications", icon: "chat" },
-        { href: "/consultations", label: "Consultation requests", icon: "chat" },
-      ],
-    },
-    {
-      title: "Governance",
-      items: [
-        { href: "/audit", label: "Audit trail", icon: "audit" },
-        { href: "/resources", label: "Resources", icon: "book" },
-        { href: "/regulations", label: "Regulations", icon: "scale" },
-        { href: "/methodology", label: "Methodology", icon: "book" },
-        { href: "/connectors", label: "Connectors", icon: "plug" },
-        ...(demo ? [{ href: "/demo", label: "Demo environment", icon: "wrench" }] : []),
-      ],
-    },
-  ];
-}
-
 export function Sidebar({ isClient, unread, demo = false }: { isClient: boolean; unread: number; demo?: boolean }) {
   const path = usePathname() ?? "";
-  const groups = groupsFor(isClient, unread, demo);
-  const allHrefs = groups.flatMap((g) => g.items.map((i) => i.href));
-  // the longest matching link wins, so "/portal" is not lit up on "/portal/tasks"
-  const engagementPath = !isClient && /^\/organisations\/[^/]+\/engagements\/[^/]+/.test(path);
-  const active = engagementPath ? "/engagements" : allHrefs.filter((h) => path === h || path.startsWith(h + "/")).sort((a, b) => b.length - a.length)[0];
+  const groups = (isClient ? CLIENT_NAV : PRIMUS_NAV).map((g) => ({ ...g, hubs: g.hubs.filter((h) => demo || !h.demoOnly) }));
+  const here = locate(groups, path);
   return (
     <nav aria-label="Main" className="w-full shrink-0 md:w-60">
       <div className="side-panel flex gap-4 overflow-x-auto rounded-2xl p-3 md:sticky md:top-24 md:flex-col md:gap-4 md:overflow-visible">
@@ -128,18 +45,19 @@ export function Sidebar({ isClient, unread, demo = false }: { isClient: boolean;
           <div key={i} className="min-w-max md:min-w-0">
             {g.title ? <p className="mb-1 px-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[#e9bd8c]">{g.title}</p> : null}
             <ul className="flex gap-1 md:flex-col md:gap-0.5">
-              {g.items.map((it) => {
-                const on = it.href === active;
+              {g.hubs.map((h) => {
+                const on = here?.hub.key === h.key;
+                const badge = h.badge === "unread" ? unread : 0;
                 return (
-                  <li key={it.href}>
+                  <li key={h.key}>
                     <Link
-                      href={it.href}
+                      href={h.href}
                       aria-current={on ? "page" : undefined}
                       className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${on ? "bg-gradient-to-r from-[#c88a4a] to-[#8f5424] text-white shadow-[0_10px_22px_-10px_rgba(200,138,74,.95)]" : "text-[#f3dcd6]/90 hover:bg-white/10 hover:text-white"}`}
                     >
-                      <NavIcon name={it.icon} className={`h-4 w-4 shrink-0 ${on ? "text-white" : "text-[#e9bd8c]/80"}`} />
-                      <span className="flex-1">{it.label}</span>
-                      {it.badge ? <span className="rounded-full bg-[#f0c9a0] px-2 py-0.5 text-xs font-semibold text-[#3a0f0c]" aria-label={`${it.badge} unread`}>{it.badge}</span> : null}
+                      <NavIcon name={h.icon} className={`h-4 w-4 shrink-0 ${on ? "text-white" : "text-[#e9bd8c]/80"}`} />
+                      <span className="flex-1">{h.label}</span>
+                      {badge ? <span className="rounded-full bg-[#f0c9a0] px-2 py-0.5 text-xs font-semibold text-[#3a0f0c]" aria-label={`${badge} unread`}>{badge}</span> : null}
                     </Link>
                   </li>
                 );
@@ -148,6 +66,33 @@ export function Sidebar({ isClient, unread, demo = false }: { isClient: boolean;
           </div>
         ))}
       </div>
+    </nav>
+  );
+}
+
+/** The pages inside the hub you are in, shown once above the page. Keeps the chosen engagement (?e=) when you move between them. */
+export function HubTabs({ isClient, demo = false }: { isClient: boolean; demo?: boolean }) {
+  const path = usePathname() ?? "";
+  const search = useSearchParams();
+  const groups = (isClient ? CLIENT_NAV : PRIMUS_NAV).map((g) => ({ ...g, hubs: g.hubs.filter((h) => demo || !h.demoOnly) }));
+  const here = locate(groups, path);
+  if (!here || here.hub.tabs.length < 2) return null;
+  const e = search?.get("e");
+  return (
+    <nav aria-label={here.hub.label} className="mb-5 flex flex-wrap gap-1 border-b border-slate-200">
+      {here.hub.tabs.map((t) => {
+        const on = t.href === here.tab.href;
+        return (
+          <Link
+            key={t.href}
+            href={e ? `${t.href}?e=${encodeURIComponent(e)}` : t.href}
+            aria-current={on ? "page" : undefined}
+            className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${on ? "border-copper-deep text-copper-deep" : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900"}`}
+          >
+            {t.label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

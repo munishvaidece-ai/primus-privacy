@@ -7,7 +7,7 @@ import type { Actor } from "../provenance";
 import type { TaskDef } from "../engine";
 import type { RiskTier, SuggestionDraft } from "../types";
 import { inputHash } from "../text";
-import { sectorOfControl, sectorByKey, type SectorKey } from "../../regulation";
+import { sectorOfControl, sectorByKey, overlapsForControl, EFFECT, type SectorKey } from "../../regulation";
 
 export interface LandscapeProfile {
   activities: number;
@@ -134,7 +134,18 @@ export const applicabilityTask: TaskDef<ApplicabilityInput, ApplicabilityOutput>
   },
 };
 
-export function applicabilityDraft(i: ApplicabilityInput, o: ApplicabilityOutput): SuggestionDraft {
+/** A sentence flagging where sector law overlaps this control, so the person reviewing sees it. Empty when there is none. */
+export function overlapFlag(i: ApplicabilityInput, o: ApplicabilityOutput): string {
+  if (o.decision !== "applicable") return "";
+  const found = overlapsForControl(i.control.code, i.profile.sectors ?? []);
+  if (found.length === 0) return "";
+  const list = found.slice(0, 3).map((x) => `${x.topic} (${EFFECT[x.effect].label.toLowerCase()})`).join("; ");
+  return ` Overlap with sector law: ${list}. Check the Resources page before scoring this control; the position is flagged for legal review.`;
+}
+
+export function applicabilityDraft(i: ApplicabilityInput, o0: ApplicabilityOutput): SuggestionDraft {
+  const flag = overlapFlag(i, o0);
+  const o = flag ? { ...o0, rationale: `${o0.rationale}${flag}`.slice(0, 1500) } : o0;
   return {
     kind: "applicability",
     subjectType: "engagement_scope_control",

@@ -1,4 +1,6 @@
 import { regulationNote } from "@/lib/regulation/note";
+import { OverlapList } from "@/components/regulation/overlap-list";
+import { getEngagementSectors } from "@/lib/domain/sectors";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
@@ -96,6 +98,8 @@ export default async function FindingDetailPage({
       : ([[], []] as const);
 
   const regulation = primaryControl ? regulationNote(primaryControl.code) : null;
+  const engSectors = regulation && regulation.overlaps.length > 0 ? await withRequestDb(user.id, (db) => getEngagementSectors(db, user.id, { engagementId: params.engagementId, organisationId: params.organisationId })) : [];
+  const flagged = regulation ? regulation.overlaps.filter((x) => x.sector === "all" || engSectors.includes(x.sector)) : [];
 
   const remediationRows = await withRequestDb(user.id, (db) => listRemediationActionsForFinding(db, finding.id));
 
@@ -262,6 +266,7 @@ export default async function FindingDetailPage({
               </div>
             ) : null}
           </dl>
+          {flagged.length > 0 ? <div className="mt-4"><OverlapList overlaps={flagged} title="Check before you rely on this finding: sector law overlaps" showSector /></div> : null}
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4 lg:col-span-2">

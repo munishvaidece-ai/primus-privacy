@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { PenaltyTable } from "@/components/regulation/parts";
-import { DPDP_RULES, DPDP_SECTIONS, DPDP_VERIFIED_ON, RULE_PHASES, SELECTABLE_SECTORS, type Sector, type SectorKey } from "@/lib/regulation";
+import { OverlapList } from "@/components/regulation/overlap-list";
+import { overlapsForSector, DPDP_RULES, DPDP_SECTIONS, DPDP_VERIFIED_ON, RULE_PHASES, SELECTABLE_SECTORS, type Sector, type SectorKey } from "@/lib/regulation";
 import { questionsFor } from "@/lib/workspace/question-bank";
 
 const CARD = "rounded-xl border border-slate-200 bg-white p-4 shadow-card";
@@ -133,6 +134,8 @@ export function ResourcesView({ basePath, keep, sector, own = [], audience, ques
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">How this sits with the DPDP Act</h3>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">{sector.dpdpInterplay.map((t, k) => <li key={k}>{t}</li>)}</ul>
         </div>
+
+        <OverlapList overlaps={overlapsForSector(sector.key)} you={you} />
 
         <div className={CARD}>
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{you ? "Documents you should have ready" : "Documents to ask for"}</h3>

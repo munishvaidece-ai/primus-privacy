@@ -10,6 +10,8 @@ import {
   type Sector,
 } from "@/lib/regulation";
 import { STARTER_CONTROLS } from "@/db/seed/starter-library";
+import { OverlapList } from "@/components/regulation/overlap-list";
+import { overlapsForSector } from "@/lib/regulation";
 
 const CARD = "rounded-xl border border-slate-200 bg-white p-4 shadow-card";
 const TH = "px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500";
@@ -153,6 +155,8 @@ export function SectorPart({ sector }: { sector: Sector }) {
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">How this sits with DPDP</h3>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">{sector.dpdpInterplay.map((t, k) => <li key={k}>{t}</li>)}</ul>
       </section>
+
+      <OverlapList overlaps={overlapsForSector(sector.key)} title={`Where DPDP and ${sector.label} rules overlap`} />
 
       <section className={CARD}>
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Documents the AI would expect to see</h3>

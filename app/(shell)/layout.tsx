@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { withRequestDb } from "@/lib/db/request-client";
 import { getUserClientOrgId } from "@/lib/authorization/service";
-import { Sidebar } from "@/components/shell/sidebar";
+import { Sidebar, HubTabs } from "@/components/shell/sidebar";
 import { unreadCount } from "@/lib/workspace/notifications";
 import { UserMenu } from "@/components/shell/user-menu";
 import { Wordmark } from "@/components/shell/logo";
@@ -71,7 +71,7 @@ export default async function ShellLayout({ children }: { children: ReactNode })
       </header>
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 md:flex-row">
         <Sidebar isClient={isClient} unread={unread} demo={isDemoAuthActive()} />
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1"><HubTabs isClient={isClient} demo={isDemoAuthActive()} />{children}</main>
       </div>
     </div>
   );

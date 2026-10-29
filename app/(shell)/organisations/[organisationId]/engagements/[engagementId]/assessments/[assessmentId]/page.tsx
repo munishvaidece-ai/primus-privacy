@@ -11,6 +11,9 @@ import { getEvidenceSummaryForControl } from "@/lib/domain/evidence";
 import { listRisksForControl } from "@/lib/domain/risks";
 import { getMaturityAssessmentForAssessment } from "@/lib/domain/maturity";
 import { getViewer, hasPermission } from "@/lib/workspace/common";
+import { getEngagementSectors } from "@/lib/domain/sectors";
+import { overlapsForControl } from "@/lib/regulation";
+import { OverlapList } from "@/components/regulation/overlap-list";
 import { getReviewState, getValidatedResponseIds } from "@/lib/workspace/review";
 import { hasEngagementPermission } from "@/lib/authorization/service";
 import { submitAssessmentAction, validateAnswersAction, returnAssessmentAction } from "../../../../../../workspace-actions";
@@ -108,6 +111,7 @@ export default async function AssessmentWorkspacePage({
   // createRisk) re-check the same permission regardless of what this render
   // decided, so hiding the control here is a UX courtesy, not the security
   // boundary.
+  const engagementSectors = await withRequestDb(user.id, (db) => getEngagementSectors(db, user.id, { engagementId: assessment.engagementId, organisationId: assessment.organisationId }));
   const [canReviewEvidenceResult, canManageRiskResult] = await withRequestDb(user.id, async (db) => {
     const [reviewEv, manageRisk] = await Promise.all([
       canReviewEvidence(db, user.id, assessment.engagementId, assessment.organisationId),
@@ -458,6 +462,8 @@ export default async function AssessmentWorkspacePage({
                     <p className="mt-2 text-sm text-slate-700">{selected.controlDescription}</p>
                   ) : null}
                 </div>
+
+                <OverlapList overlaps={overlapsForControl(selected.controlCode, engagementSectors)} title="Sector law overlaps this control" />
 
                 <section className="rounded-xl border border-slate-200 bg-white shadow-card p-4">
                   <h3 className="text-sm font-semibold text-slate-900">Mapped Requirements</h3>

@@ -72,7 +72,7 @@ Approve, change or reject its own work · apply anything held at a gate · chang
 
 ## The workspace — your day-to-day
 
-After signing in you land on **Dashboard**: clients, engagements and where each one is (Draft, Discovery, Assessment, Validation, Reporting, Remediation, Closed), what is overdue, and what is waiting for you. The left menu is grouped by portfolio and by delivery stage; every list can be filtered.
+After signing in you land on **Dashboard**: clients, engagements and where each one is (Draft, Discovery, Assessment, Validation, Reporting, Remediation, Closed), what is overdue, and what is waiting for you. The left menu has one entry for each area of the work (Clients, Discovery & questions, Documents & connections, Assessments, Findings & risks, Remediation, Inbox, Reference, Audit trail). When an area has more than one page, a row of tabs appears at the top of the page (for example Clients: Organisations, Engagements, Stakeholders). Nothing is hidden; each page is one click away. Every list can be filtered.
 
 * **Tasks** — tasks and milestones for you or for the client. Milestones are shown to the client.
 * **Discovery** — read the client's questionnaire answers and the obligations they point to; **Approve scope** or **Return for changes**.
@@ -87,15 +87,29 @@ The platform does not send email. People see alerts under **Notifications** when
 
 ## For your client (what they see)
 
-Clients sign in to a **portal** built around one engagement: an Overview with "what to do next", the Discovery questionnaire (13 short steps, saved as they type), question sets for their sector, a Resources page, DPO Mate, the Assessment, evidence requests and uploads, clarifications, released findings, remediation, risks, released reports and a log of Data Principal requests. People with read-only roles (for example CXO / Executive Viewer) can look but not change anything.
+Clients sign in to a **portal** built around one engagement. The left menu has one entry per area: Home, To-do, Notifications, Your organisation, Questionnaire, Documents & connections, Assessment, Clarifications, Findings & risks, Remediation, Reports, Resources and DPO Mate. Pages that belong together appear as tabs at the top of the page. Home leads with the actions only the client can do (upload the file for the current step; answer the question sets), then the rest of "what to do next". The portal has the Discovery questionnaire (13 short steps, saved as they type), question sets for their sector, a Resources page, DPO Mate, the Assessment, evidence requests and uploads, clarifications, released findings, remediation, risks, released reports and a log of Data Principal requests. People with read-only roles (for example CXO / Executive Viewer) can look but not change anything.
 
 ## Question sets, Resources and DPO Mate
 
-- **Question sets** (client portal): a short common set plus one set written for the client's sector, six questions each. The client picks a sector in Discovery step 1 (or you set the sectors on the engagement) and the sets follow. Answers are saved as they type and can be changed at any time, even after the scope is approved. You read them on the client's discovery page.
-- **Question bank** (Primus): every set, with 43 common questions and 12 or more for each sector (about 280 in all). Each common question shows the part of the DPDP Act or Rules it checks, and a coverage table shows no duty is left without a question. Use **By sector** to read the whole bank, or **By client** to see exactly what one client answers, Part 1 (every organisation) and Part 2 (their sector), with their answers.
+- **Question sets** (client portal): a common set for every organisation (Part 1) plus one set written for the client's sector (Part 2). For Yes / Partly / No / Not sure questions, a note box lets the client explain; a note is required when the answer is Partly or No. The client picks a sector in Discovery step 1 (or you set the sectors on the engagement) and the sets follow. Answers are saved as they type and can be changed at any time, even after the scope is approved. You read them on the client's discovery page.
+- **Question bank** (Primus): every set, with 45 common questions and 13 or more for each sector (299 in all). Each common question shows the part of the DPDP Act or Rules it checks, and a coverage table shows no duty is left without a question. Use **By sector** to read the whole bank, or **By client** to see exactly what one client answers, Part 1 (every organisation) and Part 2 (their sector), with their answers.
 - **Documents and connections** (client and Primus): one page that answers "where do we upload documents, and how do you connect to our systems?". It lists the four steps that need a file, with a template to download for each, then the systems Primus can look at today (PostgreSQL database, a folder or file share, a website), what the client prepares for each, what is kept (metadata only) and a form to ask Primus to connect one. The request arrives under Clarifications, and no password is taken on the form. Primus sets the connection up under Connectors with the client's read-only account.
 - **Resources** (client and Primus): pick a sector and read the DPDP Act, the Rules and when they start, the penalty ceilings, and that sector's laws and guidelines, with the documents an auditor would expect.
 - **DPO Mate** (client portal): once you release the final report, the client can download a short preliminary report. Below it, **Connect with us** opens a form to book a 30 minute consultation: organisation, contact person and mobile number, topics, a notice, and a consent box that must be ticked. You work the requests under **Consultation requests** (new, contacted, scheduled, done, closed). See docs/DEPLOYMENT.md for the optional email.
+
+## Where DPDP and sector law overlap
+
+The DPDP Act is cumulative: it applies in addition to sector law, and it prevails only if the two truly conflict (s.38). It hands some points back to other laws on purpose: data you must keep under another law (s.8(7)), a stricter transfer rule (s.16(2)), uses required by law (s.7) and listed exemptions (s.17). The **overlap register** records about 48 such points across every sector, each with the DPDP side, the sector side, which one governs and what to do. Every entry is marked **Legal review pending** until a lawyer confirms it.
+
+You see the flags in these places:
+
+- **Resources** and **Regulations** (Part B, each sector) list that sector's overlaps; Part A lists the ones that apply to every sector.
+- An **assessment control** shows "Sector law overlaps this control" when one applies to the client's sectors.
+- A **finding** shows "Check before you rely on this finding" so a gap that sector law may excuse is not raised blindly.
+- The AI's **applicability reason** for a control ends with "Overlap with sector law: ... flagged for legal review".
+- The **question bank** asks every client two overlap questions (what law makes you keep data, and which rule you follow where both apply) and every sector set ends with one.
+
+There is no "satisfied by sector law" switch on a control. Assessment records are locked once they are made, so when sector law is the reason, the assessor writes the law and section in the decision reason.
 
 ## Regulations — DPDP and sector rules
 

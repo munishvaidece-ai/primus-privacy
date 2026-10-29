@@ -16,7 +16,7 @@ export default async function PortalRegulations({ searchParams }: { searchParams
       <ApplicabilityHero a={data.a} orgName={m.organisationName} />
       <div className="mt-3"><Disclaimer /></div>
       <h2 className="mt-8 font-display text-xl font-semibold text-slate-900">DPDP obligations for your organisation</h2>
-      <div className="mt-4"><ApplicabilityPartA a={data.a} /></div>
+      <div className="mt-4"><ApplicabilityPartA a={data.a} you /></div>
       <h2 className="mt-12 font-display text-xl font-semibold text-slate-900">The Rules that bind you, and from when</h2>
       <div className="mt-4"><RulesTimeline a={data.a} /></div>
       <h2 className="mt-12 font-display text-xl font-semibold text-slate-900">Sector rules</h2>
