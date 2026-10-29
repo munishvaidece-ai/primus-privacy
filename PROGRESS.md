@@ -9083,3 +9083,9 @@ Tests: `tests/ai` (unit, autopilot, cases, ui) and `tests/connectors`. Not verif
 
 Added: migrations 0046–0048 (released-only findings, assessment submission/validation, notifications, activity, tasks, clarifications, evidence requests, discovery questionnaire, report releases, data-principal request log, audit trail function), `lib/workspace/*`, the Primus workspace screens and the client portal screens (see ARCHITECTURE §10, USER_GUIDE). Tests: `tests/workspace` (80), full suite 1,218 passing. Not verified: a real browser session, live Supabase, Docker build, load.
 
+---
+
+## Leadership feedback release (29 October 2026)
+
+Added after the leadership demo: seven more sectors (pharma, public sector undertakings, energy, manufacturing, real estate, logistics, IT/BPO), so 19 sectors, 132 controls (migration 0052); sector question sets and a Primus question bank (120 questions, no new table, migration 0054 keeps them editable after scope approval); a Resources page for clients and Primus; client-facing copy in the second person (journey, login, overview); DPO Mate with a preliminary report and a "Connect with us" consultation form with notice and consent (migration 0053, `consultation_requests`), a Primus Consultation requests page, and optional email through SMTP (`lib/notify/mailer.ts`, `nodemailer`).
+Tests: `tests/workspace/question-bank.test.ts`, `consultation.test.ts`, `mailer.test.ts`, `ui-sections.test.ts`, and the catalogue tests. Not verified: a real mail server, mobile devices, the notice wording and 12 month retention (need legal review), the content of the seven new sectors against published sources (marked "check before use").

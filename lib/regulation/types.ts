@@ -14,7 +14,14 @@ export type SectorKey =
   | "ai"
   | "education"
   | "msme"
-  | "government";
+  | "government"
+  | "pharma"
+  | "psu"
+  | "energy"
+  | "manufacturing"
+  | "realestate"
+  | "logistics"
+  | "itbpo";
 
 export interface Instrument {
   id: string;

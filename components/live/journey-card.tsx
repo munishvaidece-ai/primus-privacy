@@ -26,7 +26,18 @@ export const JOURNEY_COPY: Record<number, { youDo: string | null; primusDoes: st
   4: { youDo: null, primusDoes: "A Primus consultant tests each control and records the result. The AI rates each control from the tests.", links: [{ label: "Your assessment", href: "/portal/assessment" }] },
   5: { youDo: "Fill in the Evidence Index and upload the files it lists: policies, registers, reports, certificates.", primusDoes: "Primus reads every file against the control it was sent for, accepts what supports it, and asks you about the rest.", links: [{ label: "Your evidence centre", href: "/portal/evidence" }, { label: "Clarifications", href: "/portal/clarifications" }] },
   6: { youDo: null, primusDoes: "Primus drafts a finding for each control that is not fully in place. A senior person reviews and releases them to you.", links: [{ label: "Your findings", href: "/portal/findings" }] },
-  7: { youDo: "Fill in the Closure Log and upload a proof file for each action you have completed.", primusDoes: "Primus checks each proof, closes the action or asks for more, and issues the final report.", links: [{ label: "Remediation actions", href: "/portal/remediation" }, { label: "Reports", href: "/portal/reports" }] },
+  7: { youDo: "Fill in the Closure Log and upload a proof file for each action you have completed.", primusDoes: "Primus checks each proof, closes the action or asks for more, and issues the final report.", links: [{ label: "Remediation actions", href: "/portal/remediation" }, { label: "Reports", href: "/portal/reports" }, { label: "DPO Mate", href: "/portal/dpo-mate" }] },
+};
+
+/** One line per phase, written to the person at the organisation. */
+export const JOURNEY_HEADLINE: Record<number, string> = {
+  1: "You say who you are. We work out which laws apply to you.",
+  2: "You describe your data. We build your data map and pre-fill the questionnaire for you to confirm.",
+  3: "We decide, control by control, what applies to you, and tell you why.",
+  4: "Your consultant tests each control. We rate each one from the tests.",
+  5: "You send proof. We read every file and tell you whether it supports the control.",
+  6: "We draft findings for the controls that are not fully in place. A senior person checks them and releases them to you.",
+  7: "Findings become actions. You prove each fix. We check the proof and issue your final report.",
 };
 
 export function journeyState(cfg: PhaseConfig, st: PhaseStatus, prevDone: boolean): { text: string; tone: "neutral" | "positive" | "warning" } {
@@ -65,6 +76,7 @@ export function JourneyCard({ cfg, st, ctx, prevDone }: { cfg: PhaseConfig; st: 
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{yours ? "Your step" : "Primus step"} · Phase {cfg.n} of 7</p>
             <h3 id={`j-${cfg.n}`} className="font-display text-lg font-semibold text-slate-900">{cfg.name}</h3>
+            <p className="mt-0.5 text-sm text-slate-600">{JOURNEY_HEADLINE[cfg.n]}</p>
           </div>
         </div>
         <Badge tone={state.tone}>{state.text}</Badge>
@@ -139,6 +151,13 @@ export function JourneyCard({ cfg, st, ctx, prevDone }: { cfg: PhaseConfig; st: 
               <a href={`/portal/reports/${ctx.reports[0]!.id}/download`} className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:opacity-90">Download the report (PDF)</a>
             </div>
           ) : <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">When Primus releases the final report, a download button appears here.</p>
+        ) : null}
+
+        {cfg.n === 7 && ctx.reports?.length ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+            <p className="text-slate-800"><span className="font-semibold">What next?</span> Take a short preliminary report to share inside your organisation, or book a 30 minute consultation with our experts to go deeper on your DPDP alignment.</p>
+            <Link href="/portal/dpo-mate" className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 hover:border-copper hover:text-copper">Open DPO Mate</Link>
+          </div>
         ) : null}
 
         <p className="flex flex-wrap gap-x-5 gap-y-1">

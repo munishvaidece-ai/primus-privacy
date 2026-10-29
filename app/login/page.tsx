@@ -49,9 +49,9 @@ export default async function LoginPage({ searchParams }: { searchParams: { erro
               <span className="grid h-12 w-12 place-items-center rounded-xl bg-copper-soft text-copper-deep"><NavIcon name="building" className="h-6 w-6" /></span>
               <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.14em] text-copper">Account type B</p>
               <h2 className="mt-1 font-display text-2xl font-bold text-slate-900">Client organisation portal</h2>
-              <p className="mt-3 text-sm leading-relaxed text-slate-600">What a client sees: a guided path to answer the assessment, upload evidence once, follow clarifications, and read only the findings and reports that have been released to them.</p>
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">Your own space: a guided path to answer the assessment, upload evidence once, follow clarifications, read the laws that apply to your sector, and see only the findings and reports that Primus has released to you.</p>
               <ul className="mt-5 grid gap-1.5 text-sm text-slate-700">
-                {["Guided discovery questionnaire", "Answer assigned questions, upload evidence", "Released findings and remediation tracker", "Data Principal rights request log"].map((t) => <li key={t} className="flex gap-2"><span className="text-copper">✓</span>{t}</li>)}
+                {["You answer a guided questionnaire for your sector", "You upload evidence once and follow clarifications", "You read the DPDP Act and your sector's rules", "You see your findings, actions and reports", "You book time with our experts"].map((t) => <li key={t} className="flex gap-2"><span className="text-copper">✓</span>{t}</li>)}
               </ul>
               <span className="mt-7 inline-flex items-center gap-2 font-display text-sm font-semibold text-copper">Enter the client portal <span className="transition group-hover:translate-x-1">→</span></span>
               <span className="mt-3 text-xs text-slate-500">{orgs.size} demo organisations · {clients.length} client users</span>

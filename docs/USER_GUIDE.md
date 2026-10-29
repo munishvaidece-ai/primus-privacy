@@ -87,7 +87,14 @@ The platform does not send email. People see alerts under **Notifications** when
 
 ## For your client (what they see)
 
-Clients sign in to a **portal** built around one engagement: an Overview with "what to do next", the Discovery questionnaire (13 short steps, saved as they type), the Assessment, evidence requests and uploads, clarifications, released findings, remediation, risks, released reports and a log of Data Principal requests. People with read-only roles (for example CXO / Executive Viewer) can look but not change anything.
+Clients sign in to a **portal** built around one engagement: an Overview with "what to do next", the Discovery questionnaire (13 short steps, saved as they type), question sets for their sector, a Resources page, DPO Mate, the Assessment, evidence requests and uploads, clarifications, released findings, remediation, risks, released reports and a log of Data Principal requests. People with read-only roles (for example CXO / Executive Viewer) can look but not change anything.
+
+## Question sets, Resources and DPO Mate
+
+- **Question sets** (client portal): a short common set plus one set written for the client's sector, six questions each. The client picks a sector in Discovery step 1 (or you set the sectors on the engagement) and the sets follow. Answers are saved as they type and can be changed at any time, even after the scope is approved. You read them on the client's discovery page.
+- **Question bank** (Primus): every set, 120 questions in all. Pick a sector to see what a client in that sector is asked, or search across the bank.
+- **Resources** (client and Primus): pick a sector and read the DPDP Act, the Rules and when they start, the penalty ceilings, and that sector's laws and guidelines, with the documents an auditor would expect.
+- **DPO Mate** (client portal): once you release the final report, the client can download a short preliminary report. Below it, **Connect with us** opens a form to book a 30 minute consultation: organisation, contact person and mobile number, topics, a notice, and a consent box that must be ticked. You work the requests under **Consultation requests** (new, contacted, scheduled, done, closed). See docs/DEPLOYMENT.md for the optional email.
 
 ## Regulations — DPDP and sector rules
 

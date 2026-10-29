@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { withRequestDb } from "@/lib/db/request-client";
-import { act, formString, friendlyError, uuidOr } from "@/lib/workspace/page";
+import { act, formString, friendlyError, uuidOr, withFlag } from "@/lib/workspace/page";
 import { WorkspaceInputError } from "@/lib/workspace/common";
 import { cancelTask, completeTask, createTask } from "@/lib/workspace/tasks";
 import { closeClarification, raiseClarification, replyToClarification } from "@/lib/workspace/clarifications";
@@ -11,6 +11,7 @@ import { cancelEvidenceRequest, fulfilEvidenceRequest, requestEvidence } from "@
 import { releaseFindings, returnAssessment, submitAssessment, validateAnswers } from "@/lib/workspace/review";
 import { approveDiscovery, returnDiscovery, saveDiscoverySection, submitDiscovery } from "@/lib/workspace/discovery";
 import { releaseReport } from "@/lib/workspace/reports";
+import { deleteConsultation, setConsultationStatus, submitConsultation } from "@/lib/workspace/consultation";
 import { logRightsRequest, setRightsStatus } from "@/lib/workspace/rights";
 import { markAllRead, markRead } from "@/lib/workspace/notifications";
 import { updateOrganisationProfile } from "@/lib/workspace/organisation-profile";
@@ -264,5 +265,54 @@ export async function reviewEvidenceQueueAction(fd: FormData): Promise<void> {
       notify: { audience: "client", title: status === "accepted" ? `Evidence accepted: ${title}` : `Evidence rejected: ${title}`, body: rationale ? rationale.slice(0, 300) : undefined, link: "/portal/evidence" },
     });
     return status === "accepted" ? "Evidence accepted." : "Evidence rejected. The client has been told why.";
+  });
+}
+
+// ---- consultation requests ("Connect with us") ------------------------------
+/** The client sends the form. On success the person lands on the thank-you view; on a problem they return to the form with a message. */
+export async function submitConsultationAction(fd: FormData): Promise<void> {
+  const formPath = back(fd, "/portal/dpo-mate/connect");
+  const user = await requireAuthenticatedUser();
+  let error: string | null = null;
+  let sent: { id: string; emailStatus: string } | null = null;
+  try {
+    sent = await withRequestDb(user.id, (db) =>
+      submitConsultation(db, user.id, {
+        engagementId: need(uuidOr(fd.get("engagementId")), "engagement"),
+        form: {
+          organisationName: fd.get("organisationName"),
+          sectorKey: fd.get("sectorKey"),
+          employeeBand: fd.get("employeeBand"),
+          website: fd.get("website"),
+          contactName: fd.get("contactName"),
+          contactDesignation: fd.get("contactDesignation"),
+          contactEmail: fd.get("contactEmail"),
+          contactMobile: fd.get("contactMobile"),
+          topics: fd.getAll("topics").map(String),
+          preferredTime: fd.get("preferredTime"),
+          note: fd.get("note"),
+          submitterIsContact: fd.get("submitterIsContact") === "yes" ? true : fd.get("submitterIsContact") === "no" ? false : null,
+          consent: fd.get("consent") === "yes",
+        },
+      }),
+    );
+  } catch (err) {
+    error = friendlyError(err);
+  }
+  if (error || !sent) redirect(withFlag(formPath, "error", error ?? "Something went wrong. Please try again."));
+  const base = formPath.split("?")[0]!;
+  const e = formPath.match(/[?&]e=([0-9a-f-]{36})/i)?.[1];
+  redirect(`${base}?${e ? `e=${e}&` : ""}sent=${sent.id}`);
+}
+export async function updateConsultationAction(fd: FormData): Promise<void> {
+  return act(back(fd, "/consultations"), async ({ db, user }) => {
+    await setConsultationStatus(db, user.id, { id: need(uuidOr(fd.get("id")), "request"), status: formString(fd, "status"), note: formString(fd, "note") });
+    return "Saved.";
+  });
+}
+export async function deleteConsultationAction(fd: FormData): Promise<void> {
+  return act(back(fd, "/consultations"), async ({ db, user }) => {
+    await deleteConsultation(db, user.id, need(uuidOr(fd.get("id")), "request"));
+    return "The request was deleted.";
   });
 }

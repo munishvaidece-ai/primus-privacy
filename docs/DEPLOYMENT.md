@@ -12,7 +12,7 @@ This document is everything needed to stand the platform up and keep it running.
 
 The web app and the worker are the **same code and the same image**; they differ only in the start command. The worker has no inbound traffic (optional health port only). Both need `DATABASE_URL`.
 
-There is **no email sending** in this release: invitations show a link, and rights-request replies / breach notices are *approved on the platform and then sent by your team through its normal channel*.
+There is **one email**, and it is optional: when a client books a consultation through "Connect with us", the request is emailed to a Primus inbox (see "Consultation request email" below). Everything else stays in the app: invitations show a link, and rights-request replies / breach notices are *approved on the platform and then sent by your team through its normal channel*.
 
 ## 2. Decisions to make before go-live
 
@@ -89,7 +89,7 @@ npm run ai:worker                      # worker (set WORKER_HEALTH_PORT for GET 
 5. As the client: fill and submit the Discovery questionnaire; answer assessment questions and **Submit for review** (answers lock). As Primus: **Validate all answered** or **Return for changes**.
 6. As Primus: **Release report to client** on the engagement page; as the client, download it from **Reports**.
 
-The platform sends **no email**. Notifications are in the app only (bell and Notifications page). Client invitations still need your own delivery of the invitation link (see §3).
+Notifications are in the app (bell and Notifications page). The only email the platform sends is the consultation request to your Primus inbox, and only when you set it up (below). Client invitations still need your own delivery of the invitation link (see §3).
 
 ## 8. Tested / not tested
 
@@ -108,3 +108,17 @@ The Primus Privacy microsite (overview, platform, workflows, AI layer, configura
 - Signed-in users who open `/` go to `/dashboard` (Primus team) or `/portal` (client users). Any protected page opened without a session goes to `/login`.
 - The demo portal and AI Operations Centre pages on the microsite are demonstrations with fictional data held in the browser only; they are labelled as such and do not touch the platform database.
 - To serve the microsite on a separate marketing domain, copy `public/site/` to that host and point its Sign in links at the platform's `/login` URL.
+
+
+## Consultation request email (optional)
+
+A client who clicks **Connect with us** (in **DPO Mate**) fills in a short form with a notice and a consent box. Every request is saved in the app and the Primus team sees it under **Consultation requests**, so nothing depends on email. If you also want it in an inbox, set these in `.env`:
+
+| Setting | What it is |
+|---|---|
+| `CONSULTATION_INBOX_EMAIL` | The Primus address that should receive each request. |
+| `MAIL_FROM` | The "from" address, for example `Primus Privacy <no-reply@yourdomain>`. |
+| `SMTP_URL` | Your mail server in one line, for example `smtps://user:password@smtp.yourdomain:465`. Or set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` and `SMTP_PASS` instead. |
+| `PRIVACY_CONTACT_EMAIL` | The address people write to about their data. It is printed in the notice. If empty, the inbox address is used; if both are empty the notice says "tell your Primus contact". |
+
+With none of these set the form still works; each request shows "Email not set up" on the Consultation requests page. The notice text and its version live in `lib/workspace/consultation-notice.ts`. **Have your counsel read that notice, especially the 12 month retention period, before you go live.** Each saved request keeps the notice version, the exact consent wording and the time the person agreed.

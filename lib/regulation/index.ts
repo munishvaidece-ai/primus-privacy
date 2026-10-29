@@ -15,12 +15,19 @@ import { AI } from "./sectors/ai";
 import { EDUCATION } from "./sectors/education";
 import { MSME } from "./sectors/msme";
 import { GOVERNMENT } from "./sectors/government";
+import { PHARMA } from "./sectors/pharma";
+import { PSU } from "./sectors/psu";
+import { ENERGY } from "./sectors/energy";
+import { MANUFACTURING } from "./sectors/manufacturing";
+import { REALESTATE } from "./sectors/realestate";
+import { LOGISTICS } from "./sectors/logistics";
+import { ITBPO } from "./sectors/itbpo";
 
 export * from "./types";
 export * from "./dpdp";
 export { incidentDuties, DPDP_INCIDENT_DUTY, type IncidentDuty } from "./incident";
 
-export const SECTORS: Sector[] = [BROKING, BANKING, INSURANCE, HEALTHCARE, TELECOM, ECOMMERCE, OTT, AVIATION, AI, EDUCATION, MSME, GOVERNMENT, ALL];
+export const SECTORS: Sector[] = [BROKING, BANKING, INSURANCE, HEALTHCARE, PHARMA, TELECOM, ECOMMERCE, OTT, AVIATION, LOGISTICS, ENERGY, MANUFACTURING, REALESTATE, ITBPO, AI, EDUCATION, MSME, GOVERNMENT, PSU, ALL];
 
 /** Sectors a user can pick (the cross-sector set applies to every selection). */
 export const SELECTABLE_SECTORS: Sector[] = SECTORS.filter((s) => s.key !== "all");

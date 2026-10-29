@@ -225,7 +225,7 @@ export function offlineLandscape(i: LandscapeInput): LandscapeOutput {
   const regRow = (re: RegExp): RegRow | undefined => regs.find((r) => r.status !== "Lapsed" && re.test(`${r.registration} ${r.regulator}`));
   if (regs.length) {
     const sebi = regRow(/sebi/i), rbi = regRow(/\brbi\b/i), irdai = regRow(/irdai/i);
-    add("organisation_profile", "sector", sebi || rbi || irdai ? "financial_services" : null, `${i.scope!.fileName}, ${cellRef("Registrations", (sebi ?? rbi ?? irdai)?._row ?? 0)}`, bag);
+    add("organisation_profile", "sector", sebi ? "broking" : rbi ? "banking" : irdai ? "insurance" : null, `${i.scope!.fileName}, ${cellRef("Registrations", (sebi ?? rbi ?? irdai)?._row ?? 0)}`, bag);
     add("sector", "sebi", !!sebi, `${i.scope!.fileName}, ${sebi ? cellRef("Registrations", sebi._row) : "Sheet 'Registrations' (no SEBI registration listed)"}`, bag);
     add("sector", "rbi", !!rbi, `${i.scope!.fileName}, ${rbi ? cellRef("Registrations", rbi._row) : "Sheet 'Registrations' (no RBI registration listed)"}`, bag);
     add("sector", "irdai", !!irdai, `${i.scope!.fileName}, ${irdai ? cellRef("Registrations", irdai._row) : "Sheet 'Registrations' (no IRDAI registration listed)"}`, bag);

@@ -48,6 +48,7 @@ function groupsFor(isClient: boolean, unread: number, demo: boolean): Group[] {
           { href: "/portal/processing", label: "Data & processing", icon: "layers" },
           { href: "/portal/journey", label: "Live journey", icon: "chart" },
           { href: "/portal/discovery", label: "Discovery", icon: "search" },
+          { href: "/portal/questions", label: "Question sets", icon: "list" },
           { href: "/portal/regulations", label: "What applies to you", icon: "scale" },
           { href: "/portal/assessment", label: "Assessment", icon: "list" },
           { href: "/portal/evidence", label: "Evidence centre", icon: "upload" },
@@ -62,6 +63,13 @@ function groupsFor(isClient: boolean, unread: number, demo: boolean): Group[] {
           { href: "/portal/risks", label: "Risks", icon: "chart" },
           { href: "/portal/reports", label: "Reports", icon: "file" },
           { href: "/portal/rights", label: "Rights requests", icon: "scale" },
+        ],
+      },
+      {
+        title: "Learn and talk to us",
+        items: [
+          { href: "/portal/resources", label: "Resources", icon: "book" },
+          { href: "/portal/dpo-mate", label: "DPO Mate", icon: "chat" },
         ],
       },
     ];
@@ -80,18 +88,21 @@ function groupsFor(isClient: boolean, unread: number, demo: boolean): Group[] {
       title: "Delivery",
       items: [
         { href: "/discovery", label: "Discovery", icon: "search" },
+        { href: "/question-bank", label: "Question bank", icon: "list" },
         { href: "/assessments", label: "Assessments", icon: "list" },
         { href: "/evidence-review", label: "Evidence review", icon: "upload" },
         { href: "/findings", label: "Findings", icon: "alert" },
         { href: "/risks", label: "Risks", icon: "chart" },
         { href: "/remediation", label: "Remediation", icon: "wrench" },
         { href: "/clarifications", label: "Clarifications", icon: "chat" },
+        { href: "/consultations", label: "Consultation requests", icon: "chat" },
       ],
     },
     {
       title: "Governance",
       items: [
         { href: "/audit", label: "Audit trail", icon: "audit" },
+        { href: "/resources", label: "Resources", icon: "book" },
         { href: "/regulations", label: "Regulations", icon: "scale" },
         { href: "/methodology", label: "Methodology", icon: "book" },
         { href: "/connectors", label: "Connectors", icon: "plug" },

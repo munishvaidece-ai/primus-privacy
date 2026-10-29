@@ -217,7 +217,7 @@ async function main() {
       const m = ids.meridian!;
       const asha = m.people["Asha Verma"]!, rohan = m.people["Rohan Gupta"]!, kabir = m.people["Kabir Shah"]!, neha = m.people["Neha Joshi"]!;
       const meridianDiscovery: [string, Record<string, unknown>][] = [
-        ["organisation_profile", { summary: "Meridian Finserve is a mid-sized NBFC offering personal loans, MSME working-capital loans and a co-lending programme with two partner banks. About 1.4 million active customers across 11 states, served through a mobile app and 180 branches.", sector: "financial_services", employees: "1000_5000", website: "meridianfinserve.example" }],
+        ["organisation_profile", { summary: "Meridian Finserve is a mid-sized NBFC offering personal loans, MSME working-capital loans and a co-lending programme with two partner banks. About 1.4 million active customers across 11 states, served through a mobile app and 180 branches.", sector: "banking", employees: "1000_5000", website: "meridianfinserve.example" }],
         ["business_units", { units: "Retail lending\nMSME lending\nCollections and recovery\nCo-lending partnerships\nTechnology and data\nHuman resources", owners: "Each unit head is the privacy owner for their unit; the Privacy Officer coordinates." }],
         ["processing_activities", { activities: "Loan origination and KYC\nCredit scoring and bureau checks\nCollections calling and field visits\nCustomer support and grievance handling\nMarketing and cross-sell campaigns\nEmployee onboarding and payroll", purposes: "Underwriting, regulatory KYC, servicing, collections, fraud prevention, marketing with consent.", automated_decisions: true }],
         ["data_categories", { data_types: ["identity", "contact", "financial", "location", "online", "employee"], principals: ["customers", "employees", "vendor_contacts", "visitors"], children_data: false, large_volume: true }],
@@ -359,7 +359,7 @@ async function main() {
       const b = ids.bazaarly!;
       const sameer = b.people["Sameer Khanna"]!, ishita = b.people["Ishita Bose"]!;
       await discovery("bazaarly", "in_progress", sameer, [
-        ["organisation_profile", { summary: "Bazaarly is a multi-seller online marketplace for home and lifestyle products, with about 3.2 million registered shoppers and 18,000 active sellers.", sector: "retail_ecommerce", employees: "250_1000", website: "bazaarly.example" }],
+        ["organisation_profile", { summary: "Bazaarly is a multi-seller online marketplace for home and lifestyle products, with about 3.2 million registered shoppers and 18,000 active sellers.", sector: "ecommerce", employees: "250_1000", website: "bazaarly.example" }],
         ["business_units", { units: "Marketplace operations\nSeller onboarding\nLogistics\nCustomer support\nMarketing and growth\nTechnology", owners: "To be confirmed" }],
         ["processing_activities", { activities: "Shopper registration and orders\nSeller KYC and payouts\nDelivery tracking\nPersonalised recommendations\nPush and email marketing", purposes: "Order fulfilment, payments, personalisation and marketing.", automated_decisions: true }],
       ]);

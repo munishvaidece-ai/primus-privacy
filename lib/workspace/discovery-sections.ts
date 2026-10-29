@@ -2,6 +2,8 @@
 // no database access, so the screens, the server code and the tests share
 // one definition.
 
+import { SELECTABLE_SECTORS } from "@/lib/regulation";
+
 export type FieldType = "text" | "yesno" | "choice" | "multi" | "line";
 
 export interface Field {
@@ -38,7 +40,7 @@ export const SECTIONS: Section[] = [
     intro: "Tell us about your organisation, its services and its customers.",
     fields: [
       { key: "summary", label: "Summarise the organisation, its services and customer base", type: "text", required: true },
-      { key: "sector", label: "Main sector", type: "choice", required: true, options: opt(["financial_services", "Financial services"], ["healthcare", "Healthcare"], ["retail_ecommerce", "Retail and e-commerce"], ["technology", "Technology"], ["telecom", "Telecommunications"], ["education", "Education"], ["manufacturing", "Manufacturing"], ["media_ott", "Media and OTT"], ["aviation_travel", "Aviation and travel"], ["government", "Government"], ["other", "Other"]) },
+      { key: "sector", label: "Your main sector", type: "choice", required: true, help: "The questions you are asked later, and the rules we show you, follow this choice.", options: [...SELECTABLE_SECTORS.map((x) => ({ value: x.key, label: x.label })), { value: "other", label: "Other" }] },
       { key: "employees", label: "Approximate number of employees", type: "choice", required: true, options: opt(["lt_50", "Under 50"], ["50_250", "50 to 250"], ["250_1000", "250 to 1,000"], ["1000_5000", "1,000 to 5,000"], ["gt_5000", "More than 5,000"]) },
       { key: "website", label: "Website", type: "line" },
     ],
@@ -188,6 +190,15 @@ export const SECTIONS: Section[] = [
   },
 ];
 
+/** Values the sector question used before it followed the regulation catalogue. */
+export const LEGACY_SECTOR_VALUES: Record<string, string> = {
+  financial_services: "banking",
+  retail_ecommerce: "ecommerce",
+  technology: "itbpo",
+  media_ott: "ott",
+  aviation_travel: "aviation",
+};
+
 export const SECTION_KEYS = SECTIONS.map((s) => s.key);
 export const sectionByKey = (key: string): Section | undefined => SECTIONS.find((s) => s.key === key);
 
@@ -197,7 +208,8 @@ export type Answers = Record<string, string | string[] | boolean | null>;
 export function sanitizeAnswers(section: Section, raw: Record<string, unknown>): Answers {
   const out: Answers = {};
   for (const f of section.fields) {
-    const v = raw[f.key];
+    let v = raw[f.key];
+    if (section.key === "organisation_profile" && f.key === "sector" && typeof v === "string" && LEGACY_SECTOR_VALUES[v]) v = LEGACY_SECTOR_VALUES[v];
     if (f.type === "yesno") {
       out[f.key] = v === true || v === "yes" ? true : v === false || v === "no" ? false : null;
     } else if (f.type === "choice") {

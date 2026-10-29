@@ -50,7 +50,7 @@ PHASE BY PHASE: WHAT TO UPLOAD AND WHAT YOU WILL SEE
   Phase 2  Upload 02_Data_Inventory.xlsx and the vendor list. The AI loads systems, data stores, vendors, purposes,
            data elements and 12 processing activities, and pre-fills the discovery questionnaire with the source cell
            beside every answer. A person reviews and approves the questionnaire.
-  Phase 3  Nothing to upload. A person creates the scope; the AI decides, control by control, which of the 91 controls
+  Phase 3  Nothing to upload. A person creates the scope; the AI decides, control by control, which of the 132 controls
            apply (25 DPDP controls, 66 sector controls) and says why. Controls for other sectors are marked not applicable.
   Phase 4  Upload 04_Control_Test_Log.xlsx (the Primus consultant's tests). The AI rates every control it has a test for.
   Phase 5  Upload 05_Evidence_Index.xlsx and the evidence files. The AI reads every file, decides whether it supports
@@ -92,7 +92,7 @@ async function main() {
   put(`${P[2]}/Blank template/${TEMPLATES["DATA-INVENTORY"].fileName.replace(".xlsx", "_BLANK.xlsx")}`, blank("DATA-INVENTORY"));
 
   // phase 3 and 6: nothing to upload
-  put(`${P[3]}/NOTHING_TO_UPLOAD.txt`, "No file is uploaded in this phase. A person creates the engagement scope on the platform and the AI decides, for each of the 91 controls, whether it applies. It uses the sectors and units from Phase 1 and the processing activities from Phase 2.\n");
+  put(`${P[3]}/NOTHING_TO_UPLOAD.txt`, "No file is uploaded in this phase. A person creates the engagement scope on the platform and the AI decides, for each of the 132 controls, whether it applies. It uses the sectors and units from Phase 1 and the processing activities from Phase 2.\n");
   put(`${P[6]}/NOTHING_TO_UPLOAD.txt`, "No file is uploaded in this phase. The AI drafts findings from the weak ratings. Critical findings wait for an engagement manager to release them to the client.\n");
 
   // phase 4

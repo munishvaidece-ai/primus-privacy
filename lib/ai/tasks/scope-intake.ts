@@ -65,7 +65,14 @@ const RULES: Rule[] = [
   { key: "ai", registered: /ai (registration|governance)/i, mentioned: /artificial intelligence|machine learning|model training|\bllm\b|ai platform|ai product/i },
   { key: "education", registered: /\bugc\b|\baicte\b|\bcbse\b|school board|university grants/i, mentioned: /school|college|university|students|edtech|learning platform/i },
   { key: "msme", registered: /\budyam\b|\bmsme\b registration/i, mentioned: /\bmsme\b|micro enterprise|small enterprise|startup recognition|dpiit/i },
-  { key: "government", registered: /government of india|state government|ministry of|\bpsu\b|public sector undertaking|statutory body/i, mentioned: /government department|public authority|municipal|statutory/i },
+  { key: "pharma", registered: /\bcdsco\b|\bdcgi\b|drug (manufacturing )?licen|clinical trial (approval|registration)|\bctri\b|\bpvpi\b|wholesale drug/i, mentioned: /pharma|drug maker|clinical trial|\bcro\b|pharmacovigilance|formulation|api manufactur|life sciences/i },
+  { key: "psu", registered: /\bcpse\b|central public sector|state public sector|\bpsu\b|navratna|maharatna|miniratna|\bdpe\b/i, mentioned: /public sector (undertaking|enterprise)|government company|owned by the government|\bpsu\b|\bcpse\b/i },
+  { key: "energy", registered: /\bcea\b|electricity regulatory|\bpngrb\b|generation licen|distribution licen|city gas|transmission licen|\bmnre\b|\bcerc\b|\bserc\b/i, mentioned: /power (plant|generation|distribution)|discom|electricity|\bsolar\b|wind farm|oil and gas|city gas|\bcng\b|\bpng\b|pipeline|refiner/i },
+  { key: "manufacturing", registered: /factory licen|factories act|\bbis\b licen|\bboiler\b|manufacturing unit/i, mentioned: /manufactur|factory|plant operations|assembly line|automotive|oem|contract labour/i },
+  { key: "realestate", registered: /\brera\b|real estate regulatory/i, mentioned: /real estate|developer|housing project|realty|construction company|property management|co-living/i },
+  { key: "logistics", registered: /aggregator licen|transport licen|permit.*vehicle|\bcourier licen|\be-?way\b/i, mentioned: /logistics|courier|freight|warehous|fleet|delivery partner|ride[- ]hailing|last[- ]mile|supply chain/i },
+  { key: "itbpo", registered: /\bstpi\b|\bsez\b unit|software technology park|export oriented unit/i, mentioned: /it services|software services|\bbpo\b|\bkpo\b|global capability cent|\bgcc\b|offshore delivery|outsourc(ing|ed) services|managed services/i },
+  { key: "government", registered: /government of india|state government|ministry of|statutory body/i, mentioned: /government department|public authority|municipal|statutory/i },
 ];
 
 const pct = (n: number) => Math.round(n * 100);

@@ -1,22 +1,22 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadPage, uuidOr } from "@/lib/workspace/page";
-import { getDiscovery } from "@/lib/workspace/discovery";
+import { getDiscovery, getSectorQuestions } from "@/lib/workspace/discovery";
 import { loadEngagement } from "@/lib/workspace/common";
 import { hasEngagementPermission } from "@/lib/authorization/service";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CARD, Flash, PageHeader, fmtDateTime } from "@/components/ui/kit";
-import { DiscoveryAnswers, ObligationsPreview } from "@/components/workspace/discovery-readonly";
+import { DiscoveryAnswers, ObligationsPreview, SectorAnswers } from "@/components/workspace/discovery-readonly";
 import { approveDiscoveryAction, returnDiscoveryAction } from "../../workspace-actions";
 
 export default async function DiscoveryReviewPage({ params, searchParams }: { params: { engagementId: string }; searchParams: { saved?: string; error?: string } }) {
   if (!uuidOr(params.engagementId)) notFound();
   const { data } = await loadPage(async ({ db, user }) => {
     const eng = await loadEngagement(db, user.id, params.engagementId);
-    return { eng, state: await getDiscovery(db, user.id, eng.id), canApprove: await hasEngagementPermission(db, user.id, eng.id, "discovery.approve") };
+    return { eng, state: await getDiscovery(db, user.id, eng.id), sq: await getSectorQuestions(db, user.id, eng.id), canApprove: await hasEngagementPermission(db, user.id, eng.id, "discovery.approve") };
   });
-  const { eng, state, canApprove } = data;
+  const { eng, state, sq, canApprove } = data;
   const back = `/discovery/${eng.id}`;
   return (
     <div>
@@ -38,6 +38,9 @@ export default async function DiscoveryReviewPage({ params, searchParams }: { pa
       ) : null}
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Answers</h2>
       <DiscoveryAnswers state={state} />
+      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Sector question sets</h2>
+      <p className="mb-3 max-w-3xl text-sm text-slate-600">The common questions and those for the client&rsquo;s sector. See the whole bank in the <Link href="/question-bank" className="underline">Question bank</Link>.</p>
+      <SectorAnswers state={sq} />
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Indicative obligations</h2>
       <p className="mb-3 max-w-3xl text-sm text-slate-600">Worked out from the answers above, the data map and the sector.</p>
       <ObligationsPreview href={`/organisations/${eng.organisationId}/engagements/${eng.id}/regulations`} />

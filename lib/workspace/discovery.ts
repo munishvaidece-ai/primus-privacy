@@ -5,8 +5,13 @@ import { discoverySections, engagementDiscovery } from "@/db/schema";
 import { NotFoundOrForbiddenError, hasEngagementPermission, hasOrganisationPermission } from "@/lib/authorization/service";
 import { WorkspaceInputError, loadEngagement } from "./common";
 import { actorName, emit } from "./emit";
+import { getEngagementSectors } from "@/lib/domain/sectors";
+import { SELECTABLE_SECTORS, type SectorKey } from "@/lib/regulation";
+import { bankKeyFromSection, bankSection, type BankSetKey } from "./question-bank";
 import {
   SECTIONS,
+  isFieldFilled,
+  type Section,
   missingFields,
   previewObligations,
   sanitizeAnswers,
@@ -55,6 +60,49 @@ export async function getDiscovery(db: RequestDb, userId: string, engagementId: 
   };
 }
 
+/** A saved question set (key `sq_<sector>`) as a section, or undefined for anything else. */
+function sectionOfBank(sectionKey: string): Section | undefined {
+  const k = bankKeyFromSection(sectionKey);
+  return k ? bankSection(k) : undefined;
+}
+
+export interface QuestionSetState {
+  key: BankSetKey;
+  section: Section;
+  answers: Answers;
+  complete: boolean;
+  answered: number;
+}
+
+export interface SectorQuestionsState {
+  engagementId: string;
+  /** Sector the client named in step 1, if it is one we have questions for. */
+  declared: SectorKey | null;
+  /** Sectors Primus has set for this engagement. */
+  setByPrimus: SectorKey[];
+  /** Everything the client is asked: the common set first, then one set per sector. */
+  sets: QuestionSetState[];
+}
+
+/** The question sets this client sees: the common set plus those for their own sector(s). */
+export async function getSectorQuestions(db: RequestDb, userId: string, engagementId: string): Promise<SectorQuestionsState> {
+  const eng = await loadEngagement(db, userId, engagementId);
+  const rows = await db.select().from(discoverySections).where(eq(discoverySections.engagementId, engagementId));
+  const profile = rows.find((r) => r.sectionKey === "organisation_profile");
+  const declaredRaw = sanitizeAnswers(SECTIONS[0]!, (profile?.answers as Record<string, unknown>) ?? {}).sector;
+  const valid = new Set<string>(SELECTABLE_SECTORS.map((x) => x.key));
+  const declared = typeof declaredRaw === "string" && valid.has(declaredRaw) ? (declaredRaw as SectorKey) : null;
+  const setByPrimus = await getEngagementSectors(db, userId, { engagementId, organisationId: eng.organisationId });
+  const keys: BankSetKey[] = ["common", ...Array.from(new Set<SectorKey>([...setByPrimus, ...(declared ? [declared] : [])]))];
+  const sets = keys.map((key): QuestionSetState => {
+    const section = bankSection(key);
+    const row = rows.find((r) => r.sectionKey === section.key);
+    const answers = sanitizeAnswers(section, (row?.answers as Record<string, unknown>) ?? {});
+    return { key, section, answers, complete: Boolean(row?.completedAt), answered: section.fields.filter((f) => isFieldFilled(f, answers)).length };
+  });
+  return { engagementId, declared, setByPrimus, sets };
+}
+
 async function ensureHead(db: RequestDb, eng: { id: string; tenantId: string; organisationId: string }) {
   await db.insert(engagementDiscovery).values({ tenantId: eng.tenantId, organisationId: eng.organisationId, engagementId: eng.id }).onConflictDoNothing();
   const [head] = await db.select().from(engagementDiscovery).where(eq(engagementDiscovery.engagementId, eng.id)).limit(1);
@@ -68,10 +116,11 @@ export async function saveDiscoverySection(
   input: { engagementId: string; sectionKey: string; answers: Record<string, unknown>; complete: boolean },
 ): Promise<{ complete: boolean; missing: string[] }> {
   const eng = await loadEngagement(db, userId, input.engagementId);
-  const section = sectionByKey(input.sectionKey);
+  const section = sectionByKey(input.sectionKey) ?? sectionOfBank(input.sectionKey);
   if (!section) throw new WorkspaceInputError("Unknown step.");
   const head = await ensureHead(db, eng);
-  if (head.status === "approved") throw new WorkspaceInputError("Scope was approved by Primus. The questionnaire is now read-only.");
+  const isQuestionSet = bankKeyFromSection(section.key) !== null;
+  if (head.status === "approved" && !isQuestionSet) throw new WorkspaceInputError("Scope was approved by Primus. The questionnaire is now read-only.");
   const clean: Answers = sanitizeAnswers(section, input.answers);
   const missing = input.complete ? missingFields(section, clean).map((f) => f.label) : [];
   const isComplete = input.complete && sectionComplete(section, clean);

@@ -2,36 +2,15 @@ import Link from "next/link";
 import { loadPortal } from "@/lib/workspace/page";
 import { getDiscovery } from "@/lib/workspace/discovery";
 import { hasPermission } from "@/lib/workspace/common";
-import { SECTIONS, missingFields, sectionComplete, type Field } from "@/lib/workspace/discovery-sections";
+import { SECTIONS, missingFields, sectionComplete } from "@/lib/workspace/discovery-sections";
 import { PortalHeader } from "@/components/portal/header";
 import { AutosaveForm } from "@/components/portal/discovery-form";
+import { FieldInput } from "@/components/portal/field-input";
 import { DiscoveryAnswers, ObligationsPreview } from "@/components/workspace/discovery-readonly";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CARD, Flash, INPUT, LABEL, Progress } from "@/components/ui/kit";
+import { CARD, Flash, Progress } from "@/components/ui/kit";
 import { saveDiscoveryAction, submitDiscoveryAction } from "../../workspace-actions";
-
-function FieldInput({ f, value, disabled }: { f: Field; value: unknown; disabled: boolean }) {
-  const name = `a_${f.key}`;
-  const legend = <>{f.label}{f.required ? <span className="text-red-700"> *</span> : null}</>;
-  if (f.type === "text") return <label className={LABEL}>{legend}<textarea name={name} rows={4} maxLength={4000} disabled={disabled} defaultValue={String(value ?? "")} className={INPUT} />{f.help ? <span className="mt-1 block font-normal text-slate-500">{f.help}</span> : null}</label>;
-  if (f.type === "line") return <label className={LABEL}>{legend}<input name={name} maxLength={300} disabled={disabled} defaultValue={String(value ?? "")} className={INPUT} /></label>;
-  if (f.type === "choice") return <label className={LABEL}>{legend}<select name={name} disabled={disabled} defaultValue={String(value ?? "")} className={INPUT}><option value="">Choose…</option>{f.options!.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>;
-  if (f.type === "yesno") {
-    const cur = value === true ? "yes" : value === false ? "no" : "";
-    return (
-      <fieldset><legend className={LABEL}>{legend}</legend>
-        <div className="mt-1 flex gap-4 text-sm">{[["yes", "Yes"], ["no", "No"]].map(([v, l]) => <label key={v} className="flex items-center gap-1.5"><input type="radio" name={name} value={v} disabled={disabled} defaultChecked={cur === v} /> {l}</label>)}</div>
-      </fieldset>
-    );
-  }
-  const sel = Array.isArray(value) ? (value as string[]) : [];
-  return (
-    <fieldset><legend className={LABEL}>{legend}</legend>
-      <div className="mt-1 grid gap-1 text-sm md:grid-cols-2">{f.options!.map((o) => <label key={o.value} className="flex items-center gap-1.5"><input type="checkbox" name={name} value={o.value} disabled={disabled} defaultChecked={sel.includes(o.value)} /> {o.label}</label>)}</div>
-    </fieldset>
-  );
-}
 
 export default async function PortalDiscovery({ searchParams }: { searchParams: { e?: string; step?: string; saved?: string; error?: string } }) {
   const { portal, data } = await loadPortal(searchParams, async ({ db, user, current }) => ({

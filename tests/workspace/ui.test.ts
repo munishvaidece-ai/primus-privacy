@@ -184,7 +184,7 @@ describe("the Primus workspace and the client portal, screen by screen", () => {
     state.userId = f.clientAdminId;
     const edit = await html(PortalDiscovery as never, sp());
     expect(edit).toContain("Save and mark complete");
-    const done = await submit(saveDiscoveryAction, form({ engagementId: f.engagementId, sectionKey: "organisation_profile", intent: "complete", a_summary: "A lender serving retail customers", a_sector: "financial_services", a_employees: "250_1000", back: "/portal/discovery?step=1" }));
+    const done = await submit(saveDiscoveryAction, form({ engagementId: f.engagementId, sectionKey: "organisation_profile", intent: "complete", a_summary: "A lender serving retail customers", a_sector: "banking", a_employees: "250_1000", back: "/portal/discovery?step=1" }));
     expect(done).toContain("saved=");
     // Not everything is complete, so submitting is refused with a plain message.
     expect(await submit(submitDiscoveryAction, form({ engagementId: f.engagementId, back: "/portal/discovery" }))).toContain("error=");

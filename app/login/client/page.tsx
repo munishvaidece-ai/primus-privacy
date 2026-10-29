@@ -20,7 +20,7 @@ export default async function ClientLogin({ searchParams }: { searchParams: { re
       <div className="rise mx-auto max-w-2xl text-center">
         <p className="text-xs font-bold uppercase tracking-[0.14em] text-copper">Account type B</p>
         <h1 className="mt-2 font-display text-3xl font-bold text-slate-900 sm:text-4xl">Client organisation portal</h1>
-        <p className="mt-3 text-sm leading-relaxed text-slate-600">Choose an organisation, then a person in it. Each person sees only their own organisation, and only what Primus has released.</p>
+        <p className="mt-3 text-sm leading-relaxed text-slate-600">Choose your organisation, then your name. You see only your own organisation, and only what Primus has released to you.</p>
       </div>
       {clients.length === 0 ? <p className="mt-8 text-center text-sm text-slate-700">No client users yet. Run <code>npm run local:setup</code>.</p> : (
         <div className="mt-10 grid gap-6 lg:grid-cols-3">
@@ -35,7 +35,7 @@ export default async function ClientLogin({ searchParams }: { searchParams: { re
                 {rt ? <input type="hidden" name="returnTo" value={rt} /> : null}
                 <button type="submit" className="w-full rounded-xl bg-brand px-4 py-3 font-display text-sm font-semibold text-white transition hover:-translate-y-px hover:bg-brand-dark">Enter as {people[0]!.displayName} →</button>
               </form>
-              <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">People in this organisation</p>
+              <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Sign in as</p>
               <ul className="mt-2 grid gap-2">
                 {people.map((p) => (
                   <li key={p.id}>

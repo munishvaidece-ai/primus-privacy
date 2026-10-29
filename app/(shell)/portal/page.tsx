@@ -62,6 +62,18 @@ export default async function PortalOverview({ searchParams }: { searchParams: {
         </Panel>
       </div>
 
+      <Panel title="Learn, answer and ask">
+        <ul className="grid gap-3 sm:grid-cols-3">
+          {[
+            { href: `/portal/questions${q}`, t: "Your question sets", d: "Questions written for your sector. You answer them in your own time." },
+            { href: `/portal/resources${q}`, t: "Resources", d: "Read the DPDP Act, the Rules and the laws for your sector." },
+            { href: `/portal/dpo-mate${q}`, t: "DPO Mate", d: "Take your preliminary report, or book 30 minutes with our experts." },
+          ].map((x) => (
+            <li key={x.href}><Link href={x.href} className="block h-full rounded-xl border border-slate-200 bg-white p-4 hover:border-copper"><p className="font-medium text-slate-900">{x.t} →</p><p className="mt-1 text-sm text-slate-600">{x.d}</p></Link></li>
+          ))}
+        </ul>
+      </Panel>
+
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Panel title="Milestones">
           {data.milestones.length === 0 ? <p className="text-sm text-slate-500">No upcoming milestones.</p> : (

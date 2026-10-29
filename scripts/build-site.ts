@@ -175,7 +175,7 @@ function dpdpPage(): string {
 }
 
 // ------------------------------------------------------------------ sectors
-const GROUPS: Record<string, string> = { broking: "finance", banking: "finance", insurance: "finance", healthcare: "health", telecom: "digital", ecommerce: "digital", ott: "digital", ai: "digital", aviation: "travel", education: "public", government: "public", msme: "small" };
+const GROUPS: Record<string, string> = { broking: "finance", banking: "finance", insurance: "finance", healthcare: "health", pharma: "health", telecom: "digital", ecommerce: "digital", ott: "digital", ai: "digital", aviation: "travel", education: "public", government: "public", psu: "public", msme: "small", energy: "industry", manufacturing: "industry", logistics: "industry", realestate: "industry", itbpo: "digital" };
 function sectorsPage(): string {
   const cards = sectors.map((s) => `
 <article class="sector reveal" data-group="${GROUPS[s.key] ?? "other"}" data-text="${esc((s.label + " " + s.blurb + " " + s.regulators.join(" ") + " " + s.instruments.map((i) => i.name).join(" ")).toLowerCase())}">
@@ -188,7 +188,7 @@ function sectorsPage(): string {
     <div><h4>Documents an auditor would expect</h4><ul>${s.typicalEvidence.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>
   </div>
 </article>`).join("");
-  const chips: Array<[string, string]> = [["all", "All sectors"], ["finance", "Financial services"], ["health", "Health"], ["digital", "Digital and media"], ["travel", "Travel"], ["public", "Education and government"], ["small", "Small business"]];
+  const chips: Array<[string, string]> = [["all", "All sectors"], ["finance", "Financial services"], ["health", "Health and pharma"], ["digital", "Digital and media"], ["travel", "Travel"], ["industry", "Industry, energy and property"], ["public", "Education and government"], ["small", "Small business"]];
   const body = `
 <section class="hero slim">${ringsArt()}<div class="wrap"><span class="eyebrow">Sector map</span><h1>DPDP is the floor. Your sector adds the rest.</h1><p class="lead">${sectors.length} sectors, ${regulators.length} regulators and ${instruments.length} instruments mapped against the DPDP Act, with the documents an auditor would expect to see.</p></div></section>
 <section><div class="wrap">
@@ -204,7 +204,7 @@ function f(){var t=q.value.trim().toLowerCase(),n=0;cards.forEach(function(c){va
 q.addEventListener("input",f);chips.forEach(function(b){b.addEventListener("click",function(){g=b.getAttribute("data-g");chips.forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});f()})});
 cards.forEach(function(c){var b=c.querySelector("button.open");b.addEventListener("click",function(){var o=c.classList.toggle("expanded");b.setAttribute("aria-expanded",o?"true":"false");b.lastElementChild.textContent=o?"−":"+"})});
 var h=location.hash.slice(1);if(h){var c=document.querySelector('[data-group="'+h+'"]');}})();</script>`;
-  return page("sectors.html", "Sector map | Primus Privacy", "The regulators, laws and DPDP interplay for twelve sectors, with the documents an auditor would expect.", body, js);
+  return page("sectors.html", "Sector map | Primus Privacy", "The regulators, laws and DPDP interplay for nineteen sectors, with the documents an auditor would expect.", body, js);
 }
 
 // ------------------------------------------------------------------ check

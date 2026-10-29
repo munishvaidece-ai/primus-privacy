@@ -26,7 +26,14 @@ describe("regulation catalogue", () => {
 
   it("covers every sector the product promises, including MSME and Government", () => {
     const keys = SELECTABLE_SECTORS.map((s) => s.key);
-    for (const k of ["broking", "banking", "insurance", "healthcare", "telecom", "ecommerce", "ott", "aviation", "ai", "education", "msme", "government"]) expect(keys).toContain(k);
+    for (const k of ["broking", "banking", "insurance", "healthcare", "telecom", "ecommerce", "ott", "aviation", "ai", "education", "msme", "government", "pharma", "psu", "energy", "manufacturing", "realestate", "logistics", "itbpo"]) expect(keys).toContain(k);
+  });
+
+  it("no sector is listed twice, by key, label or prefix", () => {
+    const keys = SELECTABLE_SECTORS.map((s) => s.key);
+    const labels = SELECTABLE_SECTORS.map((s) => s.label.toLowerCase());
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(new Set(labels).size).toBe(labels.length);
   });
 
   it("control codes are unique and do not clash with the DPDP controls", () => {
@@ -83,7 +90,7 @@ describe("regulation catalogue", () => {
   });
 
   it("the database check on sector keys matches the code", () => {
-    const sql = readFileSync("drizzle/migrations/0050_engagement_sectors.sql", "utf8");
+    const sql = readFileSync("drizzle/migrations/0052_more_sectors.sql", "utf8");
     const listed = (/sector_key IN \(([^)]*)\)/.exec(sql)?.[1] ?? "").split(",").map((x) => x.trim().replace(/'/g, "")).sort();
     expect(listed).toEqual(SELECTABLE_SECTORS.map((s) => s.key).sort());
   });
